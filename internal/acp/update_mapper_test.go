@@ -203,6 +203,91 @@ func TestMapUpdate_UsageUpdate(t *testing.T) {
 	}
 }
 
+func TestMapUpdate_PlanUpdate(t *testing.T) {
+	update := acp.SessionUpdate{
+		PlanUpdate: &acp.SessionPlanUpdate{
+			Plan:          acp.PlanUpdateContent{},
+			SessionUpdate: "plan_update",
+		},
+	}
+
+	msg := MapUpdate("s1", 1, 1, update)
+
+	if msg.Role != models.MessageRoleAssistant {
+		t.Errorf("Role = %q, 期望 assistant", msg.Role)
+	}
+	if msg.Kind != models.MessageKindPlanUpdate {
+		t.Errorf("Kind = %q, 期望 plan_update", msg.Kind)
+	}
+	if msg.Content != "" {
+		t.Errorf("PlanUpdate 的 Content 应为空，实际 %q", msg.Content)
+	}
+}
+
+func TestMapUpdate_PlanRemoved(t *testing.T) {
+	update := acp.SessionUpdate{
+		PlanRemoved: &acp.SessionUpdatePlanRemoved{
+			Id:            acp.PlanId("plan-1"),
+			SessionUpdate: "plan_removed",
+		},
+	}
+
+	msg := MapUpdate("s1", 1, 1, update)
+
+	if msg.Role != models.MessageRoleAssistant {
+		t.Errorf("Role = %q, 期望 assistant", msg.Role)
+	}
+	if msg.Kind != models.MessageKindPlanRemoved {
+		t.Errorf("Kind = %q, 期望 plan_removed", msg.Kind)
+	}
+	if msg.Content != "" {
+		t.Errorf("PlanRemoved 的 Content 应为空，实际 %q", msg.Content)
+	}
+}
+
+func TestMapUpdate_SessionInfoUpdate(t *testing.T) {
+	title := "新会话标题"
+	update := acp.SessionUpdate{
+		SessionInfoUpdate: &acp.SessionSessionInfoUpdate{
+			Title:         &title,
+			SessionUpdate: "session_info_update",
+		},
+	}
+
+	msg := MapUpdate("s1", 1, 1, update)
+
+	if msg.Role != models.MessageRoleAssistant {
+		t.Errorf("Role = %q, 期望 assistant", msg.Role)
+	}
+	if msg.Kind != models.MessageKindSessionInfoUpdate {
+		t.Errorf("Kind = %q, 期望 session_info_update", msg.Kind)
+	}
+	if msg.Content != "" {
+		t.Errorf("SessionInfoUpdate 的 Content 应为空，实际 %q", msg.Content)
+	}
+}
+
+func TestMapUpdate_CurrentModeUpdate(t *testing.T) {
+	update := acp.SessionUpdate{
+		CurrentModeUpdate: &acp.SessionCurrentModeUpdate{
+			CurrentModeId: acp.SessionModeId("mode-1"),
+			SessionUpdate: "current_mode_update",
+		},
+	}
+
+	msg := MapUpdate("s1", 1, 1, update)
+
+	if msg.Role != models.MessageRoleAssistant {
+		t.Errorf("Role = %q, 期望 assistant", msg.Role)
+	}
+	if msg.Kind != models.MessageKindCurrentModeUpdate {
+		t.Errorf("Kind = %q, 期望 current_mode_update", msg.Kind)
+	}
+	if msg.Content != "" {
+		t.Errorf("CurrentModeUpdate 的 Content 应为空，实际 %q", msg.Content)
+	}
+}
+
 func TestMapUpdate_Unknown(t *testing.T) {
 	update := acp.SessionUpdate{}
 
