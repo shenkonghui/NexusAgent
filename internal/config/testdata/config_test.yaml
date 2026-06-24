@@ -9,3 +9,15 @@ jwt:
   refresh_ttl: 168h
 password:
   bcrypt_cost: 10
+agents:
+  workspace:
+    default_mode: temporary
+    temp_dir_prefix: test-
+  claude_code:
+    enabled: true
+    command: npx
+    args:
+      - "-y"
+      - "@zed-industries/claude-code-acp@latest"
+    api_key_env: ANTHROPIC_API_KEY
+    timeout: 60s

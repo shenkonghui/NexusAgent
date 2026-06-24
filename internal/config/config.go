@@ -14,6 +14,7 @@ type Config struct {
 	Database DatabaseConfig `yaml:"database"`
 	JWT      JWTConfig      `yaml:"jwt"`
 	Password PasswordConfig `yaml:"password"`
+	Agents   AgentsConfig   `yaml:"agents"`
 }
 
 type ServerConfig struct {
@@ -33,6 +34,24 @@ type JWTConfig struct {
 
 type PasswordConfig struct {
 	BcryptCost int `yaml:"bcrypt_cost"`
+}
+
+type AgentsConfig struct {
+	Workspace  WorkspaceConfig  `yaml:"workspace"`
+	ClaudeCode ClaudeCodeConfig `yaml:"claude_code"`
+}
+
+type WorkspaceConfig struct {
+	DefaultMode   string `yaml:"default_mode"`
+	TempDirPrefix string `yaml:"temp_dir_prefix"`
+}
+
+type ClaudeCodeConfig struct {
+	Enabled   bool          `yaml:"enabled"`
+	Command   string        `yaml:"command"`
+	Args      []string      `yaml:"args"`
+	APIKeyEnv string        `yaml:"api_key_env"`
+	Timeout   time.Duration `yaml:"timeout"`
 }
 
 func Load(path string) (*Config, error) {
@@ -60,6 +79,12 @@ func (c *Config) applyEnv() {
 	if v := os.Getenv("DATABASE_PATH"); v != "" {
 		c.Database.Path = v
 	}
+	if v := os.Getenv("AGENTS_WORKSPACE_DEFAULT_MODE"); v != "" {
+		c.Agents.Workspace.DefaultMode = v
+	}
+	if v := os.Getenv("CLAUDE_CODE_COMMAND"); v != "" {
+		c.Agents.ClaudeCode.Command = v
+	}
 }
 
 func (c *Config) Validate() error {
@@ -74,6 +99,27 @@ func (c *Config) Validate() error {
 	}
 	if len(c.JWT.Secret) < 32 {
 		return fmt.Errorf("JWT_SECRET 长度必须 >= 32 字节，当前 %d", len(c.JWT.Secret))
+	}
+	if c.Agents.Workspace.DefaultMode == "" {
+		c.Agents.Workspace.DefaultMode = "external"
+	}
+	if c.Agents.Workspace.DefaultMode != "external" && c.Agents.Workspace.DefaultMode != "temporary" {
+		return fmt.Errorf("agents.workspace.default_mode 必须是 external 或 temporary，当前 %q", c.Agents.Workspace.DefaultMode)
+	}
+	if c.Agents.Workspace.TempDirPrefix == "" {
+		c.Agents.Workspace.TempDirPrefix = "nexus-"
+	}
+	if c.Agents.ClaudeCode.Command == "" {
+		c.Agents.ClaudeCode.Command = "npx"
+	}
+	if len(c.Agents.ClaudeCode.Args) == 0 {
+		c.Agents.ClaudeCode.Args = []string{"-y", "@zed-industries/claude-code-acp@latest"}
+	}
+	if c.Agents.ClaudeCode.APIKeyEnv == "" {
+		c.Agents.ClaudeCode.APIKeyEnv = "ANTHROPIC_API_KEY"
+	}
+	if c.Agents.ClaudeCode.Timeout <= 0 {
+		c.Agents.ClaudeCode.Timeout = 300 * time.Second
 	}
 	return nil
 }
