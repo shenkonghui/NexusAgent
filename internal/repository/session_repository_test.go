@@ -128,4 +128,52 @@ func TestSessionRepo_MarkActiveAsError(t *testing.T) {
 	}
 }
 
+func TestSessionRepo_FindByID(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSessionRepository(db)
+	s := &models.Session{
+		SessionID: "find-by-id-1", AgentType: "claude-code", Cwd: "/tmp",
+		Status: models.SessionStatusActive, WorkspaceMode: models.WorkspaceModeExternal,
+	}
+	_ = repo.Create(s)
+
+	got, err := repo.FindByID(s.ID)
+	if err != nil {
+		t.Fatalf("FindByID 返回错误: %v", err)
+	}
+	if got.SessionID != "find-by-id-1" {
+		t.Errorf("SessionID = %q", got.SessionID)
+	}
+}
+
+func TestSessionRepo_FindByID_NotFound(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSessionRepository(db)
+	if _, err := repo.FindByID(99999); err == nil {
+		t.Error("期望未找到时返回错误")
+	}
+}
+
+func TestSessionRepo_UpdateSessionID(t *testing.T) {
+	db := setupTestDB(t)
+	repo := NewSessionRepository(db)
+	s := &models.Session{
+		SessionID: "old-session-id", AgentType: "claude-code", Cwd: "/tmp",
+		Status: models.SessionStatusError, WorkspaceMode: models.WorkspaceModeExternal,
+	}
+	_ = repo.Create(s)
+
+	if err := repo.UpdateSessionID(s.ID, "new-session-id"); err != nil {
+		t.Fatalf("UpdateSessionID 返回错误: %v", err)
+	}
+
+	got, err := repo.FindByID(s.ID)
+	if err != nil {
+		t.Fatalf("FindByID 返回错误: %v", err)
+	}
+	if got.SessionID != "new-session-id" {
+		t.Errorf("SessionID = %q, 期望 new-session-id", got.SessionID)
+	}
+}
+
 var _ = gorm.ErrRecordNotFound

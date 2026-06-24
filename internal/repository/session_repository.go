@@ -52,3 +52,18 @@ func (r *SessionRepository) MarkActiveAsError() error {
 		Where("status = ?", models.SessionStatusActive).
 		Update("status", models.SessionStatusError).Error
 }
+
+// FindByID 按数据库主键查询会话。
+func (r *SessionRepository) FindByID(id uint) (*models.Session, error) {
+	var s models.Session
+	if err := r.db.First(&s, id).Error; err != nil {
+		return nil, ErrSessionNotFound
+	}
+	return &s, nil
+}
+
+// UpdateSessionID 更新会话的 ACP session ID（会话恢复时调用）。
+func (r *SessionRepository) UpdateSessionID(id uint, newSessionID string) error {
+	return r.db.Model(&models.Session{}).Where("id = ?", id).
+		Update("session_id", newSessionID).Error
+}
