@@ -119,3 +119,49 @@ func TestAuthService_Login_DisabledUser(t *testing.T) {
 		t.Errorf("期望 ErrUserDisabled，实际 %v", err)
 	}
 }
+
+func TestAuthService_Refresh_Success_Rotates(t *testing.T) {
+	svc, _ := newAuthSvc(t)
+	_, _ = svc.Register("alice", "alice@example.com", "Password123")
+	r1, _ := svc.Login("alice", "Password123", "ua", "ip")
+
+	r2, err := svc.Refresh(r1.RefreshToken, "ua", "ip")
+	if err != nil {
+		t.Fatalf("Refresh 错误: %v", err)
+	}
+	if r2.RefreshToken == r1.RefreshToken {
+		t.Error("期望轮换后 refresh token 不同")
+	}
+	if r2.AccessToken == "" {
+		t.Error("期望非空 access token")
+	}
+}
+
+func TestAuthService_Refresh_OldTokenRevoked(t *testing.T) {
+	svc, _ := newAuthSvc(t)
+	_, _ = svc.Register("bob", "bob@example.com", "Password123")
+	r1, _ := svc.Login("bob", "Password123", "ua", "ip")
+
+	_, _ = svc.Refresh(r1.RefreshToken, "ua", "ip")
+	// 旧 token 再次使用应失败（已吊销）
+	if _, err := svc.Refresh(r1.RefreshToken, "ua", "ip"); err != ErrInvalidToken {
+		t.Errorf("期望旧 token 失败，实际 %v", err)
+	}
+}
+
+func TestAuthService_Refresh_ReplayRevokesAll(t *testing.T) {
+	svc, _ := newAuthSvc(t)
+	_, _ = svc.Register("carol", "carol@example.com", "Password123")
+	r1, _ := svc.Login("carol", "Password123", "ua", "ip")
+	r2, _ := svc.Refresh(r1.RefreshToken, "ua", "ip")
+
+	// r1 已吊销；重放 r1 应触发吊销该用户全部令牌
+	_, err := svc.Refresh(r1.RefreshToken, "ua", "ip")
+	if err != ErrInvalidToken {
+		t.Fatalf("期望 ErrInvalidToken，实际 %v", err)
+	}
+	// 现在 r2 也应失效
+	if _, err := svc.Refresh(r2.RefreshToken, "ua", "ip"); err != ErrInvalidToken {
+		t.Errorf("重放后 r2 应被吊销，实际 %v", err)
+	}
+}

@@ -150,3 +150,37 @@ func (s *AuthService) issueTokens(user *models.User, userAgent, ip string) (*Aut
 		User:         user,
 	}, nil
 }
+
+func (s *AuthService) Refresh(refreshToken, userAgent, ip string) (*AuthResult, error) {
+	claims, err := s.jwt.Parse(refreshToken)
+	if err != nil || claims.TokenType != TokenTypeRefresh {
+		return nil, ErrInvalidToken
+	}
+
+	stored, err := s.tokens.FindByJTI(claims.JTI)
+	if err != nil {
+		return nil, ErrInvalidToken
+	}
+
+	// 重放检测：已吊销的 token 被再次使用 → 吊销该用户全部令牌
+	if stored.Revoked {
+		_ = s.tokens.RevokeAllByUser(stored.UserID)
+		return nil, ErrInvalidToken
+	}
+
+	// 校验用户仍存在且未禁用
+	user, err := s.users.FindByID(stored.UserID)
+	if err != nil {
+		return nil, ErrInvalidToken
+	}
+	if user.Status == models.StatusDisabled {
+		return nil, ErrUserDisabled
+	}
+
+	// 轮换：吊销旧 token
+	if err := s.tokens.Revoke(stored.TokenID); err != nil {
+		return nil, err
+	}
+
+	return s.issueTokens(user, userAgent, ip)
+}
