@@ -4,6 +4,7 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -93,4 +94,59 @@ func isUniqueViolation(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "UNIQUE constraint failed")
+}
+
+type AuthResult struct {
+	AccessToken  string       `json:"access_token"`
+	RefreshToken string       `json:"refresh_token"`
+	ExpiresIn    int64        `json:"expires_in"`
+	User         *models.User `json:"user"`
+}
+
+func (s *AuthService) Login(account, password, userAgent, ip string) (*AuthResult, error) {
+	user, err := s.findUserByAccount(account)
+	if err != nil {
+		return nil, ErrInvalidCreds // 统一错误，防用户枚举
+	}
+	if user.Status == models.StatusDisabled {
+		return nil, ErrUserDisabled
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return nil, ErrInvalidCreds
+	}
+	return s.issueTokens(user, userAgent, ip)
+}
+
+func (s *AuthService) findUserByAccount(account string) (*models.User, error) {
+	if strings.Contains(account, "@") {
+		return s.users.FindByEmail(account)
+	}
+	return s.users.FindByUsername(account)
+}
+
+func (s *AuthService) issueTokens(user *models.User, userAgent, ip string) (*AuthResult, error) {
+	access, err := s.jwt.GenerateAccessToken(user.ID, user.Username, user.Role)
+	if err != nil {
+		return nil, err
+	}
+	refresh, jti, err := s.jwt.GenerateRefreshToken(user.ID)
+	if err != nil {
+		return nil, err
+	}
+	rt := &models.RefreshToken{
+		UserID:    user.ID,
+		TokenID:   jti,
+		ExpiresAt: time.Now().Add(s.jwt.refreshTTL),
+		UserAgent: userAgent,
+		IP:        ip,
+	}
+	if err := s.tokens.Create(rt); err != nil {
+		return nil, err
+	}
+	return &AuthResult{
+		AccessToken:  access,
+		RefreshToken: refresh,
+		ExpiresIn:    int64(s.jwt.accessTTL.Seconds()),
+		User:         user,
+	}, nil
 }

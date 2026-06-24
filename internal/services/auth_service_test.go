@@ -64,3 +64,58 @@ func TestAuthService_Register_DuplicateEmail(t *testing.T) {
 		t.Errorf("期望 ErrUserExists，实际 %v", err)
 	}
 }
+
+func TestAuthService_Login_ByUsername(t *testing.T) {
+	svc, _ := newAuthSvc(t)
+	_, _ = svc.Register("alice", "alice@example.com", "Password123")
+
+	result, err := svc.Login("alice", "Password123", "ua", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("Login 错误: %v", err)
+	}
+	if result.AccessToken == "" || result.RefreshToken == "" {
+		t.Error("期望非空令牌")
+	}
+	if result.User.Username != "alice" {
+		t.Errorf("Username = %q", result.User.Username)
+	}
+}
+
+func TestAuthService_Login_ByEmail(t *testing.T) {
+	svc, _ := newAuthSvc(t)
+	_, _ = svc.Register("bob", "bob@example.com", "Password123")
+
+	result, err := svc.Login("bob@example.com", "Password123", "ua", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("Login 错误: %v", err)
+	}
+	if result.User.Username != "bob" {
+		t.Errorf("Username = %q", result.User.Username)
+	}
+}
+
+func TestAuthService_Login_WrongPassword(t *testing.T) {
+	svc, _ := newAuthSvc(t)
+	_, _ = svc.Register("carol", "carol@example.com", "Password123")
+
+	if _, err := svc.Login("carol", "WrongPass1", "ua", "127.0.0.1"); err != ErrInvalidCreds {
+		t.Errorf("期望 ErrInvalidCreds，实际 %v", err)
+	}
+}
+
+func TestAuthService_Login_UnknownAccount(t *testing.T) {
+	svc, _ := newAuthSvc(t)
+	if _, err := svc.Login("ghost", "Password123", "ua", "127.0.0.1"); err != ErrInvalidCreds {
+		t.Errorf("期望 ErrInvalidCreds，实际 %v", err)
+	}
+}
+
+func TestAuthService_Login_DisabledUser(t *testing.T) {
+	svc, db := newAuthSvc(t)
+	u, _ := svc.Register("dave", "dave@example.com", "Password123")
+	db.Model(&models.User{}).Where("id = ?", u.ID).Update("status", models.StatusDisabled)
+
+	if _, err := svc.Login("dave", "Password123", "ua", "127.0.0.1"); err != ErrUserDisabled {
+		t.Errorf("期望 ErrUserDisabled，实际 %v", err)
+	}
+}
