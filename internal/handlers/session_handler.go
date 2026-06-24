@@ -147,19 +147,53 @@ func (h *SessionHandler) Close(c *gin.Context) {
 	Success(c, http.StatusOK, struct{}{})
 }
 
-// Cancel POST /api/v1/sessions/:id/cancel — 任务 3 实现
-func (h *SessionHandler) Cancel(c *gin.Context) {
-	Fail(c, http.StatusNotImplemented, "NOT_IMPLEMENTED", "尚未实现")
-}
-
-// Resume POST /api/v1/sessions/:id/resume — 任务 3 实现
-func (h *SessionHandler) Resume(c *gin.Context) {
-	Fail(c, http.StatusNotImplemented, "NOT_IMPLEMENTED", "尚未实现")
-}
-
-// Messages GET /api/v1/sessions/:id/messages — 任务 3 实现
+// Messages GET /api/v1/sessions/:id/messages
 func (h *SessionHandler) Messages(c *gin.Context) {
-	Fail(c, http.StatusNotImplemented, "NOT_IMPLEMENTED", "尚未实现")
+	sess, ok := h.loadOwnedSession(c)
+	if !ok {
+		return
+	}
+	msgs, err := h.store.ListMessages(sess.SessionID)
+	if err != nil {
+		writeSessionError(c, err)
+		return
+	}
+	Success(c, http.StatusOK, gin.H{"messages": msgs})
+}
+
+// Cancel POST /api/v1/sessions/:id/cancel
+func (h *SessionHandler) Cancel(c *gin.Context) {
+	sess, ok := h.loadOwnedSession(c)
+	if !ok {
+		return
+	}
+	if sess.Status != models.SessionStatusActive {
+		Fail(c, http.StatusConflict, "SESSION_NOT_ACTIVE", "会话不在活跃状态")
+		return
+	}
+	if err := h.store.CancelSession(c.Request.Context(), sess.SessionID); err != nil {
+		writeSessionError(c, err)
+		return
+	}
+	Success(c, http.StatusOK, struct{}{})
+}
+
+// Resume POST /api/v1/sessions/:id/resume
+func (h *SessionHandler) Resume(c *gin.Context) {
+	sess, ok := h.loadOwnedSession(c)
+	if !ok {
+		return
+	}
+	if sess.Status == models.SessionStatusClosed {
+		Fail(c, http.StatusConflict, "SESSION_CLOSED", "会话已关闭，无法恢复")
+		return
+	}
+	updated, err := h.store.ResumeSession(c.Request.Context(), sess.SessionID)
+	if err != nil {
+		writeSessionError(c, err)
+		return
+	}
+	Success(c, http.StatusOK, updated)
 }
 
 // Prompt POST /api/v1/sessions/:id/prompt — 任务 4 实现

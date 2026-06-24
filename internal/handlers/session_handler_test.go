@@ -236,3 +236,92 @@ func TestSessionHandler_Close_Success(t *testing.T) {
 		t.Fatalf("状态码 = %d, 期望 200, body=%s", w.Code, w.Body.String())
 	}
 }
+
+func TestSessionHandler_Messages_Success(t *testing.T) {
+	store := newFakeSessionStore()
+	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusActive}
+	store.messages["acp-1"] = []models.Message{
+		{ID: 1, SessionID: "acp-1", Role: "user", Kind: "user_message", Content: "hi", Sequence: 1},
+		{ID: 2, SessionID: "acp-1", Role: "assistant", Kind: "agent_message_chunk", Content: "hello", Sequence: 2},
+	}
+	r := newSessionTestRouter(store, 100)
+	w := doJSON(t, r, "GET", "/api/v1/sessions/1/messages", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d, 期望 200, body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Data struct {
+			Messages []models.Message `json:"messages"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if len(resp.Data.Messages) != 2 {
+		t.Fatalf("消息数量 = %d, 期望 2", len(resp.Data.Messages))
+	}
+}
+
+func TestSessionHandler_Cancel_Success(t *testing.T) {
+	store := newFakeSessionStore()
+	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusActive}
+	r := newSessionTestRouter(store, 100)
+	w := doJSON(t, r, "POST", "/api/v1/sessions/1/cancel", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d, 期望 200, body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestSessionHandler_Cancel_NotActive(t *testing.T) {
+	store := newFakeSessionStore()
+	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusClosed}
+	r := newSessionTestRouter(store, 100)
+	w := doJSON(t, r, "POST", "/api/v1/sessions/1/cancel", nil)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("状态码 = %d, 期望 409", w.Code)
+	}
+	var resp struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Error.Code != "SESSION_NOT_ACTIVE" {
+		t.Errorf("error code = %q, 期望 SESSION_NOT_ACTIVE", resp.Error.Code)
+	}
+}
+
+func TestSessionHandler_Resume_Success(t *testing.T) {
+	store := newFakeSessionStore()
+	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusError}
+	store.resumeResult = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusActive}
+	r := newSessionTestRouter(store, 100)
+	w := doJSON(t, r, "POST", "/api/v1/sessions/1/resume", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d, 期望 200, body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Data models.Session `json:"data"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Data.Status != models.SessionStatusActive {
+		t.Errorf("恢复后状态 = %q, 期望 active", resp.Data.Status)
+	}
+}
+
+func TestSessionHandler_Resume_Closed(t *testing.T) {
+	store := newFakeSessionStore()
+	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusClosed}
+	r := newSessionTestRouter(store, 100)
+	w := doJSON(t, r, "POST", "/api/v1/sessions/1/resume", nil)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("状态码 = %d, 期望 409", w.Code)
+	}
+	var resp struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.Error.Code != "SESSION_CLOSED" {
+		t.Errorf("error code = %q, 期望 SESSION_CLOSED", resp.Error.Code)
+	}
+}
