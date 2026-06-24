@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"nexusagent/internal/middleware"
 	"nexusagent/internal/services"
 )
 
@@ -88,7 +89,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 }
 
 func (h *AuthHandler) Me(c *gin.Context) {
-	userID, exists := c.Get("user_id")
+	userID, exists := c.Get(middleware.UserIDKey())
 	if !exists {
 		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
 		return
