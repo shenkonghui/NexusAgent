@@ -21,6 +21,7 @@ func setupACPTestDB(t *testing.T) *gorm.DB {
 	db.Exec("DELETE FROM users")
 	db.Exec("DELETE FROM refresh_tokens")
 	db.Exec("DELETE FROM sessions")
+	db.Exec("DELETE FROM messages")
 	return db
 }
 
