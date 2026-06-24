@@ -52,3 +52,63 @@ func TestValidate_OK(t *testing.T) {
 		t.Errorf("期望校验通过，实际错误: %v", err)
 	}
 }
+
+func TestLoad_AgentsConfig(t *testing.T) {
+	cfg, err := Load("testdata/config_test.yaml")
+	if err != nil {
+		t.Fatalf("Load 返回错误: %v", err)
+	}
+	if cfg.Agents.Workspace.DefaultMode != "temporary" {
+		t.Errorf("Workspace.DefaultMode = %q, 期望 temporary", cfg.Agents.Workspace.DefaultMode)
+	}
+	if cfg.Agents.Workspace.TempDirPrefix != "test-" {
+		t.Errorf("Workspace.TempDirPrefix = %q, 期望 test-", cfg.Agents.Workspace.TempDirPrefix)
+	}
+	if !cfg.Agents.ClaudeCode.Enabled {
+		t.Error("ClaudeCode.Enabled 期望 true")
+	}
+	if cfg.Agents.ClaudeCode.Command != "npx" {
+		t.Errorf("ClaudeCode.Command = %q, 期望 npx", cfg.Agents.ClaudeCode.Command)
+	}
+	if cfg.Agents.ClaudeCode.APIKeyEnv != "ANTHROPIC_API_KEY" {
+		t.Errorf("ClaudeCode.APIKeyEnv = %q, 期望 ANTHROPIC_API_KEY", cfg.Agents.ClaudeCode.APIKeyEnv)
+	}
+	if cfg.Agents.ClaudeCode.Timeout != 60*time.Second {
+		t.Errorf("ClaudeCode.Timeout = %v, 期望 60s", cfg.Agents.ClaudeCode.Timeout)
+	}
+}
+
+func TestLoad_AgentsConfig_EnvOverride(t *testing.T) {
+	t.Setenv("AGENTS_WORKSPACE_DEFAULT_MODE", "external")
+	t.Setenv("CLAUDE_CODE_COMMAND", "/usr/local/bin/npx")
+	cfg, err := Load("testdata/config_test.yaml")
+	if err != nil {
+		t.Fatalf("Load 返回错误: %v", err)
+	}
+	if cfg.Agents.Workspace.DefaultMode != "external" {
+		t.Errorf("DefaultMode 未被环境变量覆盖: %q", cfg.Agents.Workspace.DefaultMode)
+	}
+	if cfg.Agents.ClaudeCode.Command != "/usr/local/bin/npx" {
+		t.Errorf("Command 未被环境变量覆盖: %q", cfg.Agents.ClaudeCode.Command)
+	}
+}
+
+func TestValidate_WorkspaceDefaultMode_Invalid(t *testing.T) {
+	cfg := &Config{
+		JWT:    JWTConfig{Secret: "this-is-a-very-long-jwt-secret-key-32+bytes!"},
+		Agents: AgentsConfig{Workspace: WorkspaceConfig{DefaultMode: "invalid"}},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Error("期望 default_mode 非法时返回错误")
+	}
+}
+
+func TestValidate_WorkspaceDefaultMode_OK(t *testing.T) {
+	cfg := &Config{
+		JWT:    JWTConfig{Secret: "this-is-a-very-long-jwt-secret-key-32+bytes!"},
+		Agents: AgentsConfig{Workspace: WorkspaceConfig{DefaultMode: "external"}},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("期望 external 校验通过，实际: %v", err)
+	}
+}
