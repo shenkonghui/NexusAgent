@@ -1,0 +1,11 @@
+server:
+  port: 9090
+  mode: debug
+database:
+  path: ./data/test.db
+jwt:
+  secret: ""
+  access_ttl: 15m
+  refresh_ttl: 168h
+password:
+  bcrypt_cost: 10
