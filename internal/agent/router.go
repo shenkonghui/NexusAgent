@@ -33,8 +33,8 @@ func (r *Router) CreateSession(ctx context.Context, agentType, cwd string, userI
 	return r.service.CreateSession(ctx, agentType, cwd, userID)
 }
 
-// Prompt 发送 prompt，委托 service。
-func (r *Router) Prompt(ctx context.Context, sessionID, prompt string) (<-chan interface{}, error) {
+// Prompt 发送 prompt，委托 service。返回流式 Message channel。
+func (r *Router) Prompt(ctx context.Context, sessionID, prompt string) (<-chan models.Message, error) {
 	if r.service == nil {
 		return nil, errors.New("service 未配置")
 	}
@@ -63,6 +63,30 @@ func (r *Router) ListSessions(userID uint) ([]models.Session, error) {
 		return nil, errors.New("service 未配置")
 	}
 	return r.service.ListSessions(userID)
+}
+
+// GetSessionByDBID 按数据库主键查询会话，委托 service。
+func (r *Router) GetSessionByDBID(id uint) (*models.Session, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.GetSessionByDBID(id)
+}
+
+// ListMessages 查询会话消息历史，委托 service。
+func (r *Router) ListMessages(sessionID string) ([]models.Message, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.ListMessages(sessionID)
+}
+
+// ResumeSession 恢复会话，委托 service。
+func (r *Router) ResumeSession(ctx context.Context, sessionID string) (*models.Session, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.ResumeSession(ctx, sessionID)
 }
 
 // ListAgents 返回所有已注册的 agent。
