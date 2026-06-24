@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"nexusagent/internal/acp"
+	"nexusagent/internal/agent"
 	"nexusagent/internal/config"
 	"nexusagent/internal/database"
 	"nexusagent/internal/router"
@@ -42,6 +44,26 @@ func main() {
 
 	jwtSvc := services.NewJWTService(cfg.JWT.Secret, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL)
 	authSvc := services.NewAuthService(db, jwtSvc, cfg.Password.BcryptCost)
+
+	// P1: ACP 服务
+	acpSvc := acp.NewService(db, cfg.Agents.Workspace)
+	acpSvc.RecoverActiveSessions()
+	if cfg.Agents.ClaudeCode.Enabled {
+		acpSvc.RegisterBackend(acp.NewClaudeCodeBackend(cfg.Agents.ClaudeCode))
+	}
+
+	// P2: Agent 注册表与路由
+	agentRegistry := agent.NewRegistry()
+	if cfg.Agents.ClaudeCode.Enabled {
+		_ = agentRegistry.Register(&agent.AgentDescriptor{
+			Type:        "claude-code",
+			DisplayName: "Claude Code",
+			Description: "Anthropic Claude Code 编码 agent",
+			Backend:     acp.NewClaudeCodeBackend(cfg.Agents.ClaudeCode),
+		})
+	}
+	agentRouter := agent.NewRouter(agentRegistry, acpSvc)
+	_ = agentRouter // 后续 P5 REST API 接入时使用
 
 	engine := router.Setup(authSvc, jwtSvc, cfg.Server.Mode)
 
