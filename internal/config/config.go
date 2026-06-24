@@ -63,9 +63,6 @@ func (c *Config) applyEnv() {
 }
 
 func (c *Config) Validate() error {
-	if len(c.JWT.Secret) < 32 {
-		return fmt.Errorf("JWT_SECRET 长度必须 >= 32 字节，当前 %d", len(c.JWT.Secret))
-	}
 	if c.JWT.AccessTTL <= 0 {
 		c.JWT.AccessTTL = 15 * time.Minute
 	}
@@ -74,6 +71,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Password.BcryptCost == 0 {
 		c.Password.BcryptCost = 12
+	}
+	if len(c.JWT.Secret) < 32 {
+		return fmt.Errorf("JWT_SECRET 长度必须 >= 32 字节，当前 %d", len(c.JWT.Secret))
 	}
 	return nil
 }
