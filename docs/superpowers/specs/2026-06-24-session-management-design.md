@@ -162,9 +162,13 @@ Service 结构体新增 `messages *repository.MessageRepository` 字段。`NewSe
 
 现有 `Prompt` 方法在收到 update channel 后，用一个 goroutine 转发给调用方。改造后，该 goroutine 同时持久化每条 update：
 
+返回类型从 `<-chan interface{}` 改为 `<-chan models.Message`，让调用方（P5 handler）直接拿到已映射的 Message（含持久化后的 id/sequence）：
+
 ```go
-func (s *Service) Prompt(ctx context.Context, sessionID, prompt string) (<-chan interface{}, error)
+func (s *Service) Prompt(ctx context.Context, sessionID, prompt string) (<-chan models.Message, error)
 ```
+
+> 此签名变更影响 `agent.Router.Prompt` 和 `agent.Router`（P2），需同步更新返回类型。
 
 流程：
 
@@ -203,9 +207,9 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
    ...
    ```
 8. 将上下文作为首条 Prompt 发送给新 session（异步，不等结果）。
-9. 更新 sessions 表：`UpdateSessionID(session.ID, newSessionID)`。
+9. 更新 sessions 表：`UpdateSessionID(session.ID, newSessionID)`，`UpdateStatus(session.ID, active, nil)`。
 10. 存入 conns 连接池（以新 sessionID 为 key）。
-11. 返回更新后的 session。
+11. 返回更新后的 session（含新 session_id）。
 
 历史注入限制：为避免上下文过长，最多注入最近 50 条消息（按 sequence 倒序取最后 50 条再正序排列）。
 
@@ -216,6 +220,14 @@ func (s *Service) ListMessages(sessionID string) ([]models.Message, error)
 ```
 
 通过 sessionID 查 DB 获取 session，再用 `db_session_id` 查 messages 表，按 sequence 升序返回。
+
+#### GetSessionByDBID — 按 DB 主键查询（供 P5 路由使用）
+
+```go
+func (s *Service) GetSessionByDBID(id uint) (*models.Session, error)
+```
+
+SessionRepository 新增 `FindByID(id uint)` 方法支持此功能。用于 P5 REST API 以 DB 主键 `:id` 作为路由参数。
 
 ## 7. 配置
 
