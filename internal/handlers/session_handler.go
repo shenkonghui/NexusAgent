@@ -2,9 +2,12 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -196,7 +199,58 @@ func (h *SessionHandler) Resume(c *gin.Context) {
 	Success(c, http.StatusOK, updated)
 }
 
-// Prompt POST /api/v1/sessions/:id/prompt — 任务 4 实现
+type promptRequest struct {
+	Prompt string `json:"prompt" binding:"required"`
+}
+
+// Prompt POST /api/v1/sessions/:id/prompt （SSE 流）
 func (h *SessionHandler) Prompt(c *gin.Context) {
-	Fail(c, http.StatusNotImplemented, "NOT_IMPLEMENTED", "尚未实现")
+	id, ok := parseSessionID(c)
+	if !ok {
+		return
+	}
+	var req promptRequest
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Prompt) == "" {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "prompt 不能为空")
+		return
+	}
+	sess, err := h.store.GetSessionByDBID(id)
+	if err != nil || sess == nil {
+		Fail(c, http.StatusNotFound, "SESSION_NOT_FOUND", "会话不存在")
+		return
+	}
+	uid, ok := currentUserID(c)
+	if !ok || sess.UserID != uid {
+		Fail(c, http.StatusNotFound, "SESSION_NOT_FOUND", "会话不存在")
+		return
+	}
+	if sess.Status != models.SessionStatusActive {
+		Fail(c, http.StatusConflict, "SESSION_NOT_ACTIVE", "会话不在活跃状态")
+		return
+	}
+	ch, err := h.store.Prompt(c.Request.Context(), sess.SessionID, req.Prompt)
+	if err != nil {
+		writeSessionError(c, err)
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		Fail(c, http.StatusInternalServerError, "INTERNAL", "不支持流式响应")
+		return
+	}
+
+	for msg := range ch {
+		b, _ := json.Marshal(msg)
+		_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", b)
+		flusher.Flush()
+	}
+	_, _ = fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+	flusher.Flush()
 }

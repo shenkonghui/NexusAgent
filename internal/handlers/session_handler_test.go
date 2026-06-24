@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +38,7 @@ func newFakeSessionStore() *fakeSessionStore {
 	return &fakeSessionStore{
 		sessions: make(map[uint]*models.Session),
 		messages: make(map[string][]models.Message),
+		promptCh: make(chan models.Message),
 	}
 }
 
@@ -323,5 +327,84 @@ func TestSessionHandler_Resume_Closed(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp.Error.Code != "SESSION_CLOSED" {
 		t.Errorf("error code = %q, 期望 SESSION_CLOSED", resp.Error.Code)
+	}
+}
+
+func TestSessionHandler_Prompt_Empty(t *testing.T) {
+	store := newFakeSessionStore()
+	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusActive}
+	r := newSessionTestRouter(store, 100)
+	var buf bytes.Buffer
+	_ = json.NewEncoder(&buf).Encode(gin.H{"prompt": "  "})
+	req := httptest.NewRequest("POST", "/api/v1/sessions/1/prompt", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("状态码 = %d, 期望 400", w.Code)
+	}
+}
+
+func TestSessionHandler_Prompt_NotFound(t *testing.T) {
+	r := newSessionTestRouter(newFakeSessionStore(), 100)
+	var buf bytes.Buffer
+	_ = json.NewEncoder(&buf).Encode(gin.H{"prompt": "hi"})
+	req := httptest.NewRequest("POST", "/api/v1/sessions/9/prompt", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("状态码 = %d, 期望 404", w.Code)
+	}
+}
+
+func TestSessionHandler_Prompt_NotActive(t *testing.T) {
+	store := newFakeSessionStore()
+	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusClosed}
+	r := newSessionTestRouter(store, 100)
+	var buf bytes.Buffer
+	_ = json.NewEncoder(&buf).Encode(gin.H{"prompt": "hi"})
+	req := httptest.NewRequest("POST", "/api/v1/sessions/1/prompt", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("状态码 = %d, 期望 409", w.Code)
+	}
+}
+
+func TestSessionHandler_Prompt_SSE_Success(t *testing.T) {
+	store := newFakeSessionStore()
+	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusActive}
+
+	ch := make(chan models.Message, 2)
+	ch <- models.Message{ID: 1, SessionID: "acp-1", Role: "assistant", Kind: "agent_message_chunk", Content: "Hello", Sequence: 1}
+	ch <- models.Message{ID: 2, SessionID: "acp-1", Role: "tool", Kind: "tool_call", Content: "Read file", Sequence: 2}
+	close(ch)
+	store.promptCh = ch
+
+	r := newSessionTestRouter(store, 100)
+	var buf bytes.Buffer
+	_ = json.NewEncoder(&buf).Encode(gin.H{"prompt": "写一个 hello world"})
+	req := httptest.NewRequest("POST", "/api/v1/sessions/1/prompt", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d, 期望 200, body=%s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("Content-Type = %q, 期望 text/event-stream", ct)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "data: [DONE]") {
+		t.Errorf("响应体缺少结束标记 data: [DONE]\n%s", body)
+	}
+	if !strings.Contains(body, `"content":"Hello"`) {
+		t.Errorf("响应体缺少第一条消息内容\n%s", body)
+	}
+	if !strings.Contains(body, `"kind":"tool_call"`) {
+		t.Errorf("响应体缺少第二条消息\n%s", body)
 	}
 }
