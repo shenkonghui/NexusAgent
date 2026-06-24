@@ -184,3 +184,15 @@ func (s *AuthService) Refresh(refreshToken, userAgent, ip string) (*AuthResult, 
 
 	return s.issueTokens(user, userAgent, ip)
 }
+
+func (s *AuthService) Logout(refreshToken string) error {
+	claims, err := s.jwt.Parse(refreshToken)
+	if err != nil || claims.TokenType != TokenTypeRefresh {
+		return ErrInvalidToken
+	}
+	return s.tokens.Revoke(claims.JTI)
+}
+
+func (s *AuthService) GetUserByID(id uint) (*models.User, error) {
+	return s.users.FindByID(id)
+}

@@ -165,3 +165,29 @@ func TestAuthService_Refresh_ReplayRevokesAll(t *testing.T) {
 		t.Errorf("重放后 r2 应被吊销，实际 %v", err)
 	}
 }
+
+func TestAuthService_Logout(t *testing.T) {
+	svc, _ := newAuthSvc(t)
+	_, _ = svc.Register("alice", "alice@example.com", "Password123")
+	r, _ := svc.Login("alice", "Password123", "ua", "ip")
+
+	if err := svc.Logout(r.RefreshToken); err != nil {
+		t.Fatalf("Logout 错误: %v", err)
+	}
+	if _, err := svc.Refresh(r.RefreshToken, "ua", "ip"); err != ErrInvalidToken {
+		t.Errorf("期望登出后刷新失败，实际 %v", err)
+	}
+}
+
+func TestAuthService_GetUserByID(t *testing.T) {
+	svc, _ := newAuthSvc(t)
+	u, _ := svc.Register("bob", "bob@example.com", "Password123")
+
+	got, err := svc.GetUserByID(u.ID)
+	if err != nil {
+		t.Fatalf("GetUserByID 错误: %v", err)
+	}
+	if got.Username != "bob" {
+		t.Errorf("Username = %q", got.Username)
+	}
+}
