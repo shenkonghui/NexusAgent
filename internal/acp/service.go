@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/coder/acp-go-sdk"
 	"gorm.io/gorm"
 
 	"nexusagent/internal/config"
@@ -18,11 +20,13 @@ var (
 	ErrBackendNotFound  = errors.New("后端未注册")
 	ErrSessionNotFound  = errors.New("会话不存在")
 	ErrSessionNotActive = errors.New("会话不在活跃状态")
+	ErrSessionClosed    = errors.New("会话已关闭，无法恢复")
 )
 
 // Service 是 ACP 客户端高层服务，串联后端、连接、工作区与持久化。
 type Service struct {
 	sessions *repository.SessionRepository
+	messages *repository.MessageRepository
 	backends map[string]Backend
 	conns    map[string]*Connection
 	mu       sync.RWMutex
@@ -33,6 +37,7 @@ type Service struct {
 func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig) *Service {
 	return &Service{
 		sessions: repository.NewSessionRepository(db),
+		messages: repository.NewMessageRepository(db),
 		backends: make(map[string]Backend),
 		conns:    make(map[string]*Connection),
 		wsConfig: wsConfig,
@@ -118,8 +123,9 @@ func (s *Service) CreateSession(ctx context.Context, agentType, cwd string, user
 	return session, nil
 }
 
-// Prompt 向会话发送 prompt，返回流式 update channel。
-func (s *Service) Prompt(ctx context.Context, sessionID, prompt string) (<-chan interface{}, error) {
+// Prompt 向会话发送 prompt，返回流式 Message channel。
+// 每条 SessionUpdate 会被映射为 models.Message 并持久化到数据库后转发给调用方。
+func (s *Service) Prompt(ctx context.Context, sessionID, prompt string) (<-chan models.Message, error) {
 	session, err := s.GetSession(sessionID)
 	if err != nil {
 		return nil, err
@@ -142,11 +148,32 @@ func (s *Service) Prompt(ctx context.Context, sessionID, prompt string) (<-chan 
 
 	_ = s.sessions.UpdateLastPrompt(session.ID, prompt)
 
-	out := make(chan interface{}, 256)
+	out := make(chan models.Message, 256)
 	go func() {
 		defer close(out)
+
+		seq := s.getNextSequence(session.ID)
+
+		// 持久化用户发送的 prompt 作为 user_message_chunk
+		seq++
+		userUpdate := acp.SessionUpdate{
+			UserMessageChunk: &acp.SessionUpdateUserMessageChunk{
+				Content: acp.ContentBlock{
+					Text: &acp.ContentBlockText{Text: prompt, Type: "text"},
+				},
+				SessionUpdate: "user_message_chunk",
+			},
+		}
+		userMsg := MapUpdate(sessionID, session.ID, seq, userUpdate)
+		_ = s.messages.Create(&userMsg)
+		out <- userMsg
+
+		// 读取 agent 返回的 update 流，逐条持久化并转发
 		for u := range updates {
-			out <- u
+			seq++
+			msg := MapUpdate(sessionID, session.ID, seq, u)
+			_ = s.messages.Create(&msg)
+			out <- msg
 		}
 	}()
 
@@ -208,4 +235,132 @@ func (s *Service) GetSession(sessionID string) (*models.Session, error) {
 // RecoverActiveSessions 在服务启动时调用，将所有 active 状态的会话标记为 error。
 func (s *Service) RecoverActiveSessions() {
 	_ = s.sessions.MarkActiveAsError()
+}
+
+// getNextSequence 获取指定会话当前最大 sequence 值（无消息时返回 0）。
+func (s *Service) getNextSequence(dbSessionID uint) int {
+	max, err := s.messages.MaxSequence(dbSessionID)
+	if err != nil {
+		return 0
+	}
+	return max
+}
+
+// ListMessages 查询会话的完整消息历史，按 sequence 升序返回。
+func (s *Service) ListMessages(sessionID string) ([]models.Message, error) {
+	session, err := s.GetSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return s.messages.FindByDBSessionID(session.ID)
+}
+
+// GetSessionByDBID 按数据库主键查询会话。
+func (s *Service) GetSessionByDBID(id uint) (*models.Session, error) {
+	sess, err := s.sessions.FindByID(id)
+	if err != nil {
+		return nil, ErrSessionNotFound
+	}
+	return sess, nil
+}
+
+// ResumeSession 恢复已失效（error 状态）的会话：重建 ACP session、注入历史上下文、更新 session_id。
+// active 且连接存在的会话直接返回；closed 会话返回错误。
+func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.Session, error) {
+	session, err := s.GetSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	// active 且连接存在 → 直接返回
+	if session.Status == models.SessionStatusActive {
+		s.mu.RLock()
+		_, ok := s.conns[sessionID]
+		s.mu.RUnlock()
+		if ok {
+			return session, nil
+		}
+	}
+
+	// closed → 不可恢复
+	if session.Status == models.SessionStatusClosed {
+		return nil, ErrSessionClosed
+	}
+
+	// error 状态 → 尝试恢复
+	backend, err := s.GetBackend(session.AgentType)
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := NewConnection(backend)
+	if err != nil {
+		return nil, fmt.Errorf("恢复会话-建立连接: %w", err)
+	}
+
+	if _, err := conn.Initialize(ctx); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("恢复会话-ACP 握手: %w", err)
+	}
+
+	newSessionID, err := conn.NewSession(ctx, session.Cwd)
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("恢复会话-创建 ACP 会话: %w", err)
+	}
+
+	// 查询历史消息并注入上下文
+	history, _ := s.messages.FindByDBSessionID(session.ID)
+	contextText := formatHistory(history)
+	if contextText != "" {
+		// 异步注入历史上下文，不等结果
+		go func() {
+			_, _ = conn.Prompt(ctx, newSessionID, contextText)
+		}()
+	}
+
+	// 更新 session_id 和状态
+	if err := s.sessions.UpdateSessionID(session.ID, newSessionID); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("恢复会话-更新 session_id: %w", err)
+	}
+	if err := s.sessions.UpdateStatus(session.ID, models.SessionStatusActive, nil); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("恢复会话-更新状态: %w", err)
+	}
+
+	// 存入连接池
+	s.mu.Lock()
+	s.conns[newSessionID] = conn
+	s.mu.Unlock()
+
+	// 返回更新后的 session
+	return s.sessions.FindByID(session.ID)
+}
+
+// formatHistory 将历史消息格式化为对话上下文文本，最多取最近 50 条。
+func formatHistory(messages []models.Message) string {
+	if len(messages) == 0 {
+		return ""
+	}
+
+	// 最多取最近 50 条
+	const limit = 50
+	if len(messages) > limit {
+		messages = messages[len(messages)-limit:]
+	}
+
+	var sb strings.Builder
+	sb.WriteString("以下是之前对话的历史记录，请基于这些上下文继续对话：\n\n")
+	for _, m := range messages {
+		switch m.Role {
+		case models.MessageRoleUser:
+			sb.WriteString("[User]: " + m.Content + "\n")
+		case models.MessageRoleAssistant:
+			sb.WriteString("[Assistant]: " + m.Content + "\n")
+		case models.MessageRoleTool:
+			sb.WriteString("[Tool]: " + m.Content + "\n")
+		}
+	}
+	return sb.String()
 }

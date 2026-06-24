@@ -99,3 +99,108 @@ func TestService_RecoverActiveSessions(t *testing.T) {
 		t.Errorf("期望恢复后 status=error，实际 %q", s.Status)
 	}
 }
+
+func TestService_GetSessionByDBID(t *testing.T) {
+	svc := newTestService(t)
+	repo := repository.NewSessionRepository(setupACPTestDB(t))
+	_ = repo.Create(&models.Session{
+		SessionID: "db-id-test", AgentType: "claude-code", Cwd: "/tmp",
+		Status: models.SessionStatusActive, WorkspaceMode: models.WorkspaceModeExternal,
+	})
+	// 用 svc 自身的 sessions 仓库重新查（因为 newTestService 用的是同一个 db）
+	sess, err := svc.GetSession("db-id-test")
+	if err != nil {
+		t.Fatalf("准备数据失败: %v", err)
+	}
+
+	got, err := svc.GetSessionByDBID(sess.ID)
+	if err != nil {
+		t.Fatalf("GetSessionByDBID 返回错误: %v", err)
+	}
+	if got.SessionID != "db-id-test" {
+		t.Errorf("SessionID = %q", got.SessionID)
+	}
+}
+
+func TestService_GetSessionByDBID_NotFound(t *testing.T) {
+	svc := newTestService(t)
+	if _, err := svc.GetSessionByDBID(99999); err == nil {
+		t.Error("期望不存在的 DB ID 返回错误")
+	}
+}
+
+func TestService_ListMessages(t *testing.T) {
+	db := setupACPTestDB(t)
+	repo := repository.NewSessionRepository(db)
+	sess := &models.Session{
+		SessionID: "msg-list-1", AgentType: "claude-code", Cwd: "/tmp",
+		Status: models.SessionStatusActive, WorkspaceMode: models.WorkspaceModeExternal,
+	}
+	_ = repo.Create(sess)
+
+	msgRepo := repository.NewMessageRepository(db)
+	_ = msgRepo.Create(&models.Message{SessionID: "msg-list-1", DBSessionID: sess.ID, Role: models.MessageRoleUser, Kind: models.MessageKindUserMessageChunk, Content: "问题", RawJSON: "{}", Sequence: 1})
+	_ = msgRepo.Create(&models.Message{SessionID: "msg-list-1", DBSessionID: sess.ID, Role: models.MessageRoleAssistant, Kind: models.MessageKindAgentMessageChunk, Content: "回答", RawJSON: "{}", Sequence: 2})
+
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	msgs, err := svc.ListMessages("msg-list-1")
+	if err != nil {
+		t.Fatalf("ListMessages 返回错误: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("期望 2 条消息，实际 %d", len(msgs))
+	}
+	if msgs[0].Content != "问题" {
+		t.Errorf("第一条消息 Content = %q", msgs[0].Content)
+	}
+	if msgs[1].Content != "回答" {
+		t.Errorf("第二条消息 Content = %q", msgs[1].Content)
+	}
+}
+
+func TestService_ListMessages_SessionNotFound(t *testing.T) {
+	svc := newTestService(t)
+	if _, err := svc.ListMessages("nonexistent"); err == nil {
+		t.Error("期望不存在的会话返回错误")
+	}
+}
+
+func TestService_ListMessages_Empty(t *testing.T) {
+	db := setupACPTestDB(t)
+	repo := repository.NewSessionRepository(db)
+	_ = repo.Create(&models.Session{
+		SessionID: "empty-msg-1", AgentType: "claude-code", Cwd: "/tmp",
+		Status: models.SessionStatusActive, WorkspaceMode: models.WorkspaceModeExternal,
+	})
+
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	msgs, err := svc.ListMessages("empty-msg-1")
+	if err != nil {
+		t.Fatalf("ListMessages 返回错误: %v", err)
+	}
+	if len(msgs) != 0 {
+		t.Errorf("期望 0 条消息，实际 %d", len(msgs))
+	}
+}
+
+func TestService_ResumeSession_Closed(t *testing.T) {
+	db := setupACPTestDB(t)
+	repo := repository.NewSessionRepository(db)
+	_ = repo.Create(&models.Session{
+		SessionID: "closed-resume-1", AgentType: "claude-code", Cwd: "/tmp",
+		Status: models.SessionStatusClosed, WorkspaceMode: models.WorkspaceModeExternal,
+	})
+
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	_, err := svc.ResumeSession(context.Background(), "closed-resume-1")
+	if err == nil {
+		t.Error("期望 closed 会话恢复返回错误")
+	}
+}
+
+func TestService_ResumeSession_SessionNotFound(t *testing.T) {
+	svc := newTestService(t)
+	if _, err := svc.ResumeSession(context.Background(), "nonexistent"); err == nil {
+		t.Error("期望不存在的会话恢复返回错误")
+	}
+}
