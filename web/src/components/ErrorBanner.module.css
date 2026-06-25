@@ -1,0 +1,28 @@
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #fff5f5;
+  border: 1px solid #fed7d7;
+  border-radius: 6px;
+  color: #e53e3e;
+  font-size: 14px;
+}
+
+.message {
+  flex: 1;
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  color: #e53e3e;
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+.closeBtn:hover {
+  color: #c53030;
+}
