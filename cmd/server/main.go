@@ -63,9 +63,8 @@ func main() {
 		})
 	}
 	agentRouter := agent.NewRouter(agentRegistry, acpSvc)
-	_ = agentRouter // 后续 P5 REST API 接入时使用
 
-	engine := router.Setup(authSvc, jwtSvc, cfg.Server.Mode)
+	engine := router.Setup(authSvc, jwtSvc, agentRouter, cfg.Server.Mode)
 
 	go func() {
 		addr := fmt.Sprintf(":%d", cfg.Server.Port)
