@@ -2,7 +2,7 @@ import { useState, useEffect, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useRequireAuth } from '../hooks/useRequireAuth'
 import { listAgents } from '../api/agents'
-import { listSessions, createSession, deleteSession } from '../api/sessions'
+import { listSessions, createSession, deleteSession, updateSessionTitle } from '../api/sessions'
 import type { Agent, Session } from '../types'
 import AgentSelector from '../components/AgentSelector'
 import DirectoryPicker from '../components/DirectoryPicker'
@@ -93,12 +93,23 @@ export default function SessionsPage() {
     }
   }
 
+  // 重命名会话
+  async function handleRename(id: number, title: string) {
+    setError('')
+    try {
+      const resp = await updateSessionTitle(id, title)
+      setSessions((prev) => prev.map((s) => (s.id === id ? resp.data : s)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '修改标题失败')
+    }
+  }
+
   if (authLoading) return <LoadingSpinner text="验证登录状态..." />
   if (!user) return null
 
   return (
     <div className={styles.layout}>
-      <SessionSidebar sessions={sessions} />
+      <SessionSidebar sessions={sessions} onRename={handleRename} />
 
       <div className={styles.main}>
         <div className={styles.header}>

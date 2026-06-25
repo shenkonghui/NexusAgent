@@ -347,6 +347,11 @@ func (s *Service) GetSession(sessionID string) (*models.Session, error) {
 	return sess, nil
 }
 
+// UpdateTitle 更新会话标题。
+func (s *Service) UpdateTitle(dbSessionID uint, title string) error {
+	return s.sessions.UpdateTitle(dbSessionID, title)
+}
+
 // RecoverActiveSessions 在服务启动时调用，将所有 active 状态的会话标记为 error。
 func (s *Service) RecoverActiveSessions() {
 	_ = s.sessions.MarkActiveAsError()

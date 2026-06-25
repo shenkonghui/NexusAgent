@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useRequireAuth } from '../hooks/useRequireAuth'
-import { getSession, listMessages, closeSession, cancelSession, resumeSession, listSessions, listCommands, listModes, listSkills, listConfigOptions, setConfigOption, deleteSession } from '../api/sessions'
+import { getSession, listMessages, closeSession, cancelSession, resumeSession, listSessions, listCommands, listModes, listSkills, listConfigOptions, setConfigOption, deleteSession, updateSessionTitle } from '../api/sessions'
 import { listScheduledTasks, listExecutions } from '../api/scheduledTasks'
 import { streamPrompt, isTimeoutError } from '../api/sse'
 import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution } from '../types'
@@ -230,13 +230,25 @@ export default function ChatPage() {
     }
   }
 
+  // 重命名会话（左侧列表触发）
+  async function handleRenameSession(id: number, title: string) {
+    setError('')
+    try {
+      const resp = await updateSessionTitle(id, title)
+      setAllSessions((prev) => prev.map((s) => (s.id === id ? resp.data : s)))
+      if (id === sessionId) setSession(resp.data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '修改标题失败')
+    }
+  }
+
   if (authLoading) return <LoadingSpinner text="验证登录状态..." />
   if (!user) return null
   if (loading) return <LoadingSpinner text="加载会话..." />
 
   return (
     <div className={styles.layout}>
-      <SessionSidebar sessions={allSessions} currentId={sessionId} onDelete={handleDeleteSession} />
+      <SessionSidebar sessions={allSessions} currentId={sessionId} onDelete={handleDeleteSession} onRename={handleRenameSession} />
 
       <div className={styles.main}>
         {/* 顶部会话信息 */}

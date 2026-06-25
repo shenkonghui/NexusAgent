@@ -8,6 +8,7 @@ interface SessionSidebarProps {
   sessions: Session[]
   currentId?: number
   onDelete?: (id: number) => void
+  onRename?: (id: number, title: string) => void
 }
 
 // 状态标识颜色
@@ -35,7 +36,9 @@ function loadCollapsed(): { manual: boolean; scheduled: boolean } {
   return { manual: false, scheduled: false }
 }
 
-export default function SessionSidebar({ sessions, currentId, onDelete }: SessionSidebarProps) {
+export default function SessionSidebar({ sessions, currentId, onDelete, onRename }: SessionSidebarProps) {
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editTitle, setEditTitle] = useState('')
   const location = useLocation()
   const navigate = useNavigate()
   const isHome = location.pathname === '/' || location.pathname.startsWith('/sessions')
@@ -128,36 +131,87 @@ export default function SessionSidebar({ sessions, currentId, onDelete }: Sessio
                     key={session.id}
                     className={`${styles.item} ${currentId === session.id ? styles.itemActive : ''}`}
                   >
-                    <Link to={`/sessions/${session.id}`} className={styles.itemLink}>
-                      <div className={styles.itemHeader}>
-                        <span className={styles.agentType}>{session.title || session.agent_type}</span>
-                        <span className={`${styles.status} ${statusColors[session.status] || ''}`}>
-                          {statusLabels[session.status] || session.status}
-                        </span>
+                    {editingId === session.id ? (
+                      <div className={styles.editRow}>
+                        <input
+                          className={styles.editInput}
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const t = editTitle.trim()
+                              if (t && onRename) onRename(session.id, t)
+                              setEditingId(null)
+                            } else if (e.key === 'Escape') {
+                              setEditingId(null)
+                            }
+                          }}
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          className={styles.editOkBtn}
+                          onClick={() => {
+                            const t = editTitle.trim()
+                            if (t && onRename) onRename(session.id, t)
+                            setEditingId(null)
+                          }}
+                        >
+                          ✓
+                        </button>
                       </div>
-                      {session.last_prompt && (
-                        <p className={styles.lastPrompt}>{session.last_prompt}</p>
-                      )}
-                      <span className={styles.time}>
-                        {new Date(session.created_at).toLocaleString('zh-CN')}
-                      </span>
-                    </Link>
-                    {onDelete && (
-                      <button
-                        type="button"
-                        className={styles.deleteBtn}
-                        title="删除会话"
-                        aria-label="删除会话"
-                        onClick={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          if (window.confirm(`确定删除会话「${session.title || session.agent_type}」吗？此操作不可恢复。`)) {
-                            onDelete(session.id)
-                          }
-                        }}
-                      >
-                        ×
-                      </button>
+                    ) : (
+                      <>
+                        <Link to={`/sessions/${session.id}`} className={styles.itemLink}>
+                          <div className={styles.itemHeader}>
+                            <span className={styles.agentType}>{session.title || session.agent_type}</span>
+                            <span className={`${styles.status} ${statusColors[session.status] || ''}`}>
+                              {statusLabels[session.status] || session.status}
+                            </span>
+                          </div>
+                          {session.last_prompt && (
+                            <p className={styles.lastPrompt}>{session.last_prompt}</p>
+                          )}
+                          <span className={styles.time}>
+                            {new Date(session.created_at).toLocaleString('zh-CN')}
+                          </span>
+                        </Link>
+                        <div className={styles.itemActions}>
+                          {onRename && (
+                            <button
+                              type="button"
+                              className={styles.renameBtn}
+                              title="重命名"
+                              aria-label="重命名"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setEditTitle(session.title || session.agent_type)
+                                setEditingId(session.id)
+                              }}
+                            >
+                              ✎
+                            </button>
+                          )}
+                          {onDelete && (
+                            <button
+                              type="button"
+                              className={styles.deleteBtn}
+                              title="删除会话"
+                              aria-label="删除会话"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                if (window.confirm(`确定删除会话「${session.title || session.agent_type}」吗？此操作不可恢复。`)) {
+                                  onDelete(session.id)
+                                }
+                              }}
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      </>
                     )}
                   </div>
                 ))

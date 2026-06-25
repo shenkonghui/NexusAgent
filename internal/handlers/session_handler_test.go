@@ -137,6 +137,16 @@ func (f *fakeSessionStore) SetConfigOption(_ context.Context, _, _, _ string) er
 	return nil
 }
 
+func (f *fakeSessionStore) UpdateTitle(dbSessionID uint, title string) error {
+	for i := range f.sessions {
+		if f.sessions[i].ID == dbSessionID {
+			f.sessions[i].Title = title
+			return nil
+		}
+	}
+	return errors.New("session not found")
+}
+
 func (f *fakeSessionStore) Prompt(_ context.Context, _, _ string) (<-chan models.Message, error) {
 	if f.promptErr != nil {
 		return nil, f.promptErr
@@ -516,6 +526,7 @@ func (s *commandsFakeStore) ListSkills(_ string) ([]acplocal.Skill, error) {
 func (s *commandsFakeStore) SetConfigOption(_ context.Context, _, _, _ string) error {
 	return nil
 }
+func (s *commandsFakeStore) UpdateTitle(_ uint, _ string) error { return nil }
 func (s *commandsFakeStore) Prompt(context.Context, string, string) (<-chan models.Message, error) {
 	return nil, nil
 }

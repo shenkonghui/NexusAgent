@@ -20,6 +20,14 @@ export function getSession(id: number): Promise<{ data: Session }> {
   return apiFetch(`/sessions/${id}`)
 }
 
+// 更新会话标题
+export function updateSessionTitle(id: number, title: string): Promise<{ data: Session }> {
+  return apiFetch(`/sessions/${id}/title`, {
+    method: 'PUT',
+    body: JSON.stringify({ title }),
+  })
+}
+
 // 关闭会话
 export function closeSession(id: number): Promise<void> {
   return apiFetch(`/sessions/${id}`, { method: 'DELETE' })

@@ -197,3 +197,11 @@ func (r *Router) SetConfigOption(ctx context.Context, sessionID, configID, value
 	}
 	return r.service.SetConfigOption(ctx, sessionID, configID, value)
 }
+
+// UpdateTitle 更新会话标题，委托 service。
+func (r *Router) UpdateTitle(dbSessionID uint, title string) error {
+	if r.service == nil {
+		return errors.New("service 未配置")
+	}
+	return r.service.UpdateTitle(dbSessionID, title)
+}

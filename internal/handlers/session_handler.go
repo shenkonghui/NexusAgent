@@ -42,6 +42,7 @@ type SessionStore interface {
 	ListModes(sessionID string) ([]acp.SessionMode, error)
 	ListSkills(sessionID string) ([]acplocal.Skill, error)
 	SetConfigOption(ctx context.Context, sessionID, configID, value string) error
+	UpdateTitle(dbSessionID uint, title string) error
 	Prompt(ctx context.Context, sessionID, prompt string) (<-chan models.Message, error)
 }
 
@@ -167,6 +168,32 @@ func (h *SessionHandler) Get(c *gin.Context) {
 	if !ok {
 		return
 	}
+	Success(c, http.StatusOK, sess)
+}
+
+// UpdateTitle PUT /api/v1/sessions/:id/title
+func (h *SessionHandler) UpdateTitle(c *gin.Context) {
+	sess, ok := h.loadOwnedSession(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		Title string `json:"title" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数无效")
+		return
+	}
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		Fail(c, http.StatusBadRequest, "INVALID_TITLE", "标题不能为空")
+		return
+	}
+	if err := h.store.UpdateTitle(sess.ID, title); err != nil {
+		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
+		return
+	}
+	sess.Title = title
 	Success(c, http.StatusOK, sess)
 }
 
