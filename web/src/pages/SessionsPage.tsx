@@ -12,7 +12,7 @@ import SessionSidebar from '../components/SessionSidebar'
 import UserMenu from '../components/UserMenu'
 import styles from './SessionsPage.module.css'
 
-const DEFAULT_AGENT_KEY = 'nexus.default_agent'
+const DEFAULT_AGENT_KEY = 'nexus.default.agent'
 
 export default function SessionsPage() {
   const { user, loading: authLoading } = useRequireAuth()
@@ -122,29 +122,14 @@ export default function SessionsPage() {
 
             {showForm && (
               <form className={styles.createForm} onSubmit={handleCreate}>
-                <div className={styles.agentRow}>
-                  <AgentSelector
-                    agents={agents}
-                    value={selectedAgent}
-                    onChange={setSelectedAgent}
-                  />
-                  <button
-                    type="button"
-                    className={styles.defaultBtn}
-                    onClick={() => {
-                      if (selectedAgent) {
-                        localStorage.setItem(DEFAULT_AGENT_KEY, selectedAgent)
-                        setDefaultAgent(selectedAgent)
-                      }
-                    }}
-                    title="将当前选中的 Agent 设为新建会话的默认值"
-                  >
-                    设为默认
-                  </button>
-                </div>
+                <AgentSelector
+                  agents={agents}
+                  value={selectedAgent}
+                  onChange={setSelectedAgent}
+                />
                 {defaultAgent && (
                   <p className={styles.defaultHint}>
-                    默认 Agent：{defaultAgent}
+                    默认 Agent：{defaultAgent}（可在 Agent 设置中修改）
                   </p>
                 )}
                 <div className={styles.field}>

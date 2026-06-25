@@ -48,6 +48,49 @@
   line-height: 1.6;
 }
 
+.defaultSection {
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 500px;
+}
+
+.defaultRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.defaultRow select {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.clearDefaultBtn {
+  padding: 8px 14px;
+  background: #fff;
+  color: #e53e3e;
+  border: 1px solid #e53e3e;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s, color 0.2s;
+}
+
+.clearDefaultBtn:hover {
+  background: #e53e3e;
+  color: #fff;
+}
+
 .form {
   background: #fff;
   border: 1px solid #eee;

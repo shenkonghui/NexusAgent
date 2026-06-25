@@ -2,13 +2,16 @@ import { useState, useEffect, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useRequireAuth } from '../hooks/useRequireAuth'
 import { listAgentConfigs, createAgentConfig, updateAgentConfig, deleteAgentConfig } from '../api/agentConfigs'
+import { listAgents } from '../api/agents'
 import { listSessions } from '../api/sessions'
-import type { AgentConfig, Session } from '../types'
+import type { AgentConfig, Session, Agent } from '../types'
 import SessionSidebar from '../components/SessionSidebar'
 import UserMenu from '../components/UserMenu'
 import ErrorBanner from '../components/ErrorBanner'
 import LoadingSpinner from '../components/LoadingSpinner'
 import styles from './SettingsPage.module.css'
+
+const DEFAULT_AGENT_KEY = 'nexus.default.agent'
 
 const EMPTY_FORM = {
   type: '',
@@ -26,7 +29,9 @@ export default function SettingsPage() {
   const navigate = useNavigate()
 
   const [configs, setConfigs] = useState<AgentConfig[]>([])
+  const [agents, setAgents] = useState<Agent[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
+  const [defaultAgent, setDefaultAgent] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [form, setForm] = useState({ ...EMPTY_FORM })
@@ -41,14 +46,25 @@ export default function SettingsPage() {
     setLoading(true)
     setError('')
     try {
-      const [cfgResp, sessResp] = await Promise.all([listAgentConfigs(), listSessions()])
+      const [cfgResp, agentsResp, sessResp] = await Promise.all([
+        listAgentConfigs(),
+        listAgents(),
+        listSessions(),
+      ])
       setConfigs(cfgResp.data.agent_configs || [])
+      setAgents(agentsResp.data.agents || [])
       setSessions(sessResp.data.sessions || [])
+      setDefaultAgent(localStorage.getItem(DEFAULT_AGENT_KEY) || '')
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载设置失败')
     } finally {
       setLoading(false)
     }
+  }
+
+  function handleSetDefault(agentType: string) {
+    localStorage.setItem(DEFAULT_AGENT_KEY, agentType)
+    setDefaultAgent(agentType)
   }
 
   function resetForm() {
@@ -140,6 +156,37 @@ export default function SettingsPage() {
             <p className={styles.hint}>
               在此添加本地支持 ACP 的 agent（如 Claude Code、CodeBuddy、Devin 等）。配置全局共享，所有用户可用。内置 agent 由 config.yaml 管理。
             </p>
+
+            {/* 默认 Agent 选择 */}
+            <div className={styles.defaultSection}>
+              <label className={styles.label}>默认 Agent（新建会话时自动选中）</label>
+              <div className={styles.defaultRow}>
+                <select
+                  className={styles.input}
+                  value={defaultAgent}
+                  onChange={(e) => handleSetDefault(e.target.value)}
+                >
+                  <option value="">未设置</option>
+                  {agents.map((a) => (
+                    <option key={a.type} value={a.type}>
+                      {a.display_name}（{a.type}）
+                    </option>
+                  ))}
+                </select>
+                {defaultAgent && (
+                  <button
+                    type="button"
+                    className={styles.clearDefaultBtn}
+                    onClick={() => {
+                      localStorage.removeItem(DEFAULT_AGENT_KEY)
+                      setDefaultAgent('')
+                    }}
+                  >
+                    清除
+                  </button>
+                )}
+              </div>
+            </div>
 
             <form className={styles.form} onSubmit={handleSubmit}>
               <h2 className={styles.formTitle}>{editingId != null ? '编辑 Agent' : '添加 Agent'}</h2>
