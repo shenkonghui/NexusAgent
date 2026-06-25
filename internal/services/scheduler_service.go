@@ -319,9 +319,16 @@ func (s *SchedulerService) ensureSession(ctx context.Context, t *models.Schedule
 		}
 		// session 已关闭或出错则恢复
 		if session.Status != models.SessionStatusActive {
+			oldSessionID := session.SessionID
 			session, err = s.exec.ResumeSession(ctx, session.SessionID, t.Cwd)
 			if err != nil {
 				return nil, 0, fmt.Errorf("恢复会话: %w", err)
+			}
+			// ResumeSession 会生成新的 session_id，需同步更新任务的 session_id 引用
+			if session.SessionID != oldSessionID {
+				if err := s.repo.UpdateSessionRef(t.ID, session.SessionID, session.ID); err != nil {
+					return nil, 0, fmt.Errorf("同步会话引用: %w", err)
+				}
 			}
 		}
 	}
