@@ -8,6 +8,32 @@
   flex-shrink: 0;
 }
 
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #2a2a3e;
+  text-decoration: none;
+  color: #eee;
+  transition: background 0.2s;
+}
+
+.logo:hover {
+  background: #2a2a3e;
+}
+
+.logoIcon {
+  font-size: 18px;
+  color: #667eea;
+}
+
+.logoText {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
 .groups {
   flex: 1;
   overflow-y: auto;

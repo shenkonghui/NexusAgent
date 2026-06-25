@@ -96,6 +96,12 @@ export default function SessionSidebar({ sessions, currentId, onDelete }: Sessio
 
   return (
     <div className={styles.sidebar}>
+      {/* 顶部 Logo：点击回首页 */}
+      <Link to="/" className={styles.logo} title="返回首页">
+        <span className={styles.logoIcon}>⚡</span>
+        <span className={styles.logoText}>NexusAgent</span>
+      </Link>
+
       {/* 顶部：双折叠分组 */}
       <div className={styles.groups}>
         {/* 手动会话分组 */}
