@@ -5,6 +5,7 @@ import SessionsPage from './pages/SessionsPage'
 import ChatPage from './pages/ChatPage'
 import SettingsPage from './pages/SettingsPage'
 import ScheduledTasksPage from './pages/ScheduledTasksPage'
+import ProfilePage from './pages/ProfilePage'
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
           <Route path="/sessions" element={<Navigate to="/" replace />} />
           <Route path="/sessions/:id" element={<ChatPage />} />
           <Route path="/scheduled-tasks" element={<ScheduledTasksPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
           <Route path="/settings" element={<SettingsPage />} />
           {/* 404 路由：未匹配的路径重定向到登录页 */}
           <Route path="*" element={<Navigate to="/login" replace />} />

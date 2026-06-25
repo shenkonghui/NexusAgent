@@ -53,3 +53,24 @@ func (r *UserRepository) ExistsByUsernameOrEmail(username, email string) (bool, 
 		Count(&count).Error
 	return count > 0, err
 }
+
+// ExistsByUsernameOrEmailExcludingID 检查除指定用户外是否存在同名用户名或邮箱（用于更新时唯一性校验）。
+func (r *UserRepository) ExistsByUsernameOrEmailExcludingID(id uint, username, email string) (bool, error) {
+	var count int64
+	err := r.db.Model(&models.User{}).
+		Where("id <> ? AND (username = ? OR email = ?)", id, username, email).
+		Count(&count).Error
+	return count > 0, err
+}
+
+// UpdateProfile 更新用户名与邮箱。
+func (r *UserRepository) UpdateProfile(id uint, username, email string) error {
+	return r.db.Model(&models.User{}).Where("id = ?", id).
+		Updates(map[string]interface{}{"username": username, "email": email}).Error
+}
+
+// UpdatePassword 更新密码哈希。
+func (r *UserRepository) UpdatePassword(id uint, passwordHash string) error {
+	return r.db.Model(&models.User{}).Where("id = ?", id).
+		Update("password_hash", passwordHash).Error
+}

@@ -13,6 +13,7 @@ interface AuthContextValue extends AuthState {
   login: (account: string, password: string) => Promise<void>
   register: (username: string, email: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -65,7 +66,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }, [])
 
-  const value: AuthContextValue = { user, loading, login, register, logout }
+  // 重新拉取当前用户信息（个人中心更新后刷新）
+  const refreshUser = useCallback(async () => {
+    const resp = await authApi.getMe()
+    setUser(resp.data)
+  }, [])
+
+  const value: AuthContextValue = { user, loading, login, register, logout, refreshUser }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

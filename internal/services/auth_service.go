@@ -14,11 +14,12 @@ import (
 )
 
 var (
-	ErrWeakPassword = errors.New("密码强度不足")
-	ErrUserExists   = errors.New("用户名或邮箱已存在")
-	ErrInvalidCreds = errors.New("账号或密码错误")
-	ErrUserDisabled = errors.New("用户已被禁用")
-	ErrInvalidToken = errors.New("无效或已过期的令牌")
+	ErrWeakPassword     = errors.New("密码强度不足")
+	ErrUserExists       = errors.New("用户名或邮箱已存在")
+	ErrInvalidCreds     = errors.New("账号或密码错误")
+	ErrUserDisabled     = errors.New("用户已被禁用")
+	ErrInvalidToken     = errors.New("无效或已过期的令牌")
+	ErrWrongOldPassword = errors.New("原密码错误")
 )
 
 var (
@@ -195,4 +196,46 @@ func (s *AuthService) Logout(refreshToken string) error {
 
 func (s *AuthService) GetUserByID(id uint) (*models.User, error) {
 	return s.users.FindByID(id)
+}
+
+// UpdateProfile 更新用户名与邮箱。校验唯一性（排除自身）。
+func (s *AuthService) UpdateProfile(id uint, username, email string) (*models.User, error) {
+	username = strings.TrimSpace(username)
+	email = strings.TrimSpace(email)
+	if username == "" || email == "" {
+		return nil, errors.New("用户名与邮箱不能为空")
+	}
+	exists, err := s.users.ExistsByUsernameOrEmailExcludingID(id, username, email)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, ErrUserExists
+	}
+	if err := s.users.UpdateProfile(id, username, email); err != nil {
+		if isUniqueViolation(err) {
+			return nil, ErrUserExists
+		}
+		return nil, err
+	}
+	return s.users.FindByID(id)
+}
+
+// ChangePassword 校验原密码后更新为新密码。
+func (s *AuthService) ChangePassword(id uint, oldPassword, newPassword string) error {
+	if !s.validatePassword(newPassword) {
+		return ErrWeakPassword
+	}
+	user, err := s.users.FindByID(id)
+	if err != nil {
+		return err
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword)); err != nil {
+		return ErrWrongOldPassword
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), s.bcryptCost)
+	if err != nil {
+		return err
+	}
+	return s.users.UpdatePassword(id, string(hash))
 }

@@ -28,3 +28,19 @@ export function logout(): Promise<void> {
 export function getMe(): Promise<{ data: User }> {
   return apiFetch('/me')
 }
+
+// 更新当前用户名与邮箱
+export function updateProfile(username: string, email: string): Promise<{ data: User }> {
+  return apiFetch('/me', {
+    method: 'PUT',
+    body: JSON.stringify({ username, email }),
+  })
+}
+
+// 修改当前用户密码
+export function changePassword(oldPassword: string, newPassword: string): Promise<void> {
+  return apiFetch('/me/password', {
+    method: 'POST',
+    body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+  })
+}

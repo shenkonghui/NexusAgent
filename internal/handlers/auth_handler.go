@@ -102,6 +102,55 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	Success(c, http.StatusOK, user)
 }
 
+type updateProfileRequest struct {
+	Username string `json:"username" binding:"required"`
+	Email    string `json:"email" binding:"required"`
+}
+
+// UpdateProfile PUT /api/v1/me — 更新当前用户名与邮箱。
+func (h *AuthHandler) UpdateProfile(c *gin.Context) {
+	uid, ok := currentUserID(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
+		return
+	}
+	var req updateProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数无效")
+		return
+	}
+	user, err := h.svc.UpdateProfile(uid, req.Username, req.Email)
+	if err != nil {
+		h.writeAuthError(c, err)
+		return
+	}
+	Success(c, http.StatusOK, user)
+}
+
+type changePasswordRequest struct {
+	OldPassword string `json:"old_password" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required"`
+}
+
+// ChangePassword POST /api/v1/me/password — 修改当前用户密码。
+func (h *AuthHandler) ChangePassword(c *gin.Context) {
+	uid, ok := currentUserID(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
+		return
+	}
+	var req changePasswordRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数无效")
+		return
+	}
+	if err := h.svc.ChangePassword(uid, req.OldPassword, req.NewPassword); err != nil {
+		h.writeAuthError(c, err)
+		return
+	}
+	Success(c, http.StatusOK, struct{}{})
+}
+
 // writeAuthError 将 service 层错误映射为统一 HTTP 响应
 func (h *AuthHandler) writeAuthError(c *gin.Context, err error) {
 	switch {
@@ -115,6 +164,8 @@ func (h *AuthHandler) writeAuthError(c *gin.Context, err error) {
 		Fail(c, http.StatusForbidden, "USER_DISABLED", "用户已被禁用")
 	case errors.Is(err, services.ErrInvalidToken):
 		Fail(c, http.StatusUnauthorized, "INVALID_TOKEN", "无效或已过期的令牌")
+	case errors.Is(err, services.ErrWrongOldPassword):
+		Fail(c, http.StatusBadRequest, "WRONG_OLD_PASSWORD", "原密码错误")
 	default:
 		Fail(c, http.StatusInternalServerError, "INTERNAL", "内部错误")
 	}

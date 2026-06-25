@@ -237,6 +237,12 @@ export default function SessionSidebar({ sessions, currentId, onDelete }: Sessio
           ⏰ 定时任务配置
         </Link>
         <Link
+          to="/profile"
+          className={`${styles.navItem} ${location.pathname === '/profile' ? styles.navItemActive : ''}`}
+        >
+          👤 个人中心
+        </Link>
+        <Link
           to="/settings"
           className={`${styles.navItem} ${location.pathname === '/settings' ? styles.navItemActive : ''}`}
         >

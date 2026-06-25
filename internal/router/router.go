@@ -31,6 +31,8 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 		protected.Use(middleware.AuthRequired(jwtSvc))
 		{
 			protected.GET("/me", authHandler.Me)
+			protected.PUT("/me", authHandler.UpdateProfile)
+			protected.POST("/me/password", authHandler.ChangePassword)
 
 			agentH := handlers.NewAgentHandler(agentRouter, agentRouter, agentRouter)
 			protected.GET("/agents", agentH.List)
