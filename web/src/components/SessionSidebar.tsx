@@ -97,8 +97,26 @@ export default function SessionSidebar({ sessions, currentId, onDelete }: Sessio
             onClick={() => toggleGroup('manual')}
           >
             <span className={styles.groupArrow}>{collapsed.manual ? '▶' : '▼'}</span>
-            <span className={styles.groupTitle}>📝 手动会话</span>
+            <span className={styles.groupTitle}>📝 我的任务</span>
             <span className={styles.groupCount}>{manualSessions.length}</span>
+            <span
+              className={styles.addBtn}
+              role="button"
+              tabIndex={0}
+              title="新建会话"
+              onClick={(e) => {
+                e.stopPropagation()
+                navigate('/')
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.stopPropagation()
+                  navigate('/')
+                }
+              }}
+            >
+              +
+            </span>
           </button>
           {!collapsed.manual && (
             <div className={styles.groupList}>

@@ -84,6 +84,26 @@
   border-radius: 8px;
 }
 
+.addBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #667eea;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  flex-shrink: 0;
+}
+
+.addBtn:hover {
+  background: #667eea;
+  color: #fff;
+}
+
 .groupList {
   padding: 4px 4px 6px 4px;
   margin-top: 2px;
