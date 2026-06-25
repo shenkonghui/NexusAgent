@@ -107,6 +107,41 @@ func (f *fakeSessionStore) Prompt(_ context.Context, _, _ string) (<-chan models
 	return f.promptCh, nil
 }
 
+// closeNotifyRecorder 包装 httptest.ResponseRecorder，补充 CloseNotifier 接口以兼容 Gin 的 c.Stream。
+type closeNotifyRecorder struct {
+	*httptest.ResponseRecorder
+	notify chan bool
+}
+
+func newCloseNotifyRecorder() *closeNotifyRecorder {
+	return &closeNotifyRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		notify:           make(chan bool),
+	}
+}
+
+func (c *closeNotifyRecorder) CloseNotify() <-chan bool {
+	return c.notify
+}
+
+// doSSERequest 发送 SSE 流式请求，使用支持 CloseNotifier 的 recorder。
+func doSSERequest(t *testing.T, r http.Handler, method, path string, body interface{}) *httptest.ResponseRecorder {
+	t.Helper()
+	var buf bytes.Buffer
+	if body != nil {
+		j, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("序列化请求体失败: %v", err)
+		}
+		buf = *bytes.NewBuffer(j)
+	}
+	req := httptest.NewRequest(method, path, &buf)
+	req.Header.Set("Content-Type", "application/json")
+	rec := newCloseNotifyRecorder()
+	r.ServeHTTP(rec, req)
+	return rec.ResponseRecorder
+}
+
 // newSessionTestRouter 构造带「注入 userID」中间件的测试路由。
 func newSessionTestRouter(store SessionStore, userID uint) *gin.Engine {
 	gin.SetMode(gin.TestMode)
@@ -384,12 +419,7 @@ func TestSessionHandler_Prompt_SSE_Success(t *testing.T) {
 	store.promptCh = ch
 
 	r := newSessionTestRouter(store, 100)
-	var buf bytes.Buffer
-	_ = json.NewEncoder(&buf).Encode(gin.H{"prompt": "写一个 hello world"})
-	req := httptest.NewRequest("POST", "/api/v1/sessions/1/prompt", &buf)
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+	w := doSSERequest(t, r, "POST", "/api/v1/sessions/1/prompt", gin.H{"prompt": "写一个 hello world"})
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("状态码 = %d, 期望 200, body=%s", w.Code, w.Body.String())
