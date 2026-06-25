@@ -14,6 +14,7 @@ import DirectoryPicker from '../components/DirectoryPicker'
 import ErrorBanner from '../components/ErrorBanner'
 import LoadingSpinner from '../components/LoadingSpinner'
 import SessionSidebar from '../components/SessionSidebar'
+import UserMenu from '../components/UserMenu'
 import { listSessions } from '../api/sessions'
 import type { Session } from '../types'
 import styles from './ScheduledTasksPage.module.css'
@@ -300,9 +301,7 @@ export default function ScheduledTasksPage() {
       <div className={styles.main}>
         <div className={styles.header}>
           <h1 className={styles.title}>定时任务配置</h1>
-          <div className={styles.userInfo}>
-            <span>{user.username}</span>
-          </div>
+          <UserMenu />
         </div>
 
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}

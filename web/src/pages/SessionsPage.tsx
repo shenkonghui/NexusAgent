@@ -9,6 +9,7 @@ import DirectoryPicker from '../components/DirectoryPicker'
 import ErrorBanner from '../components/ErrorBanner'
 import LoadingSpinner from '../components/LoadingSpinner'
 import SessionSidebar from '../components/SessionSidebar'
+import UserMenu from '../components/UserMenu'
 import styles from './SessionsPage.module.css'
 
 export default function SessionsPage() {
@@ -91,9 +92,7 @@ export default function SessionsPage() {
       <div className={styles.main}>
         <div className={styles.header}>
           <h1 className={styles.title}>首页</h1>
-          <div className={styles.userInfo}>
-            <span>{user.username}</span>
-          </div>
+          <UserMenu />
         </div>
 
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}

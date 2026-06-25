@@ -6,6 +6,7 @@ import { listSessions } from '../api/sessions'
 import type { Session } from '../types'
 import { useEffect } from 'react'
 import SessionSidebar from '../components/SessionSidebar'
+import UserMenu from '../components/UserMenu'
 import ErrorBanner from '../components/ErrorBanner'
 import LoadingSpinner from '../components/LoadingSpinner'
 import styles from './ProfilePage.module.css'
@@ -88,9 +89,7 @@ export default function ProfilePage() {
       <div className={styles.main}>
         <div className={styles.header}>
           <h1 className={styles.title}>个人中心</h1>
-          <div className={styles.userInfo}>
-            <span>{user.username}</span>
-          </div>
+          <UserMenu />
         </div>
 
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}

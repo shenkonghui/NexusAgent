@@ -14,6 +14,7 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import FilePanel from '../components/FilePanel'
 import ContextStats from '../components/ContextStats'
 import TerminalPanel from '../components/Terminal'
+import UserMenu from '../components/UserMenu'
 import styles from './ChatPage.module.css'
 
 export default function ChatPage() {
@@ -274,6 +275,7 @@ export default function ChatPage() {
                 关闭会话
               </button>
             )}
+            <UserMenu />
           </div>
         </div>
 

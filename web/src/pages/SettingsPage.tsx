@@ -5,6 +5,7 @@ import { listAgentConfigs, createAgentConfig, updateAgentConfig, deleteAgentConf
 import { listSessions } from '../api/sessions'
 import type { AgentConfig, Session } from '../types'
 import SessionSidebar from '../components/SessionSidebar'
+import UserMenu from '../components/UserMenu'
 import ErrorBanner from '../components/ErrorBanner'
 import LoadingSpinner from '../components/LoadingSpinner'
 import styles from './SettingsPage.module.css'
@@ -127,9 +128,7 @@ export default function SettingsPage() {
       <div className={styles.main}>
         <div className={styles.header}>
           <h1 className={styles.title}>设置 — 本地 ACP Agent</h1>
-          <div className={styles.userInfo}>
-            <span>{user.username}</span>
-          </div>
+          <UserMenu />
         </div>
 
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}
