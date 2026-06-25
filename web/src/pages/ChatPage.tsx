@@ -58,9 +58,24 @@ export default function ChatPage() {
     await streamPrompt(
       sessionId,
       prompt,
-      // onMessage: 追加消息到列表
+      // onMessage: 合并连续的 agent_message_chunk
       (msg) => {
-        setMessages((prev) => [...prev, msg])
+        setMessages((prev) => {
+          const last = prev[prev.length - 1]
+          // 如果上一条是 agent_message_chunk 且 sequence 连续，合并 content
+          if (
+            last &&
+            last.kind === 'agent_message_chunk' &&
+            last.role === 'assistant' &&
+            last.sequence === msg.sequence - 1
+          ) {
+            return [
+              ...prev.slice(0, -1),
+              { ...last, content: last.content + msg.content },
+            ]
+          }
+          return [...prev, msg]
+        })
       },
       // onDone: 流结束
       () => {
