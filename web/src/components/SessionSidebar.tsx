@@ -23,21 +23,6 @@ const statusLabels: Record<string, string> = {
   error: '错误',
 }
 
-// 定时任务最近执行状态标签
-const taskStatusLabels: Record<string, string> = {
-  success: '成功',
-  running: '执行中',
-  failed: '失败',
-  skipped: '跳过',
-}
-
-const taskStatusColors: Record<string, string> = {
-  success: styles.taskSuccess,
-  running: styles.taskRunning,
-  failed: styles.taskFailed,
-  skipped: styles.taskSkipped,
-}
-
 const STORAGE_KEY = 'nexus.sidebar.collapsed'
 
 function loadCollapsed(): { manual: boolean; scheduled: boolean } {
@@ -208,20 +193,7 @@ export default function SessionSidebar({ sessions, currentId, onDelete }: Sessio
                       disabled={!task.db_session_id}
                       style={!task.db_session_id ? { cursor: 'default', opacity: 0.6 } : undefined}
                     >
-                      <div className={styles.itemHeader}>
-                        <span className={styles.agentType}>{task.name}</span>
-                        <span
-                          className={`${styles.status} ${taskStatusColors[task.last_status] || styles.statusClosed}`}
-                        >
-                          {taskStatusLabels[task.last_status] || '未执行'}
-                        </span>
-                      </div>
-                      <p className={styles.lastPrompt}>{task.prompt}</p>
-                      <span className={styles.time}>
-                        {task.last_run_at
-                          ? `上次执行: ${new Date(task.last_run_at).toLocaleString('zh-CN')}`
-                          : '尚未执行'}
-                      </span>
+                      <span className={styles.agentType}>{task.name}</span>
                     </button>
                   </div>
                 ))
