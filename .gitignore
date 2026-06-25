@@ -2,6 +2,7 @@ data/
 *.db
 .env
 JWT_SECRET
+server.bak
 
 # web frontend
 web/node_modules/
