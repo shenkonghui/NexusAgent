@@ -103,6 +103,36 @@ export default function ScheduledTasksPage() {
     }
   }, [form.agent_type])
 
+  // 编辑任务时，若缓存无模型列表则自动 probe 获取
+  useEffect(() => {
+    if (!showForm || !form.agent_type || modelOptions.length > 0 || probing) return
+    let alive = true
+    setProbing(true)
+    probeAgentConfigs(form.agent_type)
+      .then((r) => {
+        if (!alive) return
+        const opts = r.data.config_options || []
+        const modelOpt = opts.find((o) => o.category === 'model' && o.type === 'select')
+        if (modelOpt) {
+          setModelOptions([
+            {
+              id: modelOpt.id,
+              name: modelOpt.name,
+              current_value: modelOpt.current_value,
+              options: modelOpt.options,
+            },
+          ])
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (alive) setProbing(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [showForm, form.agent_type, modelOptions.length])
+
   async function loadData() {
     setLoading(true)
     setError('')
@@ -317,8 +347,7 @@ export default function ScheduledTasksPage() {
                         <option value="">默认模型</option>
                         {modelOptions[0].options.map((o) => (
                           <option key={o.value} value={o.value}>
-                            {o.name}
-                            {o.description ? ` — ${o.description}` : ''}
+                            {o.name !== o.value ? `${o.name} (${o.value})` : o.value}
                           </option>
                         ))}
                       </select>
@@ -328,7 +357,7 @@ export default function ScheduledTasksPage() {
                         type="text"
                         value={form.model_value}
                         onChange={(e) => setForm({ ...form, model_value: e.target.value })}
-                        placeholder="模型 ID（可选，点击右侧按钮获取）"
+                        placeholder="模型 ID（可选，点击右侧按钮获取列表）"
                       />
                     )}
                     <button
@@ -344,7 +373,7 @@ export default function ScheduledTasksPage() {
                   <span className={styles.hint}>
                     {modelOptions.length === 0
                       ? '尚未获取模型列表，可手动输入模型 ID 或点击「获取配置」'
-                      : '已获取的可用模型（来自临时会话探测）'}
+                      : '已获取的可用模型（括号内为模型 ID，供 agent 识别）'}
                   </span>
                 </div>
 
