@@ -158,6 +158,14 @@ func (r *Router) ListConfigOptions(sessionID string) ([]acpsdk.SessionConfigOpti
 	return r.service.ListConfigOptions(sessionID)
 }
 
+// CachedModelOptions 返回指定 agent 类型的可用模型 config option，委托 service。
+func (r *Router) CachedModelOptions(agentType string) []acpsdk.SessionConfigOption {
+	if r.service == nil {
+		return nil
+	}
+	return r.service.CachedModelOptions(agentType)
+}
+
 // ListModes 返回会话可用的 mode 列表（agent skill/模式），委托 service。
 func (r *Router) ListModes(sessionID string) ([]acpsdk.SessionMode, error) {
 	if r.service == nil {

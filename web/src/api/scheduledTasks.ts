@@ -5,10 +5,11 @@ import { apiFetch } from './client'
 export function createScheduledTask(payload: {
   name: string
   agent_type: string
-  cwd: string
+  cwd?: string
   prompt: string
   cron_expr: string
   enabled?: boolean
+  model_value?: string
 }): Promise<{ data: ScheduledTask }> {
   return apiFetch('/scheduled-tasks', {
     method: 'POST',
@@ -36,6 +37,7 @@ export function updateScheduledTask(
     prompt: string
     cron_expr: string
     enabled: boolean
+    model_value: string
   }>,
 ): Promise<{ data: ScheduledTask }> {
   return apiFetch(`/scheduled-tasks/${id}`, {

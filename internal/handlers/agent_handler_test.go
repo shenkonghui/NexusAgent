@@ -17,7 +17,7 @@ func (f *fakeAgentLister) ListAgents() []*agent.AgentDescriptor { return f.descs
 func newAgentTestRouter(lister AgentLister) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	h := NewAgentHandler(lister)
+	h := NewAgentHandler(lister, nil)
 	r.GET("/api/v1/agents", h.List)
 	return r
 }

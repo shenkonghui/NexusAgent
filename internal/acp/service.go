@@ -413,6 +413,36 @@ func (s *Service) ListConfigOptions(sessionID string) ([]acp.SessionConfigOption
 	return out, nil
 }
 
+// CachedModelOptions 返回指定 agent 类型的可用模型 config option（从已有会话缓存获取）。
+// 仅返回 category=model 的 select 类型 option。若该 agent 类型尚无会话缓存则返回 nil。
+func (s *Service) CachedModelOptions(agentType string) []acp.SessionConfigOption {
+	s.mu.RLock()
+	sessionIDs := make([]string, 0, len(s.configs))
+	for sid := range s.configs {
+		sessionIDs = append(sessionIDs, sid)
+	}
+	s.mu.RUnlock()
+
+	for _, sid := range sessionIDs {
+		sess, err := s.GetSession(sid)
+		if err != nil || sess.AgentType != agentType {
+			continue
+		}
+		s.mu.RLock()
+		opts := s.configs[sid]
+		s.mu.RUnlock()
+		for _, opt := range opts {
+			if opt.Select == nil || opt.Select.Category == nil {
+				continue
+			}
+			if string(*opt.Select.Category) == "model" {
+				return []acp.SessionConfigOption{opt}
+			}
+		}
+	}
+	return nil
+}
+
 // ListModes 返回会话可用的 mode 列表（agent skill/模式，如 plan/act）。
 func (s *Service) ListModes(sessionID string) ([]acp.SessionMode, error) {
 	if _, err := s.GetSession(sessionID); err != nil {

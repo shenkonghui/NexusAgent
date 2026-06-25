@@ -39,12 +39,13 @@ func NewScheduledTaskHandler(repo *repository.ScheduledTaskRepository, mgr Sched
 }
 
 type createTaskRequest struct {
-	Name      string `json:"name" binding:"required"`
-	AgentType string `json:"agent_type" binding:"required"`
-	Cwd       string `json:"cwd" binding:"required"`
-	Prompt    string `json:"prompt" binding:"required"`
-	CronExpr  string `json:"cron_expr" binding:"required"`
-	Enabled   *bool  `json:"enabled"`
+	Name       string `json:"name" binding:"required"`
+	AgentType  string `json:"agent_type" binding:"required"`
+	Cwd        string `json:"cwd"`
+	Prompt     string `json:"prompt" binding:"required"`
+	CronExpr   string `json:"cron_expr" binding:"required"`
+	Enabled    *bool  `json:"enabled"`
+	ModelValue string `json:"model_value"`
 }
 
 // Create POST /api/v1/scheduled-tasks
@@ -68,13 +69,14 @@ func (h *ScheduledTaskHandler) Create(c *gin.Context) {
 		enabled = *req.Enabled
 	}
 	task := &models.ScheduledTask{
-		Name:      strings.TrimSpace(req.Name),
-		AgentType: req.AgentType,
-		Cwd:       req.Cwd,
-		Prompt:    req.Prompt,
-		CronExpr:  req.CronExpr,
-		Enabled:   enabled,
-		UserID:    uid,
+		Name:       strings.TrimSpace(req.Name),
+		AgentType:  req.AgentType,
+		Cwd:        req.Cwd,
+		Prompt:     req.Prompt,
+		CronExpr:   req.CronExpr,
+		Enabled:    enabled,
+		UserID:     uid,
+		ModelValue: strings.TrimSpace(req.ModelValue),
 	}
 	if err := h.mgr.AddTask(task); err != nil {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
@@ -108,12 +110,13 @@ func (h *ScheduledTaskHandler) Get(c *gin.Context) {
 }
 
 type updateTaskRequest struct {
-	Name      *string `json:"name"`
-	AgentType *string `json:"agent_type"`
-	Cwd       *string `json:"cwd"`
-	Prompt    *string `json:"prompt"`
-	CronExpr  *string `json:"cron_expr"`
-	Enabled   *bool   `json:"enabled"`
+	Name       *string `json:"name"`
+	AgentType  *string `json:"agent_type"`
+	Cwd        *string `json:"cwd"`
+	Prompt     *string `json:"prompt"`
+	CronExpr   *string `json:"cron_expr"`
+	Enabled    *bool   `json:"enabled"`
+	ModelValue *string `json:"model_value"`
 }
 
 // Update PUT /api/v1/scheduled-tasks/:id
@@ -148,6 +151,9 @@ func (h *ScheduledTaskHandler) Update(c *gin.Context) {
 	}
 	if req.Enabled != nil {
 		task.Enabled = *req.Enabled
+	}
+	if req.ModelValue != nil {
+		task.ModelValue = strings.TrimSpace(*req.ModelValue)
 	}
 	if err := h.mgr.UpdateTask(task); err != nil {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())

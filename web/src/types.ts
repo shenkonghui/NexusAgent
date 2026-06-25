@@ -105,6 +105,7 @@ export interface ScheduledTask {
   cron_expr: string;
   enabled: boolean;
   user_id: number;
+  model_value: string;
   session_id: string;
   db_session_id: number;
   last_run_at: string | null;
@@ -112,6 +113,14 @@ export interface ScheduledTask {
   last_error: string;
   created_at: string;
   updated_at: string;
+}
+
+// Agent 模型 config option（用于定时任务模型选择）
+export interface ModelOption {
+  id: string;
+  name: string;
+  current_value: string;
+  options: ConfigOptionValue[];
 }
 
 // 定时任务执行块聚合

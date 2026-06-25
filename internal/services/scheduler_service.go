@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
+	acpsdk "github.com/coder/acp-go-sdk"
 	"github.com/robfig/cron/v3"
 
 	"nexusagent/internal/models"
@@ -21,6 +23,8 @@ type SchedulerExecutor interface {
 	GetSessionByDBID(id uint) (*models.Session, error)
 	DeleteSession(ctx context.Context, sessionID string) error
 	ListExecutions(sessionID string) ([]repository.ExecutionAggregate, error)
+	ListConfigOptions(sessionID string) ([]acpsdk.SessionConfigOption, error)
+	SetConfigOption(ctx context.Context, sessionID, configID, value string) error
 }
 
 // SchedulerService 是进程内 cron 调度器，管理定时任务的调度与执行。
@@ -192,6 +196,12 @@ func (s *SchedulerService) execute(t *models.ScheduledTask) (err error) {
 		return err
 	}
 
+	// 设置模型（若任务配置了 model_value 且该会话支持模型选择）
+	if err := s.applyModel(ctx, session.SessionID, t.ModelValue); err != nil {
+		// 模型设置失败不中断执行，仅记录日志（使用默认模型继续）
+		log.Printf("定时任务 %d 设置模型 %q 失败: %v", t.ID, t.ModelValue, err)
+	}
+
 	ch, err := s.exec.PromptWithExecution(ctx, session.SessionID, t.Prompt, &execID)
 	if err != nil {
 		return fmt.Errorf("发送 prompt: %w", err)
@@ -201,6 +211,56 @@ func (s *SchedulerService) execute(t *models.ScheduledTask) (err error) {
 	for range ch {
 	}
 	return nil
+}
+
+// applyModel 在会话上设置模型 config option。modelValue 为空时不做任何操作。
+// 通过遍历会话的 config options 找到 category=model 的项，校验 modelValue 在可选项中后设置。
+func (s *SchedulerService) applyModel(ctx context.Context, sessionID, modelValue string) error {
+	if strings.TrimSpace(modelValue) == "" {
+		return nil
+	}
+	opts, err := s.exec.ListConfigOptions(sessionID)
+	if err != nil {
+		return fmt.Errorf("查询 config options: %w", err)
+	}
+	for _, opt := range opts {
+		if opt.Select == nil || opt.Select.Category == nil {
+			continue
+		}
+		if string(*opt.Select.Category) != "model" {
+			continue
+		}
+		// 校验 modelValue 是否在可选项中
+		if !optionValueExists(opt, modelValue) {
+			return fmt.Errorf("模型 %q 不在可用列表中", modelValue)
+		}
+		return s.exec.SetConfigOption(ctx, sessionID, string(opt.Select.Id), modelValue)
+	}
+	return fmt.Errorf("会话不支持模型选择")
+}
+
+// optionValueExists 检查 modelValue 是否在 config option 的可选项中。
+func optionValueExists(opt acpsdk.SessionConfigOption, modelValue string) bool {
+	if opt.Select == nil {
+		return false
+	}
+	if opt.Select.Options.Ungrouped != nil {
+		for _, o := range *opt.Select.Options.Ungrouped {
+			if string(o.Value) == modelValue {
+				return true
+			}
+		}
+	}
+	if opt.Select.Options.Grouped != nil {
+		for _, g := range *opt.Select.Options.Grouped {
+			for _, o := range g.Options {
+				if string(o.Value) == modelValue {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // ensureSession 确保任务关联的 session 处于活跃可用状态，返回 session 与本次 execution_id。

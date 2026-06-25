@@ -1,6 +1,6 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { useRequireAuth } from '../hooks/useRequireAuth'
-import { listAgents } from '../api/agents'
+import { listAgents, getAgentModels } from '../api/agents'
 import {
   listScheduledTasks,
   createScheduledTask,
@@ -8,7 +8,7 @@ import {
   deleteScheduledTask,
   runScheduledTask,
 } from '../api/scheduledTasks'
-import type { Agent, ScheduledTask } from '../types'
+import type { Agent, ScheduledTask, ModelOption } from '../types'
 import AgentSelector from '../components/AgentSelector'
 import DirectoryPicker from '../components/DirectoryPicker'
 import ErrorBanner from '../components/ErrorBanner'
@@ -46,6 +46,7 @@ interface FormState {
   cron_expr: string
   enabled: boolean
   preset: string
+  model_value: string
 }
 
 const emptyForm: FormState = {
@@ -56,6 +57,7 @@ const emptyForm: FormState = {
   cron_expr: '*/5 * * * *',
   enabled: true,
   preset: '每 5 分钟',
+  model_value: '',
 }
 
 export default function ScheduledTasksPage() {
@@ -64,6 +66,7 @@ export default function ScheduledTasksPage() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
+  const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -77,6 +80,25 @@ export default function ScheduledTasksPage() {
     if (!user) return
     loadData()
   }, [user])
+
+  // agent_type 变化时获取可用模型列表
+  useEffect(() => {
+    if (!form.agent_type) {
+      setModelOptions([])
+      return
+    }
+    let alive = true
+    getAgentModels(form.agent_type)
+      .then((r) => {
+        if (alive) setModelOptions(r.data.model_options || [])
+      })
+      .catch(() => {
+        if (alive) setModelOptions([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [form.agent_type])
 
   async function loadData() {
     setLoading(true)
@@ -117,6 +139,7 @@ export default function ScheduledTasksPage() {
       cron_expr: task.cron_expr,
       enabled: task.enabled,
       preset: presetMatch ? presetMatch.label : CUSTOM,
+      model_value: task.model_value || '',
     })
     setShowForm(true)
   }
@@ -132,7 +155,7 @@ export default function ScheduledTasksPage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!form.agent_type || !form.cwd || !form.prompt || !form.cron_expr) {
+    if (!form.agent_type || !form.prompt || !form.cron_expr) {
       setError('请填写所有必填字段')
       return
     }
@@ -147,6 +170,7 @@ export default function ScheduledTasksPage() {
           prompt: form.prompt,
           cron_expr: form.cron_expr,
           enabled: form.enabled,
+          model_value: form.model_value,
         })
       } else {
         await createScheduledTask({
@@ -156,6 +180,7 @@ export default function ScheduledTasksPage() {
           prompt: form.prompt,
           cron_expr: form.cron_expr,
           enabled: form.enabled,
+          model_value: form.model_value,
         })
       }
       setShowForm(false)
@@ -246,15 +271,46 @@ export default function ScheduledTasksPage() {
                 />
 
                 <div className={styles.field}>
-                  <label className={styles.label}>工作目录（必填）</label>
+                  <label className={styles.label}>模型（可选，留空使用默认）</label>
+                  {modelOptions.length > 0 && modelOptions[0].options.length > 0 ? (
+                    <select
+                      className={styles.input}
+                      value={form.model_value}
+                      onChange={(e) => setForm({ ...form, model_value: e.target.value })}
+                    >
+                      <option value="">默认模型</option>
+                      {modelOptions[0].options.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.name}
+                          {o.description ? ` — ${o.description}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      className={styles.input}
+                      type="text"
+                      value={form.model_value}
+                      onChange={(e) => setForm({ ...form, model_value: e.target.value })}
+                      placeholder="模型 ID（可选，需与 agent 支持的模型值匹配）"
+                    />
+                  )}
+                  <span className={styles.hint}>
+                    {modelOptions.length === 0
+                      ? '该 agent 尚无会话缓存，模型列表不可用，可手动输入模型 ID 或留空'
+                      : '从已有会话缓存获取的可用模型'}
+                  </span>
+                </div>
+
+                <div className={styles.field}>
+                  <label className={styles.label}>工作目录（可选，留空使用临时目录）</label>
                   <div className={styles.cwdRow}>
                     <input
                       className={styles.input}
                       type="text"
                       value={form.cwd}
                       onChange={(e) => setForm({ ...form, cwd: e.target.value })}
-                      placeholder="/path/to/project"
-                      required
+                      placeholder="/path/to/project（留空则自动创建临时目录）"
                     />
                     <button
                       type="button"
