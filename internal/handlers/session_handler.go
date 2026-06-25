@@ -84,8 +84,10 @@ func writeSessionError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, agent.ErrAgentNotFound):
 		Fail(c, http.StatusBadRequest, "AGENT_NOT_FOUND", "未知的 agent 类型")
+	case strings.Contains(err.Error(), "必须提供 cwd"):
+		Fail(c, http.StatusBadRequest, "CWD_REQUIRED", "external 模式必须提供工作目录")
 	default:
-		Fail(c, http.StatusInternalServerError, "INTERNAL", "内部错误")
+		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
 	}
 }
 
