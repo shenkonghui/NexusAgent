@@ -1,0 +1,106 @@
+.container {
+  display: flex;
+  margin-bottom: 16px;
+  padding: 0 20px;
+}
+
+.containerUser {
+  justify-content: flex-end;
+}
+
+.bubble {
+  max-width: 70%;
+  border-radius: 12px;
+  padding: 12px 16px;
+  position: relative;
+}
+
+.userBubble {
+  background: #667eea;
+  color: #fff;
+}
+
+.assistantBubble {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  color: #333;
+}
+
+.thoughtBubble {
+  background: #f8f9fa;
+  border: 1px dashed #ccc;
+  color: #666;
+  font-style: italic;
+}
+
+.toolBubble {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-left: 3px solid #f59e0b;
+  color: #333;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.role {
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.7;
+}
+
+.badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: #e0e0e0;
+  border-radius: 8px;
+  color: #555;
+}
+
+.content {
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.contentMuted {
+  font-size: 13px;
+  color: #999;
+  font-style: italic;
+}
+
+.rawToggle {
+  margin-top: 8px;
+}
+
+.rawBtn {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  opacity: 0.6;
+  padding: 0;
+}
+
+.rawBtn:hover {
+  opacity: 1;
+}
+
+.rawJson {
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: 'Monaco', 'Menlo', monospace;
+}
