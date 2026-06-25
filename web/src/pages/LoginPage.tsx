@@ -1,11 +1,18 @@
-import { useState, type FormEvent } from 'react'
+import { useState, useEffect, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import styles from './LoginPage.module.css'
 
 export default function LoginPage() {
-  const { login, register } = useAuth()
+  const { user, loading, login, register } = useAuth()
   const navigate = useNavigate()
+
+  // 如果用户已登录，跳转到会话列表页
+  useEffect(() => {
+    if (!loading && user) {
+      navigate('/sessions', { replace: true })
+    }
+  }, [user, loading, navigate])
 
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [account, setAccount] = useState('')
@@ -13,12 +20,12 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError('')
-    setLoading(true)
+    setSubmitting(true)
 
     try {
       if (mode === 'login') {
@@ -30,7 +37,7 @@ export default function LoginPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : '操作失败')
     } finally {
-      setLoading(false)
+      setSubmitting(false)
     }
   }
 
@@ -111,8 +118,8 @@ export default function LoginPage() {
 
           {error && <div className={styles.error}>{error}</div>}
 
-          <button className={styles.submitBtn} type="submit" disabled={loading}>
-            {loading ? '处理中...' : mode === 'login' ? '登录' : '注册'}
+          <button className={styles.submitBtn} type="submit" disabled={submitting}>
+            {submitting ? '处理中...' : mode === 'login' ? '登录' : '注册'}
           </button>
         </form>
       </div>

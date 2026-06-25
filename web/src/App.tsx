@@ -13,6 +13,8 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/sessions/:id" element={<ChatPage />} />
+          {/* 404 路由：未匹配的路径重定向到登录页 */}
+          <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>
