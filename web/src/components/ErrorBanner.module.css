@@ -14,6 +14,29 @@
   flex: 1;
 }
 
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.retryBtn {
+  padding: 4px 14px;
+  background: #e53e3e;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.retryBtn:hover {
+  background: #c53030;
+}
+
 .closeBtn {
   background: none;
   border: none;

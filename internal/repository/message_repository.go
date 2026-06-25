@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"time"
+
 	"gorm.io/gorm"
 
 	"nexusagent/internal/models"
@@ -47,6 +49,43 @@ func (r *MessageRepository) MaxSequence(dbSessionID uint) (int, error) {
 	err := r.db.Model(&models.Message{}).
 		Where("db_session_id = ?", dbSessionID).
 		Select("MAX(sequence)").
+		Scan(&result).Error
+	if err != nil {
+		return 0, err
+	}
+	if result == nil {
+		return 0, nil
+	}
+	return *result, nil
+}
+
+// ExecutionAggregate 是按 execution_id 聚合的执行块统计。
+type ExecutionAggregate struct {
+	ExecutionID  uint      `gorm:"column:execution_id" json:"execution_id"`
+	StartedAt    time.Time `gorm:"column:started_at" json:"started_at"`
+	FinishedAt   time.Time `gorm:"column:finished_at" json:"finished_at"`
+	MessageCount int       `gorm:"column:message_count" json:"message_count"`
+}
+
+// AggregateExecutions 按 execution_id 聚合指定会话的执行块，按 started_at 降序（最新优先）。
+// 仅统计 execution_id 非空的消息。
+func (r *MessageRepository) AggregateExecutions(dbSessionID uint) ([]ExecutionAggregate, error) {
+	var list []ExecutionAggregate
+	err := r.db.Model(&models.Message{}).
+		Select("execution_id, MIN(created_at) AS started_at, MAX(created_at) AS finished_at, COUNT(*) AS message_count").
+		Where("db_session_id = ? AND execution_id IS NOT NULL", dbSessionID).
+		Group("execution_id").
+		Order("started_at DESC").
+		Scan(&list).Error
+	return list, err
+}
+
+// MaxExecutionID 返回指定会话当前最大 execution_id，无定时执行时返回 0。
+func (r *MessageRepository) MaxExecutionID(dbSessionID uint) (uint, error) {
+	var result *uint
+	err := r.db.Model(&models.Message{}).
+		Where("db_session_id = ? AND execution_id IS NOT NULL", dbSessionID).
+		Select("MAX(execution_id)").
 		Scan(&result).Error
 	if err != nil {
 		return 0, err

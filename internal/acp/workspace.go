@@ -24,8 +24,22 @@ func NewExternalWorkspace(cwd string) *Workspace {
 }
 
 // NewTemporaryWorkspace 创建一个临时目录作为工作区。
-func NewTemporaryWorkspace(prefix string) (*Workspace, error) {
-	dir, err := os.MkdirTemp("", prefix+"*")
+// baseDir 指定会话工作区的存放根目录（如 ~/.nextAgent/session），
+// 会话目录在该根目录下以 prefix 为前缀创建，由程序在删除会话时清理，
+// 而不依赖操作系统对系统临时目录的清理。
+// baseDir 为空时回退到 ~/.nextAgent/session。
+func NewTemporaryWorkspace(baseDir, prefix string) (*Workspace, error) {
+	if baseDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("获取用户主目录: %w", err)
+		}
+		baseDir = filepath.Join(home, ".nextAgent", "session")
+	}
+	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+		return nil, fmt.Errorf("创建会话根目录 %s: %w", baseDir, err)
+	}
+	dir, err := os.MkdirTemp(baseDir, prefix+"*")
 	if err != nil {
 		return nil, fmt.Errorf("创建临时工作区: %w", err)
 	}
@@ -43,4 +57,10 @@ func (w *Workspace) Cleanup() error {
 		return os.RemoveAll(w.TempDir)
 	}
 	return nil
+}
+
+// dirExists 判断目录是否存在。
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }

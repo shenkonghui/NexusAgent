@@ -4,15 +4,18 @@ server:
 database:
   path: ./data/nexus.db
 jwt:
-  secret: ""
+  secret: "nexusagent-dev-secret-key-32+bytes!"
   access_ttl: 15m
   refresh_ttl: 168h
 password:
   bcrypt_cost: 12
 agents:
   workspace:
-    default_mode: external
+    default_mode: temporary
     temp_dir_prefix: nexus-
+    # temporary 模式会话工作区的存放根目录，默认 ~/.nextAgent/session。
+    # 由程序在删除会话时清理，不依赖操作系统清理临时目录。
+    # session_dir: ~/.nextAgent/session
   claude_code:
     enabled: true
     command: npx

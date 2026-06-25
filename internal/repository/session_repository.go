@@ -37,6 +37,17 @@ func (r *SessionRepository) FindByUserID(userID uint) ([]models.Session, error) 
 	return sessions, err
 }
 
+// FindByUserIDAndSource 返回指定用户指定来源的会话。source 为空时等价于 FindByUserID。
+func (r *SessionRepository) FindByUserIDAndSource(userID uint, source string) ([]models.Session, error) {
+	var sessions []models.Session
+	q := r.db.Where("user_id = ?", userID)
+	if source != "" {
+		q = q.Where("source = ?", source)
+	}
+	err := q.Order("created_at DESC").Find(&sessions).Error
+	return sessions, err
+}
+
 func (r *SessionRepository) UpdateStatus(id uint, status string, closedAt *time.Time) error {
 	return r.db.Model(&models.Session{}).Where("id = ?", id).
 		Updates(map[string]interface{}{"status": status, "closed_at": closedAt}).Error
@@ -45,6 +56,12 @@ func (r *SessionRepository) UpdateStatus(id uint, status string, closedAt *time.
 func (r *SessionRepository) UpdateLastPrompt(id uint, prompt string) error {
 	return r.db.Model(&models.Session{}).Where("id = ?", id).
 		Update("last_prompt", prompt).Error
+}
+
+// UpdateTitle 更新会话标题。
+func (r *SessionRepository) UpdateTitle(id uint, title string) error {
+	return r.db.Model(&models.Session{}).Where("id = ?", id).
+		Update("title", title).Error
 }
 
 func (r *SessionRepository) MarkActiveAsError() error {
@@ -66,4 +83,19 @@ func (r *SessionRepository) FindByID(id uint) (*models.Session, error) {
 func (r *SessionRepository) UpdateSessionID(id uint, newSessionID string) error {
 	return r.db.Model(&models.Session{}).Where("id = ?", id).
 		Update("session_id", newSessionID).Error
+}
+
+// UpdateWorkspace 更新会话的工作目录信息（重开时指定新 cwd 时调用）。
+func (r *SessionRepository) UpdateWorkspace(id uint, cwd, mode, tempDir string) error {
+	return r.db.Model(&models.Session{}).Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"cwd":            cwd,
+			"workspace_mode": mode,
+			"temp_dir":       tempDir,
+		}).Error
+}
+
+// Delete 按主键物理删除会话记录。
+func (r *SessionRepository) Delete(id uint) error {
+	return r.db.Delete(&models.Session{}, id).Error
 }

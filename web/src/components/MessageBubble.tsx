@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { Message } from '../types'
 import styles from './MessageBubble.module.css'
 
 interface MessageBubbleProps {
   message: Message
+  // 思考消息在流式输出中时默认展开，结束后自动折叠
+  defaultOpen?: boolean
 }
 
 // kind 标签映射
@@ -17,13 +19,29 @@ const kindLabels: Record<string, string> = {
   usage_update: '用量',
 }
 
-export default function MessageBubble({ message }: MessageBubbleProps) {
+// 提取工具调用的单行摘要
+function toolSummary(content: string): string {
+  const firstLine = content.split('\n')[0]?.trim() || ''
+  if (firstLine) return firstLine
+  return '工具调用'
+}
+
+export default function MessageBubble({ message, defaultOpen = false }: MessageBubbleProps) {
   const [showRaw, setShowRaw] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
+
+  // 流式思考：开始时展开，结束后折叠
+  useEffect(() => {
+    setOpen(defaultOpen)
+  }, [defaultOpen])
 
   const isUser = message.role === 'user'
   const isThought = message.kind === 'agent_thought_chunk'
   const isTool = message.role === 'tool'
   const isPlan = message.kind === 'plan'
+
+  // 思考和工具调用可折叠
+  const collapsible = isThought || isTool
 
   const bubbleClass = isUser
     ? styles.userBubble
@@ -33,31 +51,49 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
         ? styles.toolBubble
         : styles.assistantBubble
 
+  const headerClick = collapsible
+    ? () => setOpen((v) => !v)
+    : undefined
+
   return (
     <div className={`${styles.container} ${isUser ? styles.containerUser : ''}`}>
       <div className={`${styles.bubble} ${bubbleClass}`}>
-        <div className={styles.header}>
+        <div
+          className={`${styles.header} ${collapsible ? styles.headerClickable : ''}`}
+          onClick={headerClick}
+        >
           <span className={styles.role}>{kindLabels[message.kind] || message.role}</span>
           {isPlan && <span className={styles.badge}>计划</span>}
+          {isTool && (
+            <span className={styles.summary}>{toolSummary(message.content)}</span>
+          )}
+          {collapsible && (
+            <span className={styles.toggle}>{open ? '▾' : '▸'}</span>
+          )}
         </div>
-        {message.content && <div className={styles.content}>{message.content}</div>}
-        {!message.content && !isPlan && (
-          <div className={styles.contentMuted}>（无文本内容）</div>
-        )}
-        {message.raw_json && (
-          <div className={styles.rawToggle}>
-            <button
-              className={styles.rawBtn}
-              onClick={() => setShowRaw(!showRaw)}
-              type="button"
-            >
-              {showRaw ? '隐藏详情' : '查看详情'}
-            </button>
-            {showRaw && (
-              <pre className={styles.rawJson}>{message.raw_json}</pre>
+        {/* 折叠态：仅显示 header；展开态：显示完整内容 */}
+        {!collapsible || open ? (
+          <>
+            {message.content && <div className={styles.content}>{message.content}</div>}
+            {!message.content && !isPlan && (
+              <div className={styles.contentMuted}>（无文本内容）</div>
             )}
-          </div>
-        )}
+            {message.raw_json && (
+              <div className={styles.rawToggle}>
+                <button
+                  className={styles.rawBtn}
+                  onClick={() => setShowRaw(!showRaw)}
+                  type="button"
+                >
+                  {showRaw ? '隐藏详情' : '查看详情'}
+                </button>
+                {showRaw && (
+                  <pre className={styles.rawJson}>{message.raw_json}</pre>
+                )}
+              </div>
+            )}
+          </>
+        ) : null}
       </div>
     </div>
   )

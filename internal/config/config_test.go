@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -64,6 +66,9 @@ func TestLoad_AgentsConfig(t *testing.T) {
 	if cfg.Agents.Workspace.TempDirPrefix != "test-" {
 		t.Errorf("Workspace.TempDirPrefix = %q, 期望 test-", cfg.Agents.Workspace.TempDirPrefix)
 	}
+	if cfg.Agents.Workspace.SessionDir != "" {
+		t.Errorf("Workspace.SessionDir 未设置时应为空，实际 %q", cfg.Agents.Workspace.SessionDir)
+	}
 	if !cfg.Agents.ClaudeCode.Enabled {
 		t.Error("ClaudeCode.Enabled 期望 true")
 	}
@@ -110,5 +115,38 @@ func TestValidate_WorkspaceDefaultMode_OK(t *testing.T) {
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("期望 external 校验通过，实际: %v", err)
+	}
+}
+
+func TestValidate_WorkspaceSessionDir_Default(t *testing.T) {
+	cfg := &Config{
+		JWT:    JWTConfig{Secret: "this-is-a-very-long-jwt-secret-key-32+bytes!"},
+		Agents: AgentsConfig{Workspace: WorkspaceConfig{DefaultMode: "external"}},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate 错误: %v", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("获取主目录失败: %v", err)
+	}
+	expected := filepath.Join(home, ".nextAgent", "session")
+	if cfg.Agents.Workspace.SessionDir != expected {
+		t.Errorf("SessionDir = %q, 期望 %q", cfg.Agents.Workspace.SessionDir, expected)
+	}
+}
+
+func TestValidate_WorkspaceSessionDir_EnvOverride(t *testing.T) {
+	t.Setenv("JWT_SECRET", "env-secret-from-env-var-long-enough")
+	t.Setenv("AGENTS_WORKSPACE_SESSION_DIR", "/custom/session-dir")
+	cfg, err := Load("testdata/config_test.yaml")
+	if err != nil {
+		t.Fatalf("Load 错误: %v", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate 错误: %v", err)
+	}
+	if cfg.Agents.Workspace.SessionDir != "/custom/session-dir" {
+		t.Errorf("SessionDir 未被环境变量覆盖: %q", cfg.Agents.Workspace.SessionDir)
 	}
 }

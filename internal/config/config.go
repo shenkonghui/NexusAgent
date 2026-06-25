@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -44,6 +45,9 @@ type AgentsConfig struct {
 type WorkspaceConfig struct {
 	DefaultMode   string `yaml:"default_mode"`
 	TempDirPrefix string `yaml:"temp_dir_prefix"`
+	// SessionDir 是 temporary 模式会话工作区的存放根目录。
+	// 默认 ~/.nextAgent/session，由程序在删除会话时清理，不依赖系统清理临时目录。
+	SessionDir string `yaml:"session_dir"`
 }
 
 type ClaudeCodeConfig struct {
@@ -82,6 +86,9 @@ func (c *Config) applyEnv() {
 	if v := os.Getenv("AGENTS_WORKSPACE_DEFAULT_MODE"); v != "" {
 		c.Agents.Workspace.DefaultMode = v
 	}
+	if v := os.Getenv("AGENTS_WORKSPACE_SESSION_DIR"); v != "" {
+		c.Agents.Workspace.SessionDir = v
+	}
 	if v := os.Getenv("CLAUDE_CODE_COMMAND"); v != "" {
 		c.Agents.ClaudeCode.Command = v
 	}
@@ -101,13 +108,20 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("JWT_SECRET 长度必须 >= 32 字节，当前 %d", len(c.JWT.Secret))
 	}
 	if c.Agents.Workspace.DefaultMode == "" {
-		c.Agents.Workspace.DefaultMode = "external"
+		c.Agents.Workspace.DefaultMode = "temporary"
 	}
 	if c.Agents.Workspace.DefaultMode != "external" && c.Agents.Workspace.DefaultMode != "temporary" {
 		return fmt.Errorf("agents.workspace.default_mode 必须是 external 或 temporary，当前 %q", c.Agents.Workspace.DefaultMode)
 	}
 	if c.Agents.Workspace.TempDirPrefix == "" {
 		c.Agents.Workspace.TempDirPrefix = "nexus-"
+	}
+	if c.Agents.Workspace.SessionDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("获取用户主目录以设置 session_dir: %w", err)
+		}
+		c.Agents.Workspace.SessionDir = filepath.Join(home, ".nextAgent", "session")
 	}
 	if c.Agents.ClaudeCode.Command == "" {
 		c.Agents.ClaudeCode.Command = "npx"

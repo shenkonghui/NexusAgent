@@ -183,7 +183,8 @@ func TestService_ListMessages_Empty(t *testing.T) {
 	}
 }
 
-func TestService_ResumeSession_Closed(t *testing.T) {
+func TestService_ResumeSession_Closed_NoBackend(t *testing.T) {
+	// 已关闭会话现在允许重开；此处后端未注册，应在获取后端阶段失败
 	db := setupACPTestDB(t)
 	repo := repository.NewSessionRepository(db)
 	_ = repo.Create(&models.Session{
@@ -192,15 +193,68 @@ func TestService_ResumeSession_Closed(t *testing.T) {
 	})
 
 	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
-	_, err := svc.ResumeSession(context.Background(), "closed-resume-1")
+	_, err := svc.ResumeSession(context.Background(), "closed-resume-1", "")
 	if err == nil {
-		t.Error("期望 closed 会话恢复返回错误")
+		t.Error("期望后端未注册时重开返回错误")
+	}
+}
+
+func TestService_ResumeSession_CwdNotExists(t *testing.T) {
+	db := setupACPTestDB(t)
+	repo := repository.NewSessionRepository(db)
+	_ = repo.Create(&models.Session{
+		SessionID: "closed-resume-2", AgentType: "claude-code", Cwd: "/this/path/does/not/exist",
+		Status: models.SessionStatusError, WorkspaceMode: models.WorkspaceModeExternal,
+	})
+
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	_, err := svc.ResumeSession(context.Background(), "closed-resume-2", "")
+	if err == nil {
+		t.Error("期望工作目录不存在时返回错误")
 	}
 }
 
 func TestService_ResumeSession_SessionNotFound(t *testing.T) {
 	svc := newTestService(t)
-	if _, err := svc.ResumeSession(context.Background(), "nonexistent"); err == nil {
+	if _, err := svc.ResumeSession(context.Background(), "nonexistent", ""); err == nil {
 		t.Error("期望不存在的会话恢复返回错误")
+	}
+}
+
+func TestService_DeleteSession_RemovesSessionAndMessages(t *testing.T) {
+	db := setupACPTestDB(t)
+	repo := repository.NewSessionRepository(db)
+	msgRepo := repository.NewMessageRepository(db)
+	sess := &models.Session{
+		SessionID: "delete-1", AgentType: "claude-code", Cwd: "/tmp",
+		Status: models.SessionStatusClosed, WorkspaceMode: models.WorkspaceModeExternal,
+	}
+	if err := repo.Create(sess); err != nil {
+		t.Fatalf("创建会话失败: %v", err)
+	}
+	if err := msgRepo.Create(&models.Message{
+		SessionID: "delete-1", DBSessionID: sess.ID, Role: "user",
+		Kind: "user_message_chunk", Content: "hi", Sequence: 1, RawJSON: "{}",
+	}); err != nil {
+		t.Fatalf("创建消息失败: %v", err)
+	}
+
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	if err := svc.DeleteSession(context.Background(), "delete-1"); err != nil {
+		t.Fatalf("DeleteSession 错误: %v", err)
+	}
+	if _, err := repo.FindByID(sess.ID); err == nil {
+		t.Error("期望会话记录已被删除")
+	}
+	msgs, _ := msgRepo.FindByDBSessionID(sess.ID)
+	if len(msgs) != 0 {
+		t.Errorf("期望消息已删除，实际 %d 条", len(msgs))
+	}
+}
+
+func TestService_DeleteSession_NotFound(t *testing.T) {
+	svc := newTestService(t)
+	if err := svc.DeleteSession(context.Background(), "nonexistent"); err == nil {
+		t.Error("期望不存在的会话删除返回错误")
 	}
 }

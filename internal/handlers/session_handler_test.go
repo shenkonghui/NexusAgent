@@ -11,8 +11,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/coder/acp-go-sdk"
 	"github.com/gin-gonic/gin"
 
+	acplocal "nexusagent/internal/acp"
 	"nexusagent/internal/agent"
 	"nexusagent/internal/middleware"
 	"nexusagent/internal/models"
@@ -25,6 +27,7 @@ type fakeSessionStore struct {
 	createErr    error
 	listErr      error
 	closeErr     error
+	deleteErr    error
 	cancelErr    error
 	resumeErr    error
 	resumeResult *models.Session
@@ -72,6 +75,19 @@ func (f *fakeSessionStore) ListSessions(userID uint) ([]models.Session, error) {
 	return out, nil
 }
 
+func (f *fakeSessionStore) ListSessionsBySource(userID uint, source string) ([]models.Session, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	var out []models.Session
+	for _, s := range f.sessions {
+		if s.UserID == userID && (source == "" || s.Source == source) {
+			out = append(out, *s)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeSessionStore) GetSessionByDBID(id uint) (*models.Session, error) {
 	s, ok := f.sessions[id]
 	if !ok {
@@ -81,9 +97,10 @@ func (f *fakeSessionStore) GetSessionByDBID(id uint) (*models.Session, error) {
 }
 
 func (f *fakeSessionStore) CloseSession(_ context.Context, _ string) error  { return f.closeErr }
+func (f *fakeSessionStore) DeleteSession(_ context.Context, _ string) error { return f.deleteErr }
 func (f *fakeSessionStore) CancelSession(_ context.Context, _ string) error { return f.cancelErr }
 
-func (f *fakeSessionStore) ResumeSession(_ context.Context, sessionID string) (*models.Session, error) {
+func (f *fakeSessionStore) ResumeSession(_ context.Context, sessionID, _ string) (*models.Session, error) {
 	if f.resumeErr != nil {
 		return nil, f.resumeErr
 	}
@@ -98,6 +115,26 @@ func (f *fakeSessionStore) ListMessages(sessionID string) ([]models.Message, err
 		return nil, f.listMsgErr
 	}
 	return f.messages[sessionID], nil
+}
+
+func (f *fakeSessionStore) ListCommands(_ string) ([]acp.AvailableCommand, error) {
+	return nil, nil
+}
+
+func (f *fakeSessionStore) ListConfigOptions(_ string) ([]acp.SessionConfigOption, error) {
+	return nil, nil
+}
+
+func (f *fakeSessionStore) ListModes(_ string) ([]acp.SessionMode, error) {
+	return nil, nil
+}
+
+func (f *fakeSessionStore) ListSkills(_ string) ([]acplocal.Skill, error) {
+	return nil, nil
+}
+
+func (f *fakeSessionStore) SetConfigOption(_ context.Context, _, _, _ string) error {
+	return nil
 }
 
 func (f *fakeSessionStore) Prompt(_ context.Context, _, _ string) (<-chan models.Message, error) {
@@ -156,10 +193,14 @@ func newSessionTestRouter(store SessionStore, userID uint) *gin.Engine {
 	v1.GET("/sessions", h.List)
 	v1.GET("/sessions/:id", h.Get)
 	v1.DELETE("/sessions/:id", h.Close)
+	v1.POST("/sessions/:id/delete", h.Delete)
 	v1.POST("/sessions/:id/prompt", h.Prompt)
 	v1.POST("/sessions/:id/cancel", h.Cancel)
 	v1.POST("/sessions/:id/resume", h.Resume)
 	v1.GET("/sessions/:id/messages", h.Messages)
+	v1.GET("/sessions/:id/commands", h.Commands)
+	v1.GET("/sessions/:id/config-options", h.ConfigOptions)
+	v1.POST("/sessions/:id/config-options", h.SetConfigOption)
 	return r
 }
 
@@ -276,6 +317,37 @@ func TestSessionHandler_Close_Success(t *testing.T) {
 	}
 }
 
+func TestSessionHandler_Delete_Success(t *testing.T) {
+	store := newFakeSessionStore()
+	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusClosed}
+	r := newSessionTestRouter(store, 100)
+	w := doJSON(t, r, "POST", "/api/v1/sessions/1/delete", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d, 期望 200, body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestSessionHandler_Delete_NotOwner(t *testing.T) {
+	store := newFakeSessionStore()
+	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 200, Status: models.SessionStatusClosed}
+	r := newSessionTestRouter(store, 100)
+	w := doJSON(t, r, "POST", "/api/v1/sessions/1/delete", nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("状态码 = %d, 期望 404（不属于当前用户）", w.Code)
+	}
+}
+
+func TestSessionHandler_Delete_Error(t *testing.T) {
+	store := newFakeSessionStore()
+	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusActive}
+	store.deleteErr = errors.New("boom")
+	r := newSessionTestRouter(store, 100)
+	w := doJSON(t, r, "POST", "/api/v1/sessions/1/delete", nil)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("状态码 = %d, 期望 500", w.Code)
+	}
+}
+
 func TestSessionHandler_Messages_Success(t *testing.T) {
 	store := newFakeSessionStore()
 	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusActive}
@@ -347,22 +419,105 @@ func TestSessionHandler_Resume_Success(t *testing.T) {
 }
 
 func TestSessionHandler_Resume_Closed(t *testing.T) {
+	// 已关闭会话现在可以被重新打开（重开）
 	store := newFakeSessionStore()
 	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusClosed}
+	store.resumeResult = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusActive}
 	r := newSessionTestRouter(store, 100)
-	w := doJSON(t, r, "POST", "/api/v1/sessions/1/resume", nil)
-	if w.Code != http.StatusConflict {
-		t.Fatalf("状态码 = %d, 期望 409", w.Code)
+	w := doJSON(t, r, "POST", "/api/v1/sessions/1/resume", gin.H{"cwd": "/tmp"})
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d, 期望 200（已关闭会话可重开）, body=%s", w.Code, w.Body.String())
 	}
 	var resp struct {
-		Error struct {
-			Code string `json:"code"`
-		} `json:"error"`
+		Data models.Session `json:"data"`
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
-	if resp.Error.Code != "SESSION_CLOSED" {
-		t.Errorf("error code = %q, 期望 SESSION_CLOSED", resp.Error.Code)
+	if resp.Data.Status != models.SessionStatusActive {
+		t.Errorf("重开后状态 = %q, 期望 active", resp.Data.Status)
 	}
+}
+
+func TestSessionHandler_Commands_Success(t *testing.T) {
+	store := &commandsFakeStore{
+		sessions: map[uint]*models.Session{1: {ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusActive}},
+		cmds: []acp.AvailableCommand{
+			{Name: "help", Description: "显示帮助"},
+			{Name: "clear", Description: "清空上下文", Input: &acp.AvailableCommandInput{}},
+		},
+	}
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set(middleware.UserIDKey(), uint(100))
+		c.Next()
+	})
+	h := NewSessionHandler(store)
+	r.GET("/api/v1/sessions/:id/commands", h.Commands)
+	w := doJSON(t, r, "GET", "/api/v1/sessions/1/commands", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d, 期望 200, body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Data struct {
+			Commands []commandItem `json:"commands"`
+		} `json:"data"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if len(resp.Data.Commands) != 2 {
+		t.Fatalf("命令数量 = %d, 期望 2", len(resp.Data.Commands))
+	}
+	if resp.Data.Commands[0].Name != "help" || resp.Data.Commands[1].HasInput != true {
+		t.Errorf("命令字段不正确: %+v", resp.Data.Commands)
+	}
+}
+
+// commandsFakeStore 是仅用于 Commands 接口的最小 SessionStore 实现。
+type commandsFakeStore struct {
+	sessions map[uint]*models.Session
+	cmds     []acp.AvailableCommand
+}
+
+func (s *commandsFakeStore) CreateSession(context.Context, string, string, uint) (*models.Session, error) {
+	return nil, nil
+}
+func (s *commandsFakeStore) ListSessions(uint) ([]models.Session, error) { return nil, nil }
+func (s *commandsFakeStore) ListSessionsBySource(uint, string) ([]models.Session, error) {
+	return nil, nil
+}
+func (s *commandsFakeStore) GetSessionByDBID(id uint) (*models.Session, error) {
+	if sess, ok := s.sessions[id]; ok {
+		return sess, nil
+	}
+	return nil, errors.New("会话不存在")
+}
+func (s *commandsFakeStore) CloseSession(context.Context, string) error  { return nil }
+func (s *commandsFakeStore) DeleteSession(context.Context, string) error { return nil }
+func (s *commandsFakeStore) CancelSession(context.Context, string) error { return nil }
+func (s *commandsFakeStore) ResumeSession(context.Context, string, string) (*models.Session, error) {
+	return nil, nil
+}
+func (s *commandsFakeStore) ListMessages(string) ([]models.Message, error) { return nil, nil }
+func (s *commandsFakeStore) ListCommands(_ string) ([]acp.AvailableCommand, error) {
+	return s.cmds, nil
+}
+
+func (s *commandsFakeStore) ListConfigOptions(_ string) ([]acp.SessionConfigOption, error) {
+	return nil, nil
+}
+
+func (s *commandsFakeStore) ListModes(_ string) ([]acp.SessionMode, error) {
+	return nil, nil
+}
+
+func (s *commandsFakeStore) ListSkills(_ string) ([]acplocal.Skill, error) {
+	return nil, nil
+}
+
+func (s *commandsFakeStore) SetConfigOption(_ context.Context, _, _, _ string) error {
+	return nil
+}
+func (s *commandsFakeStore) Prompt(context.Context, string, string) (<-chan models.Message, error) {
+	return nil, nil
 }
 
 func TestSessionHandler_Prompt_Empty(t *testing.T) {

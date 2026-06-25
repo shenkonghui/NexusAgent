@@ -50,8 +50,8 @@ func (c *Connection) Initialize(ctx context.Context) (acp.InitializeResponse, er
 	return resp, nil
 }
 
-// NewSession 创建新的 ACP 会话，返回 session ID。
-func (c *Connection) NewSession(ctx context.Context, cwd string) (string, error) {
+// NewSession 创建新的 ACP 会话，返回 session ID、初始 config options 和初始 modes。
+func (c *Connection) NewSession(ctx context.Context, cwd string) (string, []acp.SessionConfigOption, []acp.SessionMode, error) {
 	c.client.Reset(256)
 
 	resp, err := c.conn.NewSession(ctx, acp.NewSessionRequest{
@@ -59,9 +59,14 @@ func (c *Connection) NewSession(ctx context.Context, cwd string) (string, error)
 		McpServers: []acp.McpServer{},
 	})
 	if err != nil {
-		return "", fmt.Errorf("ACP newSession: %w", err)
+		return "", nil, nil, fmt.Errorf("ACP newSession: %w", err)
 	}
-	return string(resp.SessionId), nil
+
+	var modes []acp.SessionMode
+	if resp.Modes != nil {
+		modes = resp.Modes.AvailableModes
+	}
+	return string(resp.SessionId), resp.ConfigOptions, modes, nil
 }
 
 // Prompt 发送 prompt 并返回流式 update channel。
@@ -83,6 +88,18 @@ func (c *Connection) Prompt(ctx context.Context, sessionID, prompt string) (<-ch
 // Cancel 取消正在进行的 prompt。
 func (c *Connection) Cancel(ctx context.Context, sessionID string) error {
 	return c.conn.Cancel(ctx, acp.CancelNotification{SessionId: acp.SessionId(sessionID)})
+}
+
+// SetConfigOption 设置会话的 config option（如模型选择）。
+func (c *Connection) SetConfigOption(ctx context.Context, sessionID, configID, value string) error {
+	_, err := c.conn.SetSessionConfigOption(ctx, acp.SetSessionConfigOptionRequest{
+		ValueId: &acp.SetSessionConfigOptionValueId{
+			SessionId: acp.SessionId(sessionID),
+			ConfigId:  acp.SessionConfigId(configID),
+			Value:     acp.SessionConfigValueId(value),
+		},
+	})
+	return err
 }
 
 // Close 关闭连接并停止 agent 进程。

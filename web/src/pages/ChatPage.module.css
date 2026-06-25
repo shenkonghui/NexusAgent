@@ -59,9 +59,60 @@
   font-family: 'Monaco', 'Menlo', monospace;
 }
 
+.configBar {
+  display: flex;
+  align-items: center;
+  padding: 8px 24px;
+  background: #fafafa;
+  border-bottom: 1px solid #eee;
+  gap: 12px;
+}
+
+.statsArea {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
 .actions {
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+
+.fileBtn {
+  padding: 6px 14px;
+  background: #f0f0f0;
+  color: #555;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.fileBtn:hover {
+  background: #e8e8f0;
+  border-color: #667eea;
+}
+
+.fileBtnActive {
+  background: #667eea;
+  color: #fff;
+  border-color: #667eea;
+}
+
+.fileBtnActive:hover {
+  background: #5568d3;
+  border-color: #5568d3;
+}
+
+/* 底部终端面板 */
+.terminalPanel {
+  height: 280px;
+  flex-shrink: 0;
+  overflow: hidden;
 }
 
 .resumeBtn {

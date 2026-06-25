@@ -1,0 +1,39 @@
+.container {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.label {
+  font-size: 12px;
+  color: #888;
+  white-space: nowrap;
+}
+
+.select {
+  padding: 4px 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+  max-width: 200px;
+}
+
+.select:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.select:disabled {
+  background: #f5f5f5;
+  cursor: not-allowed;
+  color: #999;
+}

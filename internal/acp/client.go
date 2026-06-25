@@ -5,13 +5,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/coder/acp-go-sdk"
 )
 
 // Client 实现 acp.Client 接口，自动批准权限请求并转发 session update。
+// 内部通过 buffered channel 转发 update，并使用 mutex + closed 标志保护，
+// 避免 SDK 后台 goroutine 在 channel 关闭后发送导致 "send on closed channel" panic。
 type Client struct {
+	mu      sync.Mutex
 	updates chan acp.SessionUpdate
+	closed  bool
 }
 
 // NewClient 创建一个新的 Client。
@@ -23,17 +28,28 @@ func NewClient(bufSize int) *Client {
 
 // Updates 返回 session update 的只读 channel。
 func (c *Client) Updates() <-chan acp.SessionUpdate {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.updates
 }
 
-// CloseUpdates 关闭 update channel。
+// CloseUpdates 关闭 update channel。后续 SessionUpdate 调用会被安全丢弃。
 func (c *Client) CloseUpdates() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return
+	}
+	c.closed = true
 	close(c.updates)
 }
 
-// Reset 重置 update channel 以便复用。
+// Reset 重置 update channel 以便复用（重新打开一个未关闭的 channel）。
 func (c *Client) Reset(bufSize int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.updates = make(chan acp.SessionUpdate, bufSize)
+	c.closed = false
 }
 
 // RequestPermission 自动批准所有权限请求。
@@ -60,9 +76,18 @@ func (c *Client) RequestPermission(ctx context.Context, params acp.RequestPermis
 }
 
 // SessionUpdate 将 update 转发到 channel。
+// 若 channel 已关闭（prompt turn 已结束），安全丢弃迟到的 update 而非 panic。
 func (c *Client) SessionUpdate(ctx context.Context, params acp.SessionNotification) error {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil
+	}
+	ch := c.updates
+	c.mu.Unlock()
+
 	select {
-	case c.updates <- params.Update:
+	case ch <- params.Update:
 	case <-ctx.Done():
 		return ctx.Err()
 	}

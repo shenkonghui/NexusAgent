@@ -6,10 +6,32 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"nexusagent/internal/acp"
 	"nexusagent/internal/agent"
 	"nexusagent/internal/database"
+	"nexusagent/internal/handlers"
+	"nexusagent/internal/models"
+	"nexusagent/internal/repository"
 	"nexusagent/internal/services"
 )
+
+// noopRegistrar 是测试用的空 AgentRegistrar。
+type noopRegistrar struct{}
+
+func (noopRegistrar) RegisterBackend(acp.Backend)                {}
+func (noopRegistrar) ReplaceBackend(acp.Backend)                 {}
+func (noopRegistrar) UnregisterBackend(string)                   {}
+func (noopRegistrar) RegisterAgent(*agent.AgentDescriptor) error { return nil }
+func (noopRegistrar) ReplaceAgent(*agent.AgentDescriptor)        {}
+func (noopRegistrar) UnregisterAgent(string)                     {}
+
+// noopSchedulerMgr 是测试用的空 SchedulerManager。
+type noopSchedulerMgr struct{}
+
+func (noopSchedulerMgr) AddTask(*models.ScheduledTask) error    { return nil }
+func (noopSchedulerMgr) UpdateTask(*models.ScheduledTask) error { return nil }
+func (noopSchedulerMgr) RemoveTask(uint) error                  { return nil }
+func (noopSchedulerMgr) RunTask(uint) error                     { return nil }
 
 func TestSetup_RegistersP5Routes(t *testing.T) {
 	db, err := database.Connect("file::memory:?cache=shared")
@@ -19,8 +41,11 @@ func TestSetup_RegistersP5Routes(t *testing.T) {
 	jwtSvc := services.NewJWTService("this-is-a-very-long-jwt-secret-key-32+bytes!", 15*time.Minute, time.Hour)
 	authSvc := services.NewAuthService(db, jwtSvc, 10)
 	agentRouter := agent.NewRouter(agent.NewRegistry(), nil)
+	agentCfgH := handlers.NewAgentConfigHandler(repository.NewAgentConfigRepository(db), noopRegistrar{})
+	schedTaskRepo := repository.NewScheduledTaskRepository(db)
+	schedTaskH := handlers.NewScheduledTaskHandler(schedTaskRepo, noopSchedulerMgr{}, agentRouter)
 
-	engine := Setup(authSvc, jwtSvc, agentRouter, gin.TestMode)
+	engine := Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, gin.TestMode)
 
 	want := []string{
 		"GET /api/v1/agents",
@@ -28,10 +53,25 @@ func TestSetup_RegistersP5Routes(t *testing.T) {
 		"GET /api/v1/sessions",
 		"GET /api/v1/sessions/:id",
 		"DELETE /api/v1/sessions/:id",
+		"POST /api/v1/sessions/:id/delete",
 		"POST /api/v1/sessions/:id/prompt",
 		"POST /api/v1/sessions/:id/cancel",
 		"POST /api/v1/sessions/:id/resume",
 		"GET /api/v1/sessions/:id/messages",
+		"GET /api/v1/sessions/:id/commands",
+		"GET /api/v1/sessions/:id/config-options",
+		"POST /api/v1/sessions/:id/config-options",
+		"GET /api/v1/agent-configs",
+		"POST /api/v1/agent-configs",
+		"PUT /api/v1/agent-configs/:id",
+		"DELETE /api/v1/agent-configs/:id",
+		"POST /api/v1/scheduled-tasks",
+		"GET /api/v1/scheduled-tasks",
+		"GET /api/v1/scheduled-tasks/:id",
+		"PUT /api/v1/scheduled-tasks/:id",
+		"DELETE /api/v1/scheduled-tasks/:id",
+		"POST /api/v1/scheduled-tasks/:id/run",
+		"GET /api/v1/scheduled-tasks/:id/executions",
 	}
 	got := make(map[string]bool)
 	for _, ri := range engine.Routes() {

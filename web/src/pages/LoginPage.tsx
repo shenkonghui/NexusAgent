@@ -7,10 +7,10 @@ export default function LoginPage() {
   const { user, loading, login, register } = useAuth()
   const navigate = useNavigate()
 
-  // 如果用户已登录，跳转到会话列表页
+  // 如果用户已登录，跳转到首页
   useEffect(() => {
     if (!loading && user) {
-      navigate('/sessions', { replace: true })
+      navigate('/', { replace: true })
     }
   }, [user, loading, navigate])
 
@@ -33,7 +33,7 @@ export default function LoginPage() {
       } else {
         await register(username, email, password)
       }
-      navigate('/sessions', { replace: true })
+      navigate('/', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : '操作失败')
     } finally {

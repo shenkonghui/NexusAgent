@@ -29,6 +29,9 @@ type Service struct {
 	messages *repository.MessageRepository
 	backends map[string]Backend
 	conns    map[string]*Connection
+	commands map[string][]acp.AvailableCommand
+	configs  map[string][]acp.SessionConfigOption
+	modes    map[string][]acp.SessionMode
 	mu       sync.RWMutex
 	wsConfig config.WorkspaceConfig
 }
@@ -40,6 +43,9 @@ func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig) *Service {
 		messages: repository.NewMessageRepository(db),
 		backends: make(map[string]Backend),
 		conns:    make(map[string]*Connection),
+		commands: make(map[string][]acp.AvailableCommand),
+		configs:  make(map[string][]acp.SessionConfigOption),
+		modes:    make(map[string][]acp.SessionMode),
 		wsConfig: wsConfig,
 	}
 }
@@ -49,6 +55,20 @@ func (s *Service) RegisterBackend(b Backend) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.backends[b.Name()] = b
+}
+
+// ReplaceBackend 注册或覆盖一个 agent 后端（用于动态更新配置）。
+func (s *Service) ReplaceBackend(b Backend) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.backends[b.Name()] = b
+}
+
+// UnregisterBackend 注销一个 agent 后端。
+func (s *Service) UnregisterBackend(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.backends, name)
 }
 
 // GetBackend 查找已注册的后端。
@@ -65,6 +85,11 @@ func (s *Service) GetBackend(name string) (Backend, error) {
 // CreateSession 创建新的 ACP 会话。
 // cwd 为空时根据配置自动创建临时工作区。
 func (s *Service) CreateSession(ctx context.Context, agentType, cwd string, userID uint) (*models.Session, error) {
+	return s.CreateSessionWithSource(ctx, agentType, cwd, userID, models.SessionSourceManual)
+}
+
+// CreateSessionWithSource 创建会话并指定来源（manual/scheduled）。
+func (s *Service) CreateSessionWithSource(ctx context.Context, agentType, cwd string, userID uint, source string) (*models.Session, error) {
 	backend, err := s.GetBackend(agentType)
 	if err != nil {
 		return nil, err
@@ -74,7 +99,7 @@ func (s *Service) CreateSession(ctx context.Context, agentType, cwd string, user
 	if cwd != "" {
 		ws = NewExternalWorkspace(cwd)
 	} else if s.wsConfig.DefaultMode == "temporary" {
-		ws, err = NewTemporaryWorkspace(s.wsConfig.TempDirPrefix)
+		ws, err = NewTemporaryWorkspace(s.wsConfig.SessionDir, s.wsConfig.TempDirPrefix)
 		if err != nil {
 			return nil, err
 		}
@@ -94,7 +119,7 @@ func (s *Service) CreateSession(ctx context.Context, agentType, cwd string, user
 		return nil, fmt.Errorf("ACP 握手: %w", err)
 	}
 
-	sessionID, err := conn.NewSession(ctx, ws.Cwd)
+	sessionID, configOptions, modes, err := conn.NewSession(ctx, ws.Cwd)
 	if err != nil {
 		_ = conn.Close()
 		_ = ws.Cleanup()
@@ -109,6 +134,7 @@ func (s *Service) CreateSession(ctx context.Context, agentType, cwd string, user
 		UserID:        userID,
 		WorkspaceMode: ws.Mode,
 		TempDir:       ws.TempDir,
+		Source:        source,
 	}
 	if err := s.sessions.Create(session); err != nil {
 		_ = conn.Close()
@@ -118,6 +144,12 @@ func (s *Service) CreateSession(ctx context.Context, agentType, cwd string, user
 
 	s.mu.Lock()
 	s.conns[sessionID] = conn
+	if len(configOptions) > 0 {
+		s.configs[sessionID] = configOptions
+	}
+	if len(modes) > 0 {
+		s.modes[sessionID] = modes
+	}
 	s.mu.Unlock()
 
 	return session, nil
@@ -126,6 +158,12 @@ func (s *Service) CreateSession(ctx context.Context, agentType, cwd string, user
 // Prompt 向会话发送 prompt，返回流式 Message channel。
 // 每条 SessionUpdate 会被映射为 models.Message 并持久化到数据库后转发给调用方。
 func (s *Service) Prompt(ctx context.Context, sessionID, prompt string) (<-chan models.Message, error) {
+	return s.PromptWithExecution(ctx, sessionID, prompt, nil)
+}
+
+// PromptWithExecution 与 Prompt 相同，并为本次执行的所有消息写入 executionID。
+// executionID 为 nil 时表示手动会话（不标记执行块）。
+func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt string, executionID *uint) (<-chan models.Message, error) {
 	session, err := s.GetSession(sessionID)
 	if err != nil {
 		return nil, err
@@ -148,6 +186,14 @@ func (s *Service) Prompt(ctx context.Context, sessionID, prompt string) (<-chan 
 
 	_ = s.sessions.UpdateLastPrompt(session.ID, prompt)
 
+	// 首次对话时从 prompt 提取标题（仅当 title 为空时设置）
+	if session.Title == "" {
+		title := extractTitle(prompt)
+		if title != "" {
+			_ = s.sessions.UpdateTitle(session.ID, title)
+		}
+	}
+
 	out := make(chan models.Message, 256)
 	go func() {
 		defer close(out)
@@ -165,13 +211,16 @@ func (s *Service) Prompt(ctx context.Context, sessionID, prompt string) (<-chan 
 			},
 		}
 		userMsg := MapUpdate(sessionID, session.ID, seq, userUpdate)
+		userMsg.ExecutionID = executionID
 		_ = s.messages.Create(&userMsg)
 		out <- userMsg
 
 		// 读取 agent 返回的 update 流，逐条持久化并转发
 		for u := range updates {
+			s.captureCommands(sessionID, u)
 			seq++
 			msg := MapUpdate(sessionID, session.ID, seq, u)
+			msg.ExecutionID = executionID
 			_ = s.messages.Create(&msg)
 			out <- msg
 		}
@@ -205,6 +254,9 @@ func (s *Service) CloseSession(ctx context.Context, sessionID string) error {
 	if ok {
 		delete(s.conns, sessionID)
 	}
+	delete(s.commands, sessionID)
+	delete(s.configs, sessionID)
+	delete(s.modes, sessionID)
 	s.mu.Unlock()
 
 	if ok {
@@ -218,9 +270,72 @@ func (s *Service) CloseSession(ctx context.Context, sessionID string) error {
 	return s.sessions.UpdateStatus(session.ID, models.SessionStatusClosed, &now)
 }
 
+// DeleteSession 彻底删除会话：释放连接、清理工作区、删除消息与 会话记录。
+func (s *Service) DeleteSession(ctx context.Context, sessionID string) error {
+	_ = ctx
+
+	session, err := s.GetSession(sessionID)
+	if err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	conn, ok := s.conns[sessionID]
+	if ok {
+		delete(s.conns, sessionID)
+	}
+	delete(s.commands, sessionID)
+	delete(s.configs, sessionID)
+	delete(s.modes, sessionID)
+	s.mu.Unlock()
+
+	if ok {
+		_ = conn.Close()
+	}
+
+	ws := &Workspace{Mode: session.WorkspaceMode, TempDir: session.TempDir}
+	_ = ws.Cleanup()
+
+	// 先删消息再删会话，避免孤儿消息
+	if err := s.messages.DeleteByDBSessionID(session.ID); err != nil {
+		return fmt.Errorf("删除会话消息: %w", err)
+	}
+	if err := s.sessions.Delete(session.ID); err != nil {
+		return fmt.Errorf("删除会话记录: %w", err)
+	}
+	return nil
+}
+
 // ListSessions 列出指定用户的会话。
 func (s *Service) ListSessions(userID uint) ([]models.Session, error) {
 	return s.sessions.FindByUserID(userID)
+}
+
+// ListSessionsBySource 列出指定用户指定来源的会话。source 为空时返回全部。
+func (s *Service) ListSessionsBySource(userID uint, source string) ([]models.Session, error) {
+	return s.sessions.FindByUserIDAndSource(userID, source)
+}
+
+// ListExecutions 返回指定会话的定时执行块聚合（按 started_at 降序）。
+func (s *Service) ListExecutions(sessionID string) ([]repository.ExecutionAggregate, error) {
+	session, err := s.GetSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return s.messages.AggregateExecutions(session.ID)
+}
+
+// NextExecutionID 返回指定会话下一个可用的 execution_id（当前最大值 + 1）。
+func (s *Service) NextExecutionID(sessionID string) (uint, error) {
+	session, err := s.GetSession(sessionID)
+	if err != nil {
+		return 0, err
+	}
+	max, err := s.messages.MaxExecutionID(session.ID)
+	if err != nil {
+		return 0, err
+	}
+	return max + 1, nil
 }
 
 // GetSession 查询会话。
@@ -255,6 +370,85 @@ func (s *Service) ListMessages(sessionID string) ([]models.Message, error) {
 	return s.messages.FindByDBSessionID(session.ID)
 }
 
+// captureCommands 从 SessionUpdate 中提取 AvailableCommandsUpdate、ConfigOptionUpdate 和 CurrentModeUpdate 并缓存到会话。
+func (s *Service) captureCommands(sessionID string, u acp.SessionUpdate) {
+	if u.AvailableCommandsUpdate != nil {
+		cmds := u.AvailableCommandsUpdate.AvailableCommands
+		s.mu.Lock()
+		s.commands[sessionID] = cmds
+		s.mu.Unlock()
+	}
+	if u.ConfigOptionUpdate != nil {
+		opts := u.ConfigOptionUpdate.ConfigOptions
+		s.mu.Lock()
+		s.configs[sessionID] = opts
+		s.mu.Unlock()
+	}
+	// CurrentModeUpdate 仅更新当前选中的 mode ID，可用 mode 列表不变，无需重新缓存
+}
+
+// ListCommands 返回会话缓存的可用 slash command 列表。
+func (s *Service) ListCommands(sessionID string) ([]acp.AvailableCommand, error) {
+	if _, err := s.GetSession(sessionID); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	cmds := s.commands[sessionID]
+	out := make([]acp.AvailableCommand, len(cmds))
+	copy(out, cmds)
+	return out, nil
+}
+
+// ListConfigOptions 返回会话缓存的 config option 列表（含模型选择等）。
+func (s *Service) ListConfigOptions(sessionID string) ([]acp.SessionConfigOption, error) {
+	if _, err := s.GetSession(sessionID); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	opts := s.configs[sessionID]
+	out := make([]acp.SessionConfigOption, len(opts))
+	copy(out, opts)
+	return out, nil
+}
+
+// ListModes 返回会话可用的 mode 列表（agent skill/模式，如 plan/act）。
+func (s *Service) ListModes(sessionID string) ([]acp.SessionMode, error) {
+	if _, err := s.GetSession(sessionID); err != nil {
+		return nil, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	modes := s.modes[sessionID]
+	out := make([]acp.SessionMode, len(modes))
+	copy(out, modes)
+	return out, nil
+}
+
+// ListSkills 扫描会话工作目录和用户主目录下的 Agent Skills（agentskills.io 规范）。
+func (s *Service) ListSkills(sessionID string) ([]Skill, error) {
+	session, err := s.GetSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return ScanSkills(session.Cwd), nil
+}
+
+// SetConfigOption 设置会话的 config option 值（如切换模型）。
+func (s *Service) SetConfigOption(ctx context.Context, sessionID, configID, value string) error {
+	if _, err := s.GetSession(sessionID); err != nil {
+		return err
+	}
+	s.mu.RLock()
+	conn, ok := s.conns[sessionID]
+	s.mu.RUnlock()
+	if !ok {
+		return ErrSessionNotActive
+	}
+	return conn.SetConfigOption(ctx, sessionID, configID, value)
+}
+
 // GetSessionByDBID 按数据库主键查询会话。
 func (s *Service) GetSessionByDBID(id uint) (*models.Session, error) {
 	sess, err := s.sessions.FindByID(id)
@@ -264,9 +458,10 @@ func (s *Service) GetSessionByDBID(id uint) (*models.Session, error) {
 	return sess, nil
 }
 
-// ResumeSession 恢复已失效（error 状态）的会话：重建 ACP session、注入历史上下文、更新 session_id。
-// active 且连接存在的会话直接返回；closed 会话返回错误。
-func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.Session, error) {
+// ResumeSession 恢复或重开会话：重建 ACP session、注入历史上下文、更新 session_id。
+// active 且连接存在的会话直接返回；error 与 closed 状态均会尝试恢复。
+// cwdOverride 非空时使用该目录作为新工作区（用于已关闭会话的临时目录被清理的场景）。
+func (s *Service) ResumeSession(ctx context.Context, sessionID, cwdOverride string) (*models.Session, error) {
 	session, err := s.GetSession(sessionID)
 	if err != nil {
 		return nil, err
@@ -282,12 +477,18 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 		}
 	}
 
-	// closed → 不可恢复
-	if session.Status == models.SessionStatusClosed {
-		return nil, ErrSessionClosed
+	// 确定工作目录：优先使用覆盖值，否则复用原 cwd
+	cwd := session.Cwd
+	if cwdOverride != "" {
+		cwd = cwdOverride
+	}
+	if cwd == "" {
+		return nil, errors.New("恢复会话需要工作目录，请提供 cwd")
+	}
+	if !dirExists(cwd) {
+		return nil, fmt.Errorf("工作目录不存在: %s，请提供有效的 cwd", cwd)
 	}
 
-	// error 状态 → 尝试恢复
 	backend, err := s.GetBackend(session.AgentType)
 	if err != nil {
 		return nil, err
@@ -303,10 +504,18 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 		return nil, fmt.Errorf("恢复会话-ACP 握手: %w", err)
 	}
 
-	newSessionID, err := conn.NewSession(ctx, session.Cwd)
+	newSessionID, configOptions, modes, err := conn.NewSession(ctx, cwd)
 	if err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("恢复会话-创建 ACP 会话: %w", err)
+	}
+
+	// 若提供了 cwd 覆盖，更新会话工作区为 external 模式
+	if cwdOverride != "" && cwdOverride != session.Cwd {
+		_ = s.sessions.UpdateWorkspace(session.ID, cwdOverride, models.WorkspaceModeExternal, "")
+		session.Cwd = cwdOverride
+		session.WorkspaceMode = models.WorkspaceModeExternal
+		session.TempDir = ""
 	}
 
 	// 查询历史消息并注入上下文
@@ -319,7 +528,7 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 		}()
 	}
 
-	// 更新 session_id 和状态
+	// 更新 session_id 和状态（closed_at 置空）
 	if err := s.sessions.UpdateSessionID(session.ID, newSessionID); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("恢复会话-更新 session_id: %w", err)
@@ -332,6 +541,15 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 	// 存入连接池
 	s.mu.Lock()
 	s.conns[newSessionID] = conn
+	delete(s.commands, sessionID)
+	delete(s.configs, sessionID)
+	delete(s.modes, sessionID)
+	if len(configOptions) > 0 {
+		s.configs[newSessionID] = configOptions
+	}
+	if len(modes) > 0 {
+		s.modes[newSessionID] = modes
+	}
 	s.mu.Unlock()
 
 	// 返回更新后的 session
@@ -363,4 +581,38 @@ func formatHistory(messages []models.Message) string {
 		}
 	}
 	return sb.String()
+}
+
+// extractTitle 从用户 prompt 中提取会话标题。
+// 取首行非空文本的前 30 个字符（rune），去除首尾空白和命令前缀。
+const maxTitleLen = 30
+
+func extractTitle(prompt string) string {
+	// 去除首尾空白
+	s := strings.TrimSpace(prompt)
+	if s == "" {
+		return ""
+	}
+	// 取首行（多行 prompt 只用第一行）
+	if idx := strings.IndexByte(s, '\n'); idx >= 0 {
+		s = s[:idx]
+	}
+	s = strings.TrimSpace(s)
+	// 去除常见的 slash 命令前缀（如 /help、/plan 等）
+	if strings.HasPrefix(s, "/") {
+		// 跳过命令部分，取命令后的文本
+		if idx := strings.IndexByte(s, ' '); idx >= 0 {
+			s = strings.TrimSpace(s[idx+1:])
+		}
+	}
+	if s == "" {
+		return ""
+	}
+	// 按 rune 截断，避免截断多字节字符
+	runes := []rune(s)
+	if len(runes) > maxTitleLen {
+		runes = runes[:maxTitleLen]
+		return string(runes) + "..."
+	}
+	return string(runes)
 }

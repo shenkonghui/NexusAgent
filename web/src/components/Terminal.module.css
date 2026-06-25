@@ -1,0 +1,67 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #1e1e2e;
+  border-top: 1px solid #313244;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  background: #181825;
+  border-bottom: 1px solid #313244;
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a6adc8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  color: #a6adc8;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  border-radius: 4px;
+  transition: background 0.2s, color 0.2s;
+}
+
+.closeBtn:hover {
+  background: #313244;
+  color: #f38ba8;
+}
+
+.terminal {
+  flex: 1;
+  padding: 4px 8px;
+  overflow: hidden;
+}
+
+/* xterm 滚动条样式 */
+.terminal :global(.xterm-viewport) {
+  overflow-y: auto !important;
+}
+
+.terminal :global(.xterm-viewport::-webkit-scrollbar) {
+  width: 8px;
+}
+
+.terminal :global(.xterm-viewport::-webkit-scrollbar-thumb) {
+  background: #45475a;
+  border-radius: 4px;
+}
+
+.terminal :global(.xterm-viewport::-webkit-scrollbar-track) {
+  background: #181825;
+}

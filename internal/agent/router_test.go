@@ -92,7 +92,7 @@ func TestRouter_NewMethods_NilService(t *testing.T) {
 	if _, err := router.ListMessages("x"); err == nil {
 		t.Error("期望 ListMessages 在 service 为 nil 时返回错误")
 	}
-	if _, err := router.ResumeSession(nil, "x"); err == nil {
+	if _, err := router.ResumeSession(nil, "x", ""); err == nil {
 		t.Error("期望 ResumeSession 在 service 为 nil 时返回错误")
 	}
 }

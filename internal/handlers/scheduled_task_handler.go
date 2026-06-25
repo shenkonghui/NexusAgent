@@ -1,0 +1,231 @@
+package handlers
+
+import (
+	"errors"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/robfig/cron/v3"
+
+	"nexusagent/internal/models"
+	"nexusagent/internal/repository"
+)
+
+// SchedulerManager 是 handler 操作定时任务所需的能力（*services.SchedulerService 实现该接口）。
+type SchedulerManager interface {
+	AddTask(t *models.ScheduledTask) error
+	UpdateTask(t *models.ScheduledTask) error
+	RemoveTask(taskID uint) error
+	RunTask(taskID uint) error
+}
+
+// ExecutionLister 按会话 ID 查询定时执行块聚合（*agent.Router 实现该接口）。
+type ExecutionLister interface {
+	ListExecutions(sessionID string) ([]repository.ExecutionAggregate, error)
+}
+
+// ScheduledTaskHandler 处理定时任务相关请求。
+type ScheduledTaskHandler struct {
+	repo   *repository.ScheduledTaskRepository
+	mgr    SchedulerManager
+	lister ExecutionLister
+}
+
+// NewScheduledTaskHandler 创建 ScheduledTaskHandler。
+func NewScheduledTaskHandler(repo *repository.ScheduledTaskRepository, mgr SchedulerManager, lister ExecutionLister) *ScheduledTaskHandler {
+	return &ScheduledTaskHandler{repo: repo, mgr: mgr, lister: lister}
+}
+
+type createTaskRequest struct {
+	Name      string `json:"name" binding:"required"`
+	AgentType string `json:"agent_type" binding:"required"`
+	Cwd       string `json:"cwd" binding:"required"`
+	Prompt    string `json:"prompt" binding:"required"`
+	CronExpr  string `json:"cron_expr" binding:"required"`
+	Enabled   *bool  `json:"enabled"`
+}
+
+// Create POST /api/v1/scheduled-tasks
+func (h *ScheduledTaskHandler) Create(c *gin.Context) {
+	var req createTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数无效")
+		return
+	}
+	if err := validateCron(req.CronExpr); err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_CRON", err.Error())
+		return
+	}
+	uid, ok := currentUserID(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
+		return
+	}
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	task := &models.ScheduledTask{
+		Name:      strings.TrimSpace(req.Name),
+		AgentType: req.AgentType,
+		Cwd:       req.Cwd,
+		Prompt:    req.Prompt,
+		CronExpr:  req.CronExpr,
+		Enabled:   enabled,
+		UserID:    uid,
+	}
+	if err := h.mgr.AddTask(task); err != nil {
+		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
+		return
+	}
+	Success(c, http.StatusCreated, task)
+}
+
+// List GET /api/v1/scheduled-tasks
+func (h *ScheduledTaskHandler) List(c *gin.Context) {
+	uid, ok := currentUserID(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
+		return
+	}
+	tasks, err := h.repo.FindByUserID(uid)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
+		return
+	}
+	Success(c, http.StatusOK, gin.H{"tasks": tasks})
+}
+
+// Get GET /api/v1/scheduled-tasks/:id
+func (h *ScheduledTaskHandler) Get(c *gin.Context) {
+	task, ok := h.loadOwnedTask(c)
+	if !ok {
+		return
+	}
+	Success(c, http.StatusOK, task)
+}
+
+type updateTaskRequest struct {
+	Name      *string `json:"name"`
+	AgentType *string `json:"agent_type"`
+	Cwd       *string `json:"cwd"`
+	Prompt    *string `json:"prompt"`
+	CronExpr  *string `json:"cron_expr"`
+	Enabled   *bool   `json:"enabled"`
+}
+
+// Update PUT /api/v1/scheduled-tasks/:id
+func (h *ScheduledTaskHandler) Update(c *gin.Context) {
+	task, ok := h.loadOwnedTask(c)
+	if !ok {
+		return
+	}
+	var req updateTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数无效")
+		return
+	}
+	if req.Name != nil {
+		task.Name = strings.TrimSpace(*req.Name)
+	}
+	if req.AgentType != nil {
+		task.AgentType = *req.AgentType
+	}
+	if req.Cwd != nil {
+		task.Cwd = *req.Cwd
+	}
+	if req.Prompt != nil {
+		task.Prompt = *req.Prompt
+	}
+	if req.CronExpr != nil {
+		if err := validateCron(*req.CronExpr); err != nil {
+			Fail(c, http.StatusBadRequest, "INVALID_CRON", err.Error())
+			return
+		}
+		task.CronExpr = *req.CronExpr
+	}
+	if req.Enabled != nil {
+		task.Enabled = *req.Enabled
+	}
+	if err := h.mgr.UpdateTask(task); err != nil {
+		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
+		return
+	}
+	Success(c, http.StatusOK, task)
+}
+
+// Delete DELETE /api/v1/scheduled-tasks/:id
+func (h *ScheduledTaskHandler) Delete(c *gin.Context) {
+	task, ok := h.loadOwnedTask(c)
+	if !ok {
+		return
+	}
+	if err := h.mgr.RemoveTask(task.ID); err != nil {
+		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
+		return
+	}
+	Success(c, http.StatusOK, struct{}{})
+}
+
+// Run POST /api/v1/scheduled-tasks/:id/run — 手动触发一次执行。
+func (h *ScheduledTaskHandler) Run(c *gin.Context) {
+	task, ok := h.loadOwnedTask(c)
+	if !ok {
+		return
+	}
+	if err := h.mgr.RunTask(task.ID); err != nil {
+		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
+		return
+	}
+	Success(c, http.StatusOK, struct{}{})
+}
+
+// Executions GET /api/v1/scheduled-tasks/:id/executions — 任务关联会话的执行块历史。
+func (h *ScheduledTaskHandler) Executions(c *gin.Context) {
+	task, ok := h.loadOwnedTask(c)
+	if !ok {
+		return
+	}
+	if task.SessionID == "" {
+		Success(c, http.StatusOK, gin.H{"executions": []repository.ExecutionAggregate{}})
+		return
+	}
+	execs, err := h.lister.ListExecutions(task.SessionID)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
+		return
+	}
+	Success(c, http.StatusOK, gin.H{"executions": execs})
+}
+
+// loadOwnedTask 加载 :id 对应任务并校验归属；失败时已写入错误响应。
+func (h *ScheduledTaskHandler) loadOwnedTask(c *gin.Context) (*models.ScheduledTask, bool) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 64)
+	if err != nil || id == 0 {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "无效的任务 ID")
+		return nil, false
+	}
+	task, err := h.repo.FindByID(uint(id))
+	if err != nil || task == nil {
+		Fail(c, http.StatusNotFound, "TASK_NOT_FOUND", "定时任务不存在")
+		return nil, false
+	}
+	uid, ok := currentUserID(c)
+	if !ok || task.UserID != uid {
+		Fail(c, http.StatusNotFound, "TASK_NOT_FOUND", "定时任务不存在")
+		return nil, false
+	}
+	return task, true
+}
+
+// validateCron 校验标准 5 字段 cron 表达式。
+func validateCron(expr string) error {
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	if _, err := parser.Parse(expr); err != nil {
+		return errors.New("cron 表达式无效: " + err.Error())
+	}
+	return nil
+}

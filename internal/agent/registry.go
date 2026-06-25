@@ -42,6 +42,35 @@ func (r *Registry) Register(desc *AgentDescriptor) error {
 	return nil
 }
 
+// Replace 注册或覆盖一个 agent 类型（用于动态更新配置）。
+func (r *Registry) Replace(desc *AgentDescriptor) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.agents[desc.Type] = desc
+}
+
+// Unregister 注销一个 agent 类型。
+func (r *Registry) Unregister(agentType string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.agents, agentType)
+}
+
+// RegisterAgent 注册一个 agent 类型，重复注册返回错误（实现 agent.AgentRegistrar 子集）。
+func (r *Registry) RegisterAgent(desc *AgentDescriptor) error {
+	return r.Register(desc)
+}
+
+// ReplaceAgent 注册或覆盖一个 agent 类型。
+func (r *Registry) ReplaceAgent(desc *AgentDescriptor) {
+	r.Replace(desc)
+}
+
+// UnregisterAgent 注销一个 agent 类型。
+func (r *Registry) UnregisterAgent(agentType string) {
+	r.Unregister(agentType)
+}
+
 // Get 查找指定类型的 agent 描述符。
 func (r *Registry) Get(agentType string) (*AgentDescriptor, error) {
 	r.mu.RLock()

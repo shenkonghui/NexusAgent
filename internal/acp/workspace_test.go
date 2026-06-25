@@ -20,7 +20,8 @@ func TestNewExternalWorkspace(t *testing.T) {
 }
 
 func TestNewTemporaryWorkspace(t *testing.T) {
-	w, err := NewTemporaryWorkspace("test-")
+	baseDir := t.TempDir()
+	w, err := NewTemporaryWorkspace(baseDir, "test-")
 	if err != nil {
 		t.Fatalf("NewTemporaryWorkspace 错误: %v", err)
 	}
@@ -36,6 +37,9 @@ func TestNewTemporaryWorkspace(t *testing.T) {
 	if _, err := os.Stat(w.TempDir); os.IsNotExist(err) {
 		t.Errorf("临时目录不存在: %s", w.TempDir)
 	}
+	if filepath.Dir(w.TempDir) != baseDir {
+		t.Errorf("临时目录应在 %s 下，实际 %s", baseDir, filepath.Dir(w.TempDir))
+	}
 	if filepath.Base(w.TempDir)[:5] != "test-" {
 		t.Errorf("目录名前缀不匹配: %s", filepath.Base(w.TempDir))
 	}
@@ -44,6 +48,23 @@ func TestNewTemporaryWorkspace(t *testing.T) {
 	}
 	if _, err := os.Stat(w.TempDir); !os.IsNotExist(err) {
 		t.Errorf("Cleanup 后目录应被删除: %s", w.TempDir)
+	}
+}
+
+func TestNewTemporaryWorkspace_EmptyBaseDir(t *testing.T) {
+	// baseDir 为空时回退到 ~/.nextAgent/session，仅验证目录被创建在 home 下并清理。
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("获取主目录失败: %v", err)
+	}
+	expectedBase := filepath.Join(home, ".nextAgent", "session")
+	w, err := NewTemporaryWorkspace("", "test-home-")
+	if err != nil {
+		t.Fatalf("NewTemporaryWorkspace 错误: %v", err)
+	}
+	defer w.Cleanup()
+	if filepath.Dir(w.TempDir) != expectedBase {
+		t.Errorf("临时目录应在 %s 下，实际 %s", expectedBase, filepath.Dir(w.TempDir))
 	}
 }
 

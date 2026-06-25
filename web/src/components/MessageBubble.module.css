@@ -1,6 +1,6 @@
 .container {
   display: flex;
-  margin-bottom: 16px;
+  margin-bottom: 6px;
   padding: 0 20px;
 }
 
@@ -10,8 +10,8 @@
 
 .bubble {
   max-width: 70%;
-  border-radius: 12px;
-  padding: 12px 16px;
+  border-radius: 10px;
+  padding: 8px 14px;
   position: relative;
 }
 
@@ -44,13 +44,23 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+}
+
+.headerClickable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.headerClickable:hover {
+  opacity: 0.85;
 }
 
 .role {
   font-size: 12px;
   font-weight: 600;
   opacity: 0.7;
+  flex-shrink: 0;
 }
 
 .badge {
@@ -61,9 +71,28 @@
   color: #555;
 }
 
+/* 工具调用折叠态的单行摘要 */
+.summary {
+  font-size: 12px;
+  color: #888;
+  font-style: normal;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.toggle {
+  font-size: 10px;
+  opacity: 0.6;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
 .content {
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -75,7 +104,7 @@
 }
 
 .rawToggle {
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .rawBtn {
@@ -93,7 +122,7 @@
 }
 
 .rawJson {
-  margin-top: 8px;
+  margin-top: 6px;
   padding: 8px;
   background: rgba(0, 0, 0, 0.05);
   border-radius: 4px;

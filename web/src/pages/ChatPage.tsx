@@ -1,14 +1,18 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useRequireAuth } from '../hooks/useRequireAuth'
-import { getSession, listMessages, closeSession, cancelSession, resumeSession, listSessions } from '../api/sessions'
-import { streamPrompt } from '../api/sse'
-import type { Session, Message } from '../types'
+import { getSession, listMessages, closeSession, cancelSession, resumeSession, listSessions, listCommands, listModes, listSkills, listConfigOptions, setConfigOption, deleteSession } from '../api/sessions'
+import { streamPrompt, isTimeoutError } from '../api/sse'
+import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill } from '../types'
 import SessionSidebar from '../components/SessionSidebar'
 import MessageList from '../components/MessageList'
 import PromptInput from '../components/PromptInput'
+import ModelSelector from '../components/ModelSelector'
 import ErrorBanner from '../components/ErrorBanner'
 import LoadingSpinner from '../components/LoadingSpinner'
+import FilePanel from '../components/FilePanel'
+import ContextStats from '../components/ContextStats'
+import TerminalPanel from '../components/Terminal'
 import styles from './ChatPage.module.css'
 
 export default function ChatPage() {
@@ -20,9 +24,20 @@ export default function ChatPage() {
   const [session, setSession] = useState<Session | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [allSessions, setAllSessions] = useState<Session[]>([])
+  const [commands, setCommands] = useState<AgentCommand[]>([])
+  const [modes, setModes] = useState<SessionMode[]>([])
+  const [skills, setSkills] = useState<AgentSkill[]>([])
+  const [configOptions, setConfigOptions] = useState<ConfigOption[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [sending, setSending] = useState(false)
+  const [showFilePanel, setShowFilePanel] = useState(false)
+  // 底部终端面板，默认不开启
+  const [showTerminal, setShowTerminal] = useState(false)
+  // 最近一次失败的 prompt（用于重试）
+  const [lastFailedPrompt, setLastFailedPrompt] = useState('')
+  // 错误是否可重试（超时/网络错误）
+  const [retryable, setRetryable] = useState(false)
 
   // 加载会话和消息
   const loadData = useCallback(async () => {
@@ -38,6 +53,19 @@ export default function ChatPage() {
       setSession(sessionResp.data)
       setMessages(msgResp.data.messages || [])
       setAllSessions(sessionsResp.data.sessions || [])
+      // 加载 slash 命令、modes、skills 和 config options（失败时静默，可能尚未有任何 prompt 触发）
+      listCommands(sessionId)
+        .then((r) => setCommands(r.data.commands || []))
+        .catch(() => setCommands([]))
+      listModes(sessionId)
+        .then((r) => setModes(r.data.modes || []))
+        .catch(() => setModes([]))
+      listSkills(sessionId)
+        .then((r) => setSkills(r.data.skills || []))
+        .catch(() => setSkills([]))
+      listConfigOptions(sessionId)
+        .then((r) => setConfigOptions(r.data.config_options || []))
+        .catch(() => setConfigOptions([]))
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载会话失败')
     } finally {
@@ -54,31 +82,21 @@ export default function ChatPage() {
     if (!session || session.status !== 'active') return
     setSending(true)
     setError('')
+    setRetryable(false)
+    setLastFailedPrompt('')
 
     await streamPrompt(
       sessionId,
       prompt,
-      // onMessage: 合并连续的 assistant 消息（多种 kind）
+      // onMessage: 追加消息，连续同 kind 的文本 chunk 由 MessageList 在渲染时合并显示
       (msg) => {
-        setMessages((prev) => {
-          const last = prev[prev.length - 1]
-          // 如果上一条是 assistant 且 sequence 连续，合并 content
-          if (
-            last &&
-            last.role === 'assistant' &&
-            last.sequence === msg.sequence - 1
-          ) {
-            return [
-              ...prev.slice(0, -1),
-              { ...last, content: last.content + msg.content },
-            ]
-          }
-          return [...prev, msg]
-        })
+        setMessages((prev) => [...prev, msg])
       },
       // onDone: 流结束
       () => {
         setSending(false)
+        setLastFailedPrompt('')
+        setRetryable(false)
         // 刷新会话状态
         loadData()
       },
@@ -86,8 +104,21 @@ export default function ChatPage() {
       (err) => {
         setSending(false)
         setError(err.message)
+        // 检测是否为超时/网络错误，支持重试
+        if (isTimeoutError(err)) {
+          setLastFailedPrompt(prompt)
+          setRetryable(true)
+        }
       },
     )
+  }
+
+  // 重试上次失败的 prompt
+  async function handleRetry() {
+    if (!lastFailedPrompt) return
+    setError('')
+    setRetryable(false)
+    await handleSend(lastFailedPrompt)
   }
 
   // 取消当前 prompt
@@ -100,14 +131,52 @@ export default function ChatPage() {
     }
   }
 
-  // 恢复会话
+  // 恢复/重开会话。closed 会话重开时若需要新工作目录会提示用户输入。
   async function handleResume() {
+    if (!session) return
     setError('')
+    let cwd: string | undefined
+    // 已关闭会话的工作目录可能已被清理（temporary 模式），提示用户提供新目录
+    if (session.status === 'closed') {
+      cwd = window.prompt('重新打开会话，请输入工作目录（留空则复用原目录）', session.cwd || '') ?? undefined
+      if (cwd === undefined) return // 用户取消
+    }
     try {
-      const resp = await resumeSession(sessionId)
+      const resp = await resumeSession(sessionId, cwd)
       setSession(resp.data)
+      // 重开后刷新命令列表
+      listCommands(sessionId)
+        .then((r) => setCommands(r.data.commands || []))
+        .catch(() => setCommands([]))
+      listModes(sessionId)
+        .then((r) => setModes(r.data.modes || []))
+        .catch(() => setModes([]))
+      listSkills(sessionId)
+        .then((r) => setSkills(r.data.skills || []))
+        .catch(() => setSkills([]))
+      listConfigOptions(sessionId)
+        .then((r) => setConfigOptions(r.data.config_options || []))
+        .catch(() => setConfigOptions([]))
     } catch (err) {
       setError(err instanceof Error ? err.message : '恢复失败')
+    }
+  }
+
+  // 切换模型 / 设置 config option
+  async function handleSetConfigOption(configId: string, value: string) {
+    setError('')
+    // 乐观更新本地状态
+    setConfigOptions((prev) =>
+      prev.map((o) => (o.id === configId ? { ...o, current_value: value } : o)),
+    )
+    try {
+      await setConfigOption(sessionId, configId, value)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '设置失败')
+      // 回滚：重新拉取
+      listConfigOptions(sessionId)
+        .then((r) => setConfigOptions(r.data.config_options || []))
+        .catch(() => {})
     }
   }
 
@@ -115,9 +184,25 @@ export default function ChatPage() {
   async function handleClose() {
     try {
       await closeSession(sessionId)
-      navigate('/sessions')
+      navigate('/')
     } catch (err) {
       setError(err instanceof Error ? err.message : '关闭失败')
+    }
+  }
+
+  // 删除会话（左侧列表触发）
+  async function handleDeleteSession(id: number) {
+    setError('')
+    try {
+      await deleteSession(id)
+      // 删除当前会话则跳回列表页，否则仅刷新侧边栏
+      if (id === sessionId) {
+        navigate('/')
+      } else {
+        setAllSessions((prev) => prev.filter((s) => s.id !== id))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除失败')
     }
   }
 
@@ -127,7 +212,7 @@ export default function ChatPage() {
 
   return (
     <div className={styles.layout}>
-      <SessionSidebar sessions={allSessions} currentId={sessionId} />
+      <SessionSidebar sessions={allSessions} currentId={sessionId} onDelete={handleDeleteSession} />
 
       <div className={styles.main}>
         {/* 顶部会话信息 */}
@@ -140,9 +225,25 @@ export default function ChatPage() {
             {session?.cwd && <span className={styles.cwd}>{session.cwd}</span>}
           </div>
           <div className={styles.actions}>
-            {session?.status === 'error' && (
+            <button
+              className={`${styles.fileBtn} ${showFilePanel ? styles.fileBtnActive : ''}`}
+              onClick={() => setShowFilePanel(!showFilePanel)}
+              type="button"
+              title="文件浏览器"
+            >
+              📁 文件
+            </button>
+            <button
+              className={`${styles.fileBtn} ${showTerminal ? styles.fileBtnActive : ''}`}
+              onClick={() => setShowTerminal(!showTerminal)}
+              type="button"
+              title="终端"
+            >
+              ⌨ 终端
+            </button>
+            {(session?.status === 'error' || session?.status === 'closed') && (
               <button className={styles.resumeBtn} onClick={handleResume} type="button">
-                恢复会话
+                {session?.status === 'closed' ? '重新打开' : '恢复会话'}
               </button>
             )}
             {session?.status === 'active' && (
@@ -153,10 +254,34 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {error && <ErrorBanner message={error} onClose={() => setError('')} />}
+        {/* 模型 / config option 选择条 + 上下文统计 */}
+        {session?.status === 'active' && (
+          <div className={styles.configBar}>
+            <ModelSelector
+              options={configOptions}
+              onApply={handleSetConfigOption}
+              disabled={sending}
+            />
+            <div className={styles.statsArea}>
+              <ContextStats messages={messages} />
+            </div>
+          </div>
+        )}
 
-        {/* 消息列表 */}
-        <MessageList messages={messages} loading={sending} />
+        {error && (
+          <ErrorBanner
+            message={retryable ? `${error}（可重试）` : error}
+            onClose={() => { setError(''); setRetryable(false) }}
+            onRetry={retryable ? handleRetry : undefined}
+          />
+        )}
+
+        {/* 消息列表（定时会话按执行块分块渲染） */}
+        <MessageList
+          messages={messages}
+          loading={sending}
+          scheduled={session?.source === 'scheduled'}
+        />
 
         {/* 底部输入 */}
         <PromptInput
@@ -164,15 +289,36 @@ export default function ChatPage() {
           onCancel={handleCancel}
           sending={sending}
           disabled={session?.status !== 'active'}
+          commands={commands}
+          modes={modes}
+          skills={skills}
+          cwd={session?.cwd}
           placeholder={
             session?.status === 'closed'
-              ? '会话已关闭'
+              ? '会话已关闭，点击「重新打开」继续'
               : session?.status === 'error'
                 ? '会话状态异常，请先恢复'
-                : '输入 prompt，Enter 发送，Shift+Enter 换行'
+                : '输入 prompt，/ 命令/模式，@ 文件引用，Enter 发送，Shift+Enter 换行'
           }
         />
+
+        {/* 底部终端面板（默认不开启，点击切换显示/隐藏） */}
+        {showTerminal && session && (
+          <div className={styles.terminalPanel}>
+            <TerminalPanel
+              sessionId={sessionId}
+              onClose={() => setShowTerminal(false)}
+            />
+          </div>
+        )}
       </div>
+
+      {showFilePanel && session && (
+        <FilePanel
+          sessionId={sessionId}
+          onClose={() => setShowFilePanel(false)}
+        />
+      )}
     </div>
   )
 }
