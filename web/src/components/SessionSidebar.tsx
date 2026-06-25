@@ -218,7 +218,7 @@ export default function SessionSidebar({ sessions, currentId, onDelete }: Sessio
           to="/settings"
           className={`${styles.navItem} ${location.pathname === '/settings' ? styles.navItemActive : ''}`}
         >
-          ⚙ 设置
+          ⚙ Agent 设置
         </Link>
       </div>
     </div>

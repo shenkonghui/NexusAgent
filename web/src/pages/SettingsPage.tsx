@@ -127,7 +127,7 @@ export default function SettingsPage() {
 
       <div className={styles.main}>
         <div className={styles.header}>
-          <h1 className={styles.title}>设置 — 本地 ACP Agent</h1>
+          <h1 className={styles.title}>Agent 设置</h1>
           <UserMenu />
         </div>
 
