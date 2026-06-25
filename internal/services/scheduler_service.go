@@ -29,9 +29,10 @@ type SchedulerExecutor interface {
 
 // SchedulerService 是进程内 cron 调度器，管理定时任务的调度与执行。
 type SchedulerService struct {
-	repo *repository.ScheduledTaskRepository
-	exec SchedulerExecutor
-	cron *cron.Cron
+	repo     *repository.ScheduledTaskRepository
+	execRepo *repository.TaskExecutionRepository
+	exec     SchedulerExecutor
+	cron     *cron.Cron
 
 	mu       sync.Mutex
 	entries  map[uint]cron.EntryID // taskID -> cron entry ID
@@ -40,12 +41,13 @@ type SchedulerService struct {
 }
 
 // NewSchedulerService 创建调度器。调用 Start() 后开始调度。
-func NewSchedulerService(repo *repository.ScheduledTaskRepository, exec SchedulerExecutor) *SchedulerService {
+func NewSchedulerService(repo *repository.ScheduledTaskRepository, execRepo *repository.TaskExecutionRepository, exec SchedulerExecutor) *SchedulerService {
 	return &SchedulerService{
-		repo:    repo,
-		exec:    exec,
-		cron:    cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
-		entries: make(map[uint]cron.EntryID),
+		repo:     repo,
+		execRepo: execRepo,
+		exec:     exec,
+		cron:     cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
+		entries:  make(map[uint]cron.EntryID),
 	}
 }
 
@@ -165,6 +167,8 @@ func (s *SchedulerService) run(taskID uint) {
 	taskMu := mu.(*sync.Mutex)
 	if !taskMu.TryLock() {
 		_ = s.repo.UpdateRunResult(taskID, models.TaskStatusSkipped, "上一次执行尚未结束", time.Now())
+		// 记录跳过执行（execution_id=0 表示未实际执行）
+		s.recordSkip(taskID)
 		log.Printf("定时任务 %d (%s) 跳过：上一次执行尚未结束", taskID, t.Name)
 		return
 	}
@@ -172,45 +176,75 @@ func (s *SchedulerService) run(taskID uint) {
 
 	_ = s.repo.UpdateRunResult(taskID, models.TaskStatusRunning, "", time.Now())
 
-	if err := s.execute(t); err != nil {
+	// 计算超时时间，默认 5 分钟
+	timeoutMin := t.TimeoutMinutes
+	if timeoutMin <= 0 {
+		timeoutMin = 5
+	}
+
+	execRecord, err := s.executeWithTimeout(t, timeoutMin)
+	if err != nil {
 		_ = s.repo.UpdateRunResult(taskID, models.TaskStatusFailed, err.Error(), time.Now())
+		if execRecord != nil {
+			_ = s.execRepo.UpdateStatus(execRecord.ID, models.TaskStatusFailed, err.Error())
+		}
 		log.Printf("定时任务 %d (%s) 执行失败: %v", taskID, t.Name, err)
 		return
 	}
 	_ = s.repo.UpdateRunResult(taskID, models.TaskStatusSuccess, "", time.Now())
+	if execRecord != nil {
+		_ = s.execRepo.UpdateStatus(execRecord.ID, models.TaskStatusSuccess, "")
+	}
 }
 
-// execute 准备 session 并发送 prompt，同步消费消息流至结束。
-func (s *SchedulerService) execute(t *models.ScheduledTask) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("执行 panic: %v", r)
-		}
-	}()
+// recordSkip 记录一次跳过的执行（不分配 execution_id，用 0 标记）。
+func (s *SchedulerService) recordSkip(taskID uint) {
+	_ = s.execRepo.Create(&models.TaskExecution{
+		TaskID:      taskID,
+		ExecutionID: 0,
+		Status:      models.TaskStatusSkipped,
+		Error:       "上一次执行尚未结束",
+	})
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+// executeWithTimeout 在指定超时内执行任务，返回执行记录用于后续状态更新。
+func (s *SchedulerService) executeWithTimeout(t *models.ScheduledTask, timeoutMin int) (*models.TaskExecution, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutMin)*time.Minute)
 	defer cancel()
 
 	session, execID, err := s.ensureSession(ctx, t)
 	if err != nil {
-		return err
+		return nil, err
+	}
+
+	// 创建执行记录
+	execRecord := &models.TaskExecution{
+		TaskID:      t.ID,
+		ExecutionID: execID,
+		Status:      models.TaskStatusRunning,
+		StartedAt:   time.Now(),
+	}
+	if err := s.execRepo.Create(execRecord); err != nil {
+		log.Printf("定时任务 %d 创建执行记录失败: %v", t.ID, err)
 	}
 
 	// 设置模型（若任务配置了 model_value 且该会话支持模型选择）
 	if err := s.applyModel(ctx, session.SessionID, t.ModelValue); err != nil {
-		// 模型设置失败不中断执行，仅记录日志（使用默认模型继续）
 		log.Printf("定时任务 %d 设置模型 %q 失败: %v", t.ID, t.ModelValue, err)
 	}
 
 	ch, err := s.exec.PromptWithExecution(ctx, session.SessionID, t.Prompt, &execID)
 	if err != nil {
-		return fmt.Errorf("发送 prompt: %w", err)
+		return execRecord, fmt.Errorf("发送 prompt: %w", err)
 	}
 
-	// 同步消费消息流至结束
+	// 同步消费消息流至结束或超时
 	for range ch {
 	}
-	return nil
+	if ctx.Err() == context.DeadlineExceeded {
+		return execRecord, fmt.Errorf("执行超时（%d 分钟）", timeoutMin)
+	}
+	return execRecord, nil
 }
 
 // applyModel 在会话上设置模型 config option。modelValue 为空时不做任何操作。

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { Message } from '../types'
+import type { Message, Execution } from '../types'
 import MessageBubble from './MessageBubble'
 import styles from './MessageList.module.css'
 
@@ -8,6 +8,8 @@ interface MessageListProps {
   loading?: boolean
   // scheduled=true 时按 execution_id 分块渲染（定时会话）
   scheduled?: boolean
+  // 定时会话的执行状态映射（execution_id -> Execution），用于显示每次执行状态
+  executions?: Execution[]
 }
 
 // 可合并为同一个气泡的文本流式 kind（同一 kind 的连续 chunk 拼接成一条）
@@ -82,7 +84,7 @@ function groupByExecution(messages: Message[]): ExecutionBlock[] {
     .map((id) => map.get(id)!)
 }
 
-export default function MessageList({ messages, loading, scheduled }: MessageListProps) {
+export default function MessageList({ messages, loading, scheduled, executions }: MessageListProps) {
   const endRef = useRef<HTMLDivElement>(null)
 
   // 新消息时自动滚动到底部
@@ -99,6 +101,13 @@ export default function MessageList({ messages, loading, scheduled }: MessageLis
   // 不属于任何执行块的消息（理论上定时会话不应出现）
   const unblocked = messages.filter((m) => m.execution_id == null)
   const scheduledLoading = !!loading
+  // 构建 execution_id -> status 映射
+  const execStatusMap = new Map<number, Execution>()
+  if (executions) {
+    for (const e of executions) {
+      execStatusMap.set(e.execution_id, e)
+    }
+  }
 
   return (
     <div className={styles.container}>
@@ -117,6 +126,8 @@ export default function MessageList({ messages, loading, scheduled }: MessageLis
           index={idx + 1}
           total={blocks.length}
           loading={scheduledLoading && idx === blocks.length - 1}
+          status={execStatusMap.get(block.executionId)?.status || ''}
+          errorMsg={execStatusMap.get(block.executionId)?.error || ''}
         />
       ))}
       {scheduledLoading && blocks.length === 0 && (
@@ -131,17 +142,29 @@ export default function MessageList({ messages, loading, scheduled }: MessageLis
   )
 }
 
+// 执行状态标签映射
+const execStatusLabels: Record<string, string> = {
+  success: '成功',
+  running: '运行中',
+  failed: '失败',
+  skipped: '跳过',
+}
+
 // ExecutionBlockView 渲染单个执行块（可折叠）
 function ExecutionBlockView({
   block,
   index,
   total,
   loading,
+  status,
+  errorMsg,
 }: {
   block: ExecutionBlock
   index: number
   total: number
   loading: boolean
+  status: string
+  errorMsg: string
 }) {
   // 最新一块默认展开，其余默认折叠
   const [open, setOpen] = useState(index === total)
@@ -169,10 +192,18 @@ function ExecutionBlockView({
         <span className={styles.executionTime}>
           {new Date(block.startedAt).toLocaleString('zh-CN')}
         </span>
+        {status && (
+          <span className={`${styles.execStatusBadge} ${styles[`execStatus_${status}`] || ''}`}>
+            {execStatusLabels[status] || status}
+          </span>
+        )}
         {loading && <span className={styles.executionRunning}>执行中…</span>}
       </button>
       {open && (
         <div className={styles.executionBody}>
+          {status === 'failed' && errorMsg && (
+            <div className={styles.execError}>错误：{errorMsg}</div>
+          )}
           {displayMessages.map((msg) => {
             const key = msg.id || msg.sequence
             const isLastThoughtStreaming =

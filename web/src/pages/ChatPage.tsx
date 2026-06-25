@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useRequireAuth } from '../hooks/useRequireAuth'
 import { getSession, listMessages, closeSession, cancelSession, resumeSession, listSessions, listCommands, listModes, listSkills, listConfigOptions, setConfigOption, deleteSession } from '../api/sessions'
+import { listScheduledTasks, listExecutions } from '../api/scheduledTasks'
 import { streamPrompt, isTimeoutError } from '../api/sse'
-import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill } from '../types'
+import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution } from '../types'
 import SessionSidebar from '../components/SessionSidebar'
 import MessageList from '../components/MessageList'
 import PromptInput from '../components/PromptInput'
@@ -38,6 +39,8 @@ export default function ChatPage() {
   const [lastFailedPrompt, setLastFailedPrompt] = useState('')
   // 错误是否可重试（超时/网络错误）
   const [retryable, setRetryable] = useState(false)
+  // 定时会话的执行状态列表
+  const [executions, setExecutions] = useState<Execution[]>([])
 
   // 加载会话和消息
   const loadData = useCallback(async () => {
@@ -53,6 +56,12 @@ export default function ChatPage() {
       setSession(sessionResp.data)
       setMessages(msgResp.data.messages || [])
       setAllSessions(sessionsResp.data.sessions || [])
+      // 定时会话：获取执行状态列表
+      if (sessionResp.data.source === 'scheduled') {
+        loadExecutions(sessionId)
+      } else {
+        setExecutions([])
+      }
       // 加载 slash 命令、modes、skills 和 config options（失败时静默，可能尚未有任何 prompt 触发）
       listCommands(sessionId)
         .then((r) => setCommands(r.data.commands || []))
@@ -76,6 +85,20 @@ export default function ChatPage() {
   useEffect(() => {
     if (user) loadData()
   }, [user, loadData])
+
+  // 定时会话：通过 db_session_id 找到关联 task，获取执行状态
+  async function loadExecutions(dbSessionId: number) {
+    try {
+      const tasksResp = await listScheduledTasks()
+      const task = (tasksResp.data.tasks || []).find((t) => t.db_session_id === dbSessionId)
+      if (task) {
+        const execResp = await listExecutions(task.id)
+        setExecutions(execResp.data.executions || [])
+      }
+    } catch {
+      // 静默失败
+    }
+  }
 
   // 发送 prompt（SSE 流）
   async function handleSend(prompt: string) {
@@ -281,6 +304,7 @@ export default function ChatPage() {
           messages={messages}
           loading={sending}
           scheduled={session?.source === 'scheduled'}
+          executions={executions}
         />
 
         {/* 底部输入 */}

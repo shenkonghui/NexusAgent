@@ -88,3 +88,42 @@
 .executionBody {
   padding: 8px 0;
 }
+
+/* 执行状态徽标 */
+.execStatusBadge {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 8px;
+  font-weight: 500;
+  background: #e9ecef;
+  color: #6c757d;
+}
+
+.execStatus_success {
+  background: #d4edda;
+  color: #155724;
+}
+
+.execStatus_running {
+  background: #cce5ff;
+  color: #004085;
+}
+
+.execStatus_failed {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.execStatus_skipped {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.execError {
+  margin: 4px 14px 8px 14px;
+  padding: 8px 12px;
+  background: #f8d7da;
+  color: #721c24;
+  border-radius: 6px;
+  font-size: 12px;
+}

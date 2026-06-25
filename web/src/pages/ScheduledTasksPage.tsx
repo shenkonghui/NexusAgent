@@ -47,6 +47,7 @@ interface FormState {
   enabled: boolean
   preset: string
   model_value: string
+  timeout_minutes: number
 }
 
 const emptyForm: FormState = {
@@ -58,6 +59,7 @@ const emptyForm: FormState = {
   enabled: true,
   preset: '每 5 分钟',
   model_value: '',
+  timeout_minutes: 5,
 }
 
 export default function ScheduledTasksPage() {
@@ -141,6 +143,7 @@ export default function ScheduledTasksPage() {
       enabled: task.enabled,
       preset: presetMatch ? presetMatch.label : CUSTOM,
       model_value: task.model_value || '',
+      timeout_minutes: task.timeout_minutes || 5,
     })
     setShowForm(true)
   }
@@ -201,6 +204,7 @@ export default function ScheduledTasksPage() {
           cron_expr: form.cron_expr,
           enabled: form.enabled,
           model_value: form.model_value,
+          timeout_minutes: form.timeout_minutes,
         })
       } else {
         await createScheduledTask({
@@ -211,6 +215,7 @@ export default function ScheduledTasksPage() {
           cron_expr: form.cron_expr,
           enabled: form.enabled,
           model_value: form.model_value,
+          timeout_minutes: form.timeout_minutes,
         })
       }
       setShowForm(false)
@@ -385,6 +390,20 @@ export default function ScheduledTasksPage() {
                     required
                   />
                   <span className={styles.hint}>分 时 日 月 周（标准 cron）</span>
+                </div>
+
+                <div className={styles.field}>
+                  <label className={styles.label}>超时时间（分钟，默认 5）</label>
+                  <input
+                    className={styles.input}
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={form.timeout_minutes}
+                    onChange={(e) => setForm({ ...form, timeout_minutes: Number(e.target.value) || 5 })}
+                    required
+                  />
+                  <span className={styles.hint}>单次执行超过此时间则标记为失败</span>
                 </div>
 
                 <div className={styles.field}>

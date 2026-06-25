@@ -14,7 +14,7 @@ func Connect(dsn string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("打开数据库: %w", err)
 	}
-	if err := db.AutoMigrate(&models.User{}, &models.RefreshToken{}, &models.Session{}, &models.Message{}, &models.AgentConfig{}, &models.ScheduledTask{}); err != nil {
+	if err := db.AutoMigrate(&models.User{}, &models.RefreshToken{}, &models.Session{}, &models.Message{}, &models.AgentConfig{}, &models.ScheduledTask{}, &models.TaskExecution{}); err != nil {
 		return nil, fmt.Errorf("迁移数据库: %w", err)
 	}
 	return db, nil

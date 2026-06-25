@@ -43,7 +43,8 @@ func TestSetup_RegistersP5Routes(t *testing.T) {
 	agentRouter := agent.NewRouter(agent.NewRegistry(), nil)
 	agentCfgH := handlers.NewAgentConfigHandler(repository.NewAgentConfigRepository(db), noopRegistrar{})
 	schedTaskRepo := repository.NewScheduledTaskRepository(db)
-	schedTaskH := handlers.NewScheduledTaskHandler(schedTaskRepo, noopSchedulerMgr{}, agentRouter)
+	execRepo := repository.NewTaskExecutionRepository(db)
+	schedTaskH := handlers.NewScheduledTaskHandler(schedTaskRepo, execRepo, noopSchedulerMgr{}, agentRouter)
 
 	engine := Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, gin.TestMode)
 

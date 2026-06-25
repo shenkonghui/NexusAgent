@@ -77,11 +77,12 @@ func main() {
 
 	// P7: 定时任务调度器
 	schedTaskRepo := repository.NewScheduledTaskRepository(db)
-	schedulerSvc := services.NewSchedulerService(schedTaskRepo, agentRouter)
+	execRepo := repository.NewTaskExecutionRepository(db)
+	schedulerSvc := services.NewSchedulerService(schedTaskRepo, execRepo, agentRouter)
 	if err := schedulerSvc.Start(); err != nil {
 		log.Fatalf("启动定时任务调度器失败: %v", err)
 	}
-	schedTaskH := handlers.NewScheduledTaskHandler(schedTaskRepo, schedulerSvc, agentRouter)
+	schedTaskH := handlers.NewScheduledTaskHandler(schedTaskRepo, execRepo, schedulerSvc, agentRouter)
 
 	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, cfg.Server.Mode)
 

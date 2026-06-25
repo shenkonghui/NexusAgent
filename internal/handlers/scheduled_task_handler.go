@@ -28,24 +28,26 @@ type ExecutionLister interface {
 
 // ScheduledTaskHandler 处理定时任务相关请求。
 type ScheduledTaskHandler struct {
-	repo   *repository.ScheduledTaskRepository
-	mgr    SchedulerManager
-	lister ExecutionLister
+	repo     *repository.ScheduledTaskRepository
+	execRepo *repository.TaskExecutionRepository
+	mgr      SchedulerManager
+	lister   ExecutionLister
 }
 
 // NewScheduledTaskHandler 创建 ScheduledTaskHandler。
-func NewScheduledTaskHandler(repo *repository.ScheduledTaskRepository, mgr SchedulerManager, lister ExecutionLister) *ScheduledTaskHandler {
-	return &ScheduledTaskHandler{repo: repo, mgr: mgr, lister: lister}
+func NewScheduledTaskHandler(repo *repository.ScheduledTaskRepository, execRepo *repository.TaskExecutionRepository, mgr SchedulerManager, lister ExecutionLister) *ScheduledTaskHandler {
+	return &ScheduledTaskHandler{repo: repo, execRepo: execRepo, mgr: mgr, lister: lister}
 }
 
 type createTaskRequest struct {
-	Name       string `json:"name" binding:"required"`
-	AgentType  string `json:"agent_type" binding:"required"`
-	Cwd        string `json:"cwd"`
-	Prompt     string `json:"prompt" binding:"required"`
-	CronExpr   string `json:"cron_expr" binding:"required"`
-	Enabled    *bool  `json:"enabled"`
-	ModelValue string `json:"model_value"`
+	Name           string `json:"name" binding:"required"`
+	AgentType      string `json:"agent_type" binding:"required"`
+	Cwd            string `json:"cwd"`
+	Prompt         string `json:"prompt" binding:"required"`
+	CronExpr       string `json:"cron_expr" binding:"required"`
+	Enabled        *bool  `json:"enabled"`
+	ModelValue     string `json:"model_value"`
+	TimeoutMinutes *int   `json:"timeout_minutes"`
 }
 
 // Create POST /api/v1/scheduled-tasks
@@ -77,6 +79,11 @@ func (h *ScheduledTaskHandler) Create(c *gin.Context) {
 		Enabled:    enabled,
 		UserID:     uid,
 		ModelValue: strings.TrimSpace(req.ModelValue),
+	}
+	if req.TimeoutMinutes != nil && *req.TimeoutMinutes > 0 {
+		task.TimeoutMinutes = *req.TimeoutMinutes
+	} else {
+		task.TimeoutMinutes = 5
 	}
 	if err := h.mgr.AddTask(task); err != nil {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
@@ -110,13 +117,14 @@ func (h *ScheduledTaskHandler) Get(c *gin.Context) {
 }
 
 type updateTaskRequest struct {
-	Name       *string `json:"name"`
-	AgentType  *string `json:"agent_type"`
-	Cwd        *string `json:"cwd"`
-	Prompt     *string `json:"prompt"`
-	CronExpr   *string `json:"cron_expr"`
-	Enabled    *bool   `json:"enabled"`
-	ModelValue *string `json:"model_value"`
+	Name           *string `json:"name"`
+	AgentType      *string `json:"agent_type"`
+	Cwd            *string `json:"cwd"`
+	Prompt         *string `json:"prompt"`
+	CronExpr       *string `json:"cron_expr"`
+	Enabled        *bool   `json:"enabled"`
+	ModelValue     *string `json:"model_value"`
+	TimeoutMinutes *int    `json:"timeout_minutes"`
 }
 
 // Update PUT /api/v1/scheduled-tasks/:id
@@ -155,6 +163,9 @@ func (h *ScheduledTaskHandler) Update(c *gin.Context) {
 	if req.ModelValue != nil {
 		task.ModelValue = strings.TrimSpace(*req.ModelValue)
 	}
+	if req.TimeoutMinutes != nil && *req.TimeoutMinutes > 0 {
+		task.TimeoutMinutes = *req.TimeoutMinutes
+	}
 	if err := h.mgr.UpdateTask(task); err != nil {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
 		return
@@ -188,7 +199,7 @@ func (h *ScheduledTaskHandler) Run(c *gin.Context) {
 	Success(c, http.StatusOK, struct{}{})
 }
 
-// Executions GET /api/v1/scheduled-tasks/:id/executions — 任务关联会话的执行块历史。
+// Executions GET /api/v1/scheduled-tasks/:id/executions — 任务关联会话的执行块历史（含每次执行状态）。
 func (h *ScheduledTaskHandler) Executions(c *gin.Context) {
 	task, ok := h.loadOwnedTask(c)
 	if !ok {
@@ -202,6 +213,24 @@ func (h *ScheduledTaskHandler) Executions(c *gin.Context) {
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
 		return
+	}
+	// 合并 TaskExecution 表的状态
+	if h.execRepo != nil && len(execs) > 0 {
+		execIDs := make([]uint, 0, len(execs))
+		for _, e := range execs {
+			execIDs = append(execIDs, e.ExecutionID)
+		}
+		records, _ := h.execRepo.ListByTaskIDAndExecutionIDs(task.ID, execIDs)
+		statusMap := make(map[uint]*models.TaskExecution, len(records))
+		for i := range records {
+			statusMap[records[i].ExecutionID] = &records[i]
+		}
+		for i := range execs {
+			if rec, ok := statusMap[execs[i].ExecutionID]; ok {
+				execs[i].Status = rec.Status
+				execs[i].Error = rec.Error
+			}
+		}
 	}
 	Success(c, http.StatusOK, gin.H{"executions": execs})
 }

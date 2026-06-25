@@ -10,6 +10,7 @@ export function createScheduledTask(payload: {
   cron_expr: string
   enabled?: boolean
   model_value?: string
+  timeout_minutes?: number
 }): Promise<{ data: ScheduledTask }> {
   return apiFetch('/scheduled-tasks', {
     method: 'POST',
@@ -38,6 +39,7 @@ export function updateScheduledTask(
     cron_expr: string
     enabled: boolean
     model_value: string
+    timeout_minutes: number
   }>,
 ): Promise<{ data: ScheduledTask }> {
   return apiFetch(`/scheduled-tasks/${id}`, {

@@ -64,6 +64,8 @@ type ExecutionAggregate struct {
 	StartedAt    string `gorm:"column:started_at" json:"started_at"`
 	FinishedAt   string `gorm:"column:finished_at" json:"finished_at"`
 	MessageCount int    `gorm:"column:message_count" json:"message_count"`
+	Status       string `json:"status"` // 来自 TaskExecution 表，运行时合并
+	Error        string `json:"error"`  // 来自 TaskExecution 表
 }
 
 // AggregateExecutions 按 execution_id 聚合指定会话的执行块，按 started_at 降序（最新优先）。

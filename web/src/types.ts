@@ -105,6 +105,7 @@ export interface ScheduledTask {
   cron_expr: string;
   enabled: boolean;
   user_id: number;
+  timeout_minutes: number;
   model_value: string;
   session_id: string;
   db_session_id: number;
@@ -129,6 +130,8 @@ export interface Execution {
   started_at: string;
   finished_at: string;
   message_count: number;
+  status: 'success' | 'running' | 'failed' | 'skipped' | '';
+  error: string;
 }
 
 // 认证响应
