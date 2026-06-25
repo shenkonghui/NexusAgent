@@ -1,8 +1,6 @@
 package repository
 
 import (
-	"time"
-
 	"gorm.io/gorm"
 
 	"nexusagent/internal/models"
@@ -60,11 +58,12 @@ func (r *MessageRepository) MaxSequence(dbSessionID uint) (int, error) {
 }
 
 // ExecutionAggregate 是按 execution_id 聚合的执行块统计。
+// StartedAt/FinishedAt 用 string 接收，因为 SQLite 的 MIN/MAX 聚合返回字符串而非 time.Time。
 type ExecutionAggregate struct {
-	ExecutionID  uint      `gorm:"column:execution_id" json:"execution_id"`
-	StartedAt    time.Time `gorm:"column:started_at" json:"started_at"`
-	FinishedAt   time.Time `gorm:"column:finished_at" json:"finished_at"`
-	MessageCount int       `gorm:"column:message_count" json:"message_count"`
+	ExecutionID  uint   `gorm:"column:execution_id" json:"execution_id"`
+	StartedAt    string `gorm:"column:started_at" json:"started_at"`
+	FinishedAt   string `gorm:"column:finished_at" json:"finished_at"`
+	MessageCount int    `gorm:"column:message_count" json:"message_count"`
 }
 
 // AggregateExecutions 按 execution_id 聚合指定会话的执行块，按 started_at 降序（最新优先）。
