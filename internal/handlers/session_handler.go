@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -205,23 +206,13 @@ type promptRequest struct {
 
 // Prompt POST /api/v1/sessions/:id/prompt （SSE 流）
 func (h *SessionHandler) Prompt(c *gin.Context) {
-	id, ok := parseSessionID(c)
+	sess, ok := h.loadOwnedSession(c)
 	if !ok {
 		return
 	}
 	var req promptRequest
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Prompt) == "" {
 		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "prompt 不能为空")
-		return
-	}
-	sess, err := h.store.GetSessionByDBID(id)
-	if err != nil || sess == nil {
-		Fail(c, http.StatusNotFound, "SESSION_NOT_FOUND", "会话不存在")
-		return
-	}
-	uid, ok := currentUserID(c)
-	if !ok || sess.UserID != uid {
-		Fail(c, http.StatusNotFound, "SESSION_NOT_FOUND", "会话不存在")
 		return
 	}
 	if sess.Status != models.SessionStatusActive {
@@ -240,17 +231,14 @@ func (h *SessionHandler) Prompt(c *gin.Context) {
 	c.Header("X-Accel-Buffering", "no")
 	c.Status(http.StatusOK)
 
-	flusher, ok := c.Writer.(http.Flusher)
-	if !ok {
-		Fail(c, http.StatusInternalServerError, "INTERNAL", "不支持流式响应")
-		return
-	}
-
-	for msg := range ch {
+	c.Stream(func(w io.Writer) bool {
+		msg, ok := <-ch
+		if !ok {
+			_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+			return false
+		}
 		b, _ := json.Marshal(msg)
-		_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", b)
-		flusher.Flush()
-	}
-	_, _ = fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
-	flusher.Flush()
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", b)
+		return true
+	})
 }
