@@ -12,6 +12,8 @@ import SessionSidebar from '../components/SessionSidebar'
 import UserMenu from '../components/UserMenu'
 import styles from './SessionsPage.module.css'
 
+const DEFAULT_AGENT_KEY = 'nexus.default_agent'
+
 export default function SessionsPage() {
   const { user, loading: authLoading } = useRequireAuth()
   const navigate = useNavigate()
@@ -27,9 +29,11 @@ export default function SessionsPage() {
   const [selectedAgent, setSelectedAgent] = useState('')
   const [cwd, setCwd] = useState('')
   const [creating, setCreating] = useState(false)
+  const [defaultAgent, setDefaultAgent] = useState('')
 
   useEffect(() => {
     if (!user) return
+    setDefaultAgent(localStorage.getItem(DEFAULT_AGENT_KEY) || '')
     loadData()
   }, [user])
 
@@ -44,7 +48,14 @@ export default function SessionsPage() {
       setAgents(agentsResp.data.agents || [])
       setSessions(sessionsResp.data.sessions || [])
       if (agentsResp.data.agents?.length > 0) {
-        setSelectedAgent(agentsResp.data.agents[0].type)
+        // 优先使用 localStorage 中的默认 agent，否则取第一个
+        const saved = localStorage.getItem(DEFAULT_AGENT_KEY)
+        const types = agentsResp.data.agents.map((a) => a.type)
+        if (saved && types.includes(saved)) {
+          setSelectedAgent(saved)
+        } else {
+          setSelectedAgent(agentsResp.data.agents[0].type)
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载数据失败')
@@ -111,11 +122,31 @@ export default function SessionsPage() {
 
             {showForm && (
               <form className={styles.createForm} onSubmit={handleCreate}>
-                <AgentSelector
-                  agents={agents}
-                  value={selectedAgent}
-                  onChange={setSelectedAgent}
-                />
+                <div className={styles.agentRow}>
+                  <AgentSelector
+                    agents={agents}
+                    value={selectedAgent}
+                    onChange={setSelectedAgent}
+                  />
+                  <button
+                    type="button"
+                    className={styles.defaultBtn}
+                    onClick={() => {
+                      if (selectedAgent) {
+                        localStorage.setItem(DEFAULT_AGENT_KEY, selectedAgent)
+                        setDefaultAgent(selectedAgent)
+                      }
+                    }}
+                    title="将当前选中的 Agent 设为新建会话的默认值"
+                  >
+                    设为默认
+                  </button>
+                </div>
+                {defaultAgent && (
+                  <p className={styles.defaultHint}>
+                    默认 Agent：{defaultAgent}
+                  </p>
+                )}
                 <div className={styles.field}>
                   <label className={styles.label}>工作目录（可选，留空使用临时目录）</label>
                   <div className={styles.cwdRow}>
