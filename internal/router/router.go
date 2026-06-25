@@ -32,9 +32,10 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 		{
 			protected.GET("/me", authHandler.Me)
 
-			agentH := handlers.NewAgentHandler(agentRouter, agentRouter)
+			agentH := handlers.NewAgentHandler(agentRouter, agentRouter, agentRouter)
 			protected.GET("/agents", agentH.List)
 			protected.GET("/agents/:type/models", agentH.Models)
+			protected.POST("/agents/:type/probe", agentH.Probe)
 
 			agentCfg := protected.Group("/agent-configs")
 			{

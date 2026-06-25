@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -20,15 +21,21 @@ type AgentModelProber interface {
 	CachedModelOptions(agentType string) []acp.SessionConfigOption
 }
 
-// AgentHandler 处理 agent 列表相关请求。
-type AgentHandler struct {
-	lister AgentLister
-	prober AgentModelProber
+// AgentConfigProber 创建临时会话探测指定 agent 类型的全部 config options，随后删除该会话。
+type AgentConfigProber interface {
+	ProbeConfigOptions(ctx context.Context, agentType string, userID uint) ([]acp.SessionConfigOption, error)
 }
 
-// NewAgentHandler 创建 AgentHandler。prober 可为 nil（不提供模型查询）。
-func NewAgentHandler(lister AgentLister, prober AgentModelProber) *AgentHandler {
-	return &AgentHandler{lister: lister, prober: prober}
+// AgentHandler 处理 agent 列表相关请求。
+type AgentHandler struct {
+	lister    AgentLister
+	prober    AgentModelProber
+	cfgProber AgentConfigProber
+}
+
+// NewAgentHandler 创建 AgentHandler。prober / cfgProber 可为 nil。
+func NewAgentHandler(lister AgentLister, prober AgentModelProber, cfgProber AgentConfigProber) *AgentHandler {
+	return &AgentHandler{lister: lister, prober: prober, cfgProber: cfgProber}
 }
 
 // agentItem 是对外暴露的 agent 描述（隐藏 Backend 等内部字段）。
@@ -114,4 +121,71 @@ func (h *AgentHandler) Models(c *gin.Context) {
 		items = append(items, item)
 	}
 	Success(c, http.StatusOK, gin.H{"model_options": items})
+}
+
+// Probe POST /api/v1/agents/:type/probe — 创建临时会话探测该 agent 的全部 config options，随后删除。
+// 返回与 GET /sessions/:id/config-options 相同结构的 config_options 列表（含模型及其他配置）。
+func (h *AgentHandler) Probe(c *gin.Context) {
+	agentType := strings.TrimSpace(c.Param("type"))
+	if agentType == "" {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "缺少 agent 类型")
+		return
+	}
+	if h.cfgProber == nil {
+		Fail(c, http.StatusServiceUnavailable, "PROBE_UNAVAILABLE", "当前服务不支持配置探测")
+		return
+	}
+	uid, ok := currentUserID(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
+		return
+	}
+	opts, err := h.cfgProber.ProbeConfigOptions(c.Request.Context(), agentType, uid)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "PROBE_FAILED", err.Error())
+		return
+	}
+	items := make([]configOptionItem, 0, len(opts))
+	for _, opt := range opts {
+		item := configOptionItem{Type: "boolean"}
+		if opt.Select != nil {
+			item.ID = string(opt.Select.Id)
+			item.Name = opt.Select.Name
+			item.Type = "select"
+			item.CurrentValue = string(opt.Select.CurrentValue)
+			if opt.Select.Category != nil {
+				item.Category = string(*opt.Select.Category)
+			}
+			if opt.Select.Options.Ungrouped != nil {
+				for _, o := range *opt.Select.Options.Ungrouped {
+					desc := ""
+					if o.Description != nil {
+						desc = *o.Description
+					}
+					item.Options = append(item.Options, configOptionValue{
+						Value:       string(o.Value),
+						Name:        o.Name,
+						Description: desc,
+					})
+				}
+			}
+			if opt.Select.Options.Grouped != nil {
+				for _, g := range *opt.Select.Options.Grouped {
+					for _, o := range g.Options {
+						desc := ""
+						if o.Description != nil {
+							desc = *o.Description
+						}
+						item.Options = append(item.Options, configOptionValue{
+							Value:       string(o.Value),
+							Name:        o.Name,
+							Description: desc,
+						})
+					}
+				}
+			}
+		}
+		items = append(items, item)
+	}
+	Success(c, http.StatusOK, gin.H{"config_options": items})
 }

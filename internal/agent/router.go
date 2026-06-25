@@ -166,6 +166,14 @@ func (r *Router) CachedModelOptions(agentType string) []acpsdk.SessionConfigOpti
 	return r.service.CachedModelOptions(agentType)
 }
 
+// ProbeConfigOptions 创建临时会话探测指定 agent 类型的 config options，随后删除，委托 service。
+func (r *Router) ProbeConfigOptions(ctx context.Context, agentType string, userID uint) ([]acpsdk.SessionConfigOption, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.ProbeConfigOptions(ctx, agentType, userID)
+}
+
 // ListModes 返回会话可用的 mode 列表（agent skill/模式），委托 service。
 func (r *Router) ListModes(sessionID string) ([]acpsdk.SessionMode, error) {
 	if r.service == nil {

@@ -443,6 +443,28 @@ func (s *Service) CachedModelOptions(agentType string) []acp.SessionConfigOption
 	return nil
 }
 
+// ProbeConfigOptions 创建一个临时会话探测指定 agent 类型的 config options，随后删除该会话。
+// 用于在不保留会话的情况下获取该 agent 支持的模型及其他配置。cwd 为空时使用临时工作区。
+func (s *Service) ProbeConfigOptions(ctx context.Context, agentType string, userID uint) ([]acp.SessionConfigOption, error) {
+	sess, err := s.CreateSessionWithSource(ctx, agentType, "", userID, models.SessionSourceManual)
+	if err != nil {
+		return nil, fmt.Errorf("创建探测会话: %w", err)
+	}
+	opts, err := s.ListConfigOptions(sess.SessionID)
+	if err != nil {
+		_ = s.DeleteSession(ctx, sess.SessionID)
+		return nil, fmt.Errorf("查询探测会话配置: %w", err)
+	}
+	// 复制一份再删除，避免删除后引用被清空的缓存
+	out := make([]acp.SessionConfigOption, len(opts))
+	copy(out, opts)
+	if err := s.DeleteSession(ctx, sess.SessionID); err != nil {
+		// 删除失败不致命，仅记录
+		_ = err
+	}
+	return out, nil
+}
+
 // ListModes 返回会话可用的 mode 列表（agent skill/模式，如 plan/act）。
 func (s *Service) ListModes(sessionID string) ([]acp.SessionMode, error) {
 	if _, err := s.GetSession(sessionID); err != nil {

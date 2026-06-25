@@ -1,6 +1,6 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { useRequireAuth } from '../hooks/useRequireAuth'
-import { listAgents, getAgentModels } from '../api/agents'
+import { listAgents, getAgentModels, probeAgentConfigs } from '../api/agents'
 import {
   listScheduledTasks,
   createScheduledTask,
@@ -67,6 +67,7 @@ export default function ScheduledTasksPage() {
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
+  const [probing, setProbing] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -150,6 +151,35 @@ export default function ScheduledTasksPage() {
       setForm((prev) => ({ ...prev, preset: label, cron_expr: preset.value }))
     } else {
       setForm((prev) => ({ ...prev, preset: CUSTOM }))
+    }
+  }
+
+  // 获取配置：建立临时会话探测该 agent 的 config options（含模型），随后删除临时会话。
+  async function handleProbe() {
+    if (!form.agent_type || probing) return
+    setProbing(true)
+    setError('')
+    try {
+      const resp = await probeAgentConfigs(form.agent_type)
+      const opts = resp.data.config_options || []
+      // 提取 model 类别的 config option 填充模型选择
+      const modelOpt = opts.find((o) => o.category === 'model' && o.type === 'select')
+      if (modelOpt) {
+        setModelOptions([
+          {
+            id: modelOpt.id,
+            name: modelOpt.name,
+            current_value: modelOpt.current_value,
+            options: modelOpt.options,
+          },
+        ])
+      } else {
+        setModelOptions([])
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '获取配置失败')
+    } finally {
+      setProbing(false)
     }
   }
 
@@ -272,33 +302,44 @@ export default function ScheduledTasksPage() {
 
                 <div className={styles.field}>
                   <label className={styles.label}>模型（可选，留空使用默认）</label>
-                  {modelOptions.length > 0 && modelOptions[0].options.length > 0 ? (
-                    <select
-                      className={styles.input}
-                      value={form.model_value}
-                      onChange={(e) => setForm({ ...form, model_value: e.target.value })}
+                  <div className={styles.cwdRow}>
+                    {modelOptions.length > 0 && modelOptions[0].options.length > 0 ? (
+                      <select
+                        className={styles.input}
+                        value={form.model_value}
+                        onChange={(e) => setForm({ ...form, model_value: e.target.value })}
+                      >
+                        <option value="">默认模型</option>
+                        {modelOptions[0].options.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.name}
+                            {o.description ? ` — ${o.description}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        className={styles.input}
+                        type="text"
+                        value={form.model_value}
+                        onChange={(e) => setForm({ ...form, model_value: e.target.value })}
+                        placeholder="模型 ID（可选，点击右侧按钮获取）"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      className={styles.browseBtn}
+                      onClick={handleProbe}
+                      disabled={probing || !form.agent_type}
+                      title="建立临时会话获取该 agent 的模型及配置"
                     >
-                      <option value="">默认模型</option>
-                      {modelOptions[0].options.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.name}
-                          {o.description ? ` — ${o.description}` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      className={styles.input}
-                      type="text"
-                      value={form.model_value}
-                      onChange={(e) => setForm({ ...form, model_value: e.target.value })}
-                      placeholder="模型 ID（可选，需与 agent 支持的模型值匹配）"
-                    />
-                  )}
+                      {probing ? '获取中...' : '获取配置'}
+                    </button>
+                  </div>
                   <span className={styles.hint}>
                     {modelOptions.length === 0
-                      ? '该 agent 尚无会话缓存，模型列表不可用，可手动输入模型 ID 或留空'
-                      : '从已有会话缓存获取的可用模型'}
+                      ? '尚未获取模型列表，可手动输入模型 ID 或点击「获取配置」'
+                      : '已获取的可用模型（来自临时会话探测）'}
                   </span>
                 </div>
 
