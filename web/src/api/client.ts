@@ -26,7 +26,8 @@ async function refreshAccessToken(): Promise<boolean> {
     })
     if (!resp.ok) return false
 
-    const data = await resp.json()
+    const body = await resp.json()
+    const data = body.data ?? body
     localStorage.setItem('access_token', data.access_token)
     localStorage.setItem('refresh_token', data.refresh_token)
     return true
