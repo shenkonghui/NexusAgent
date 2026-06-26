@@ -46,7 +46,7 @@ func TestSetup_RegistersP5Routes(t *testing.T) {
 	execRepo := repository.NewTaskExecutionRepository(db)
 	schedTaskH := handlers.NewScheduledTaskHandler(schedTaskRepo, execRepo, noopSchedulerMgr{}, agentRouter)
 
-	engine := Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, gin.TestMode)
+	engine := Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, gin.TestMode, "")
 
 	want := []string{
 		"GET /api/v1/agents",

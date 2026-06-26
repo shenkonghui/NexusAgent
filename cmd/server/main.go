@@ -84,11 +84,15 @@ func main() {
 	}
 	schedTaskH := handlers.NewScheduledTaskHandler(schedTaskRepo, execRepo, schedulerSvc, agentRouter)
 
-	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, cfg.Server.Mode)
+	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, cfg.Server.Mode, cfg.Server.WebDist)
 
 	go func() {
 		addr := fmt.Sprintf(":%d", cfg.Server.Port)
-		log.Printf("NexusAgent 认证服务启动于 %s", addr)
+		if cfg.Server.Mode == "release" {
+			log.Printf("NexusAgent 启动于 %s（单端口模式，前端 + API）", addr)
+		} else {
+			log.Printf("NexusAgent API 启动于 %s（开发模式，前端请访问 vite dev server）", addr)
+		}
 		if err := engine.Run(addr); err != nil {
 			log.Fatalf("服务器启动失败: %v", err)
 		}

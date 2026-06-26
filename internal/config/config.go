@@ -19,8 +19,9 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port int    `yaml:"port"`
-	Mode string `yaml:"mode"`
+	Port    int    `yaml:"port"`
+	Mode    string `yaml:"mode"`
+	WebDist string `yaml:"web_dist"`
 }
 
 type DatabaseConfig struct {
@@ -92,9 +93,21 @@ func (c *Config) applyEnv() {
 	if v := os.Getenv("CLAUDE_CODE_COMMAND"); v != "" {
 		c.Agents.ClaudeCode.Command = v
 	}
+	if v := os.Getenv("WEB_DIST"); v != "" {
+		c.Server.WebDist = v
+	}
+	if v := os.Getenv("SERVER_MODE"); v != "" {
+		c.Server.Mode = v
+	}
 }
 
 func (c *Config) Validate() error {
+	if c.Server.Mode == "" {
+		c.Server.Mode = "debug"
+	}
+	if c.Server.WebDist == "" {
+		c.Server.WebDist = "./web/dist"
+	}
 	if c.JWT.AccessTTL <= 0 {
 		c.JWT.AccessTTL = 15 * time.Minute
 	}

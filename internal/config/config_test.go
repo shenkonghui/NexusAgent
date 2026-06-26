@@ -24,6 +24,9 @@ func TestLoad_FromYAML(t *testing.T) {
 	if cfg.Password.BcryptCost != 10 {
 		t.Errorf("Password.BcryptCost = %d, 期望 10", cfg.Password.BcryptCost)
 	}
+	if cfg.Server.WebDist != "./web/dist" {
+		t.Errorf("Server.WebDist = %q, 期望 ./web/dist", cfg.Server.WebDist)
+	}
 }
 
 func TestLoad_EnvOverride(t *testing.T) {
@@ -52,6 +55,23 @@ func TestValidate_OK(t *testing.T) {
 	cfg := &Config{JWT: JWTConfig{Secret: "this-is-a-very-long-jwt-secret-key-32+bytes!"}}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("期望校验通过，实际错误: %v", err)
+	}
+	if cfg.Server.WebDist != "./web/dist" {
+		t.Errorf("WebDist 默认值 = %q, 期望 ./web/dist", cfg.Server.WebDist)
+	}
+	if cfg.Server.Mode != "debug" {
+		t.Errorf("Mode 默认值 = %q, 期望 debug", cfg.Server.Mode)
+	}
+}
+
+func TestLoad_WebDist_EnvOverride(t *testing.T) {
+	t.Setenv("WEB_DIST", "/custom/web-dist")
+	cfg, err := Load("testdata/config_test.yaml")
+	if err != nil {
+		t.Fatalf("Load 错误: %v", err)
+	}
+	if cfg.Server.WebDist != "/custom/web-dist" {
+		t.Errorf("WebDist 未被环境变量覆盖: %q", cfg.Server.WebDist)
 	}
 }
 

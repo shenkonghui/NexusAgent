@@ -1,6 +1,9 @@
 server:
   port: 8080
   mode: debug
+  # 前端构建产物目录，release 模式下由后端服务静态文件实现单端口部署。
+  # debug 模式下前端走 vite dev server (3000)，此项不生效。
+  web_dist: ./web/dist
 database:
   path: ./data/nexus.db
 jwt:

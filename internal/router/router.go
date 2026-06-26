@@ -1,6 +1,12 @@
 package router
 
 import (
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 
 	"nexusagent/internal/agent"
@@ -9,7 +15,7 @@ import (
 	"nexusagent/internal/services"
 )
 
-func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, schedTaskH *handlers.ScheduledTaskHandler, mode string) *gin.Engine {
+func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, schedTaskH *handlers.ScheduledTaskHandler, mode, webDist string) *gin.Engine {
 	gin.SetMode(mode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -99,5 +105,47 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 		})
 	}
 
+	// 生产模式（release）下由后端服务前端静态文件，实现单端口部署。
+	// debug 模式保留双端口 + vite proxy，便于前端热更新。
+	log.Printf("[debug] gin.Mode()=%q webDist=%q", gin.Mode(), webDist)
+	if gin.Mode() == gin.ReleaseMode {
+		setupStatic(r, webDist)
+	}
+
 	return r
+}
+
+// setupStatic 让 Gin 服务前端 SPA 静态文件：
+//   - 已存在的静态资源（如 /assets/*.js）直接返回
+//   - 非 /api 的未匹配路径返回 index.html，由前端路由处理（BrowserRouter SPA fallback）
+//   - /api 下未匹配路径返回 404 JSON，避免把 API 请求误判为前端路由
+func setupStatic(r *gin.Engine, webDist string) {
+	if webDist == "" {
+		log.Printf("[setupStatic] webDist is empty, skipping")
+		return
+	}
+	if info, err := os.Stat(webDist); err != nil || !info.IsDir() {
+		log.Printf("[setupStatic] webDist %q stat error: %v isDir=%v, skipping", webDist, err, info != nil && info.IsDir())
+		return
+	}
+	indexFile := filepath.Join(webDist, "index.html")
+	log.Printf("[setupStatic] serving static from %q, index=%q", webDist, indexFile)
+	fileServer := http.FileServer(http.Dir(webDist))
+
+	r.NoRoute(func(c *gin.Context) {
+		path := c.Request.URL.Path
+		if strings.HasPrefix(path, "/api/") {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		// 尝试服务真实存在的静态文件
+		cleanPath := filepath.Join(webDist, filepath.Clean("/"+path))
+		if info, err := os.Stat(cleanPath); err == nil && !info.IsDir() {
+			fileServer.ServeHTTP(c.Writer, c.Request)
+			return
+		}
+		// SPA fallback：返回 index.html，交给前端路由
+		c.Header("Cache-Control", "no-cache")
+		c.File(indexFile)
+	})
 }

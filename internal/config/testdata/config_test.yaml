@@ -1,6 +1,7 @@
 server:
   port: 9090
   mode: debug
+  web_dist: ./web/dist
 database:
   path: ./data/test.db
 jwt:
