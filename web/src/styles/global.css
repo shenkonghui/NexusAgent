@@ -1,3 +1,123 @@
+/* OpenHands 风格主题：Outfit + IBM Plex Mono */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap');
+
+/* ===== 深色主题（默认，参考 OpenHands） ===== */
+:root,
+[data-theme='dark'] {
+  --bg-base: #0c0e10;
+  --bg-surface: #1f2228;
+  --bg-elevated: #24272e;
+  --bg-input: #393939;
+  --bg-sidebar: #16181c;
+  --bg-hover: #2a2d35;
+  --bg-active: #31343d;
+  --bg-muted: #1a1d23;
+
+  --border: #3c3c4a;
+  --border-subtle: #2a2d35;
+  --border-strong: #525252;
+
+  --text-primary: #c4cbda;
+  --text-secondary: #9099ac;
+  --text-muted: #6b7280;
+  --text-on-accent: #1a1a1a;
+
+  --accent: #f3ce49;
+  --accent-hover: #e0b830;
+  --accent-subtle: rgba(243, 206, 73, 0.12);
+  --accent-border: rgba(243, 206, 73, 0.4);
+
+  --success: #4ade80;
+  --success-bg: rgba(74, 222, 128, 0.15);
+  --warning: #fbbf24;
+  --warning-bg: rgba(251, 191, 36, 0.15);
+  --danger: #f87171;
+  --danger-bg: rgba(248, 113, 113, 0.15);
+  --info: #60a5fa;
+  --info-bg: rgba(96, 165, 250, 0.15);
+
+  /* 消息气泡 */
+  --bubble-user-bg: #f3ce49;
+  --bubble-user-text: #1a1a1a;
+  --bubble-assistant-bg: #1f2228;
+  --bubble-assistant-text: #c4cbda;
+  --bubble-assistant-border: #3c3c4a;
+  --bubble-tool-bg: #1f2228;
+  --bubble-tool-border: #3c3c4a;
+  --bubble-thought-bg: #16181c;
+  --bubble-thought-border: #525252;
+
+  /* 代码块 */
+  --code-bg: #2a3038;
+  --code-border: #30363d;
+  --code-text: #e6edf3;
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
+
+  --scrollbar-thumb: #3c3c4a;
+  --scrollbar-track: transparent;
+}
+
+/* ===== 浅色主题 ===== */
+[data-theme='light'] {
+  --bg-base: #f5f5f7;
+  --bg-surface: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-input: #ffffff;
+  --bg-sidebar: #f0f0f2;
+  --bg-hover: #ececf0;
+  --bg-active: #e0e0e6;
+  --bg-muted: #f8f8fa;
+
+  --border: #e0e0e6;
+  --border-subtle: #eeeeee;
+  --border-strong: #c8c8d0;
+
+  --text-primary: #1a1d23;
+  --text-secondary: #4b5563;
+  --text-muted: #8a8a98;
+  --text-on-accent: #ffffff;
+
+  --accent: #d4a718;
+  --accent-hover: #b8941a;
+  --accent-subtle: rgba(212, 167, 24, 0.12);
+  --accent-border: rgba(212, 167, 24, 0.45);
+
+  --success: #16a34a;
+  --success-bg: rgba(22, 163, 74, 0.12);
+  --warning: #d97706;
+  --warning-bg: rgba(217, 119, 6, 0.12);
+  --danger: #dc2626;
+  --danger-bg: rgba(220, 38, 38, 0.12);
+  --info: #2563eb;
+  --info-bg: rgba(37, 99, 235, 0.12);
+
+  --bubble-user-bg: #d4a718;
+  --bubble-user-text: #ffffff;
+  --bubble-assistant-bg: #ffffff;
+  --bubble-assistant-text: #1a1d23;
+  --bubble-assistant-border: #e0e0e6;
+  --bubble-tool-bg: #ffffff;
+  --bubble-tool-border: #e0e0e6;
+  --bubble-thought-bg: #f8f8fa;
+  --bubble-thought-border: #c8c8d0;
+
+  --code-bg: #f3f4f6;
+  --code-border: #d1d5db;
+  --code-text: #1f2937;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.14);
+
+  --scrollbar-thumb: #c8c8d0;
+  --scrollbar-track: transparent;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -5,11 +125,14 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   font-size: 14px;
   line-height: 1.5;
-  color: #333;
-  background-color: #f5f5f5;
+  color: var(--text-primary);
+  background-color: var(--bg-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s, color 0.2s;
 }
 
 #root {
@@ -26,6 +149,65 @@ button {
   font-family: inherit;
 }
 
-input, textarea {
+input,
+textarea {
   font-family: inherit;
+}
+
+code,
+pre,
+.font-mono {
+  font-family: 'IBM Plex Mono', 'Monaco', 'Menlo', monospace;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* markdown 代码块 */
+.markdown-body code {
+  padding: 0.2em 0.4em;
+  margin: 0;
+  font-size: 85%;
+  white-space: break-spaces;
+  background-color: var(--code-bg);
+  border-radius: 4px;
+  color: var(--code-text);
+  border: 1px solid var(--code-border);
+  font-family: 'IBM Plex Mono', 'Monaco', 'Menlo', monospace;
+  letter-spacing: -0.2px;
+}
+
+.markdown-body pre code {
+  padding: 0;
+  background-color: inherit;
+  border: none;
+}
+
+.markdown-body {
+  white-space: pre-wrap;
+}
+
+.markdown-body th {
+  text-align: left;
+}
+
+.markdown-body th,
+.markdown-body td {
+  padding: 0.1rem 1rem;
 }

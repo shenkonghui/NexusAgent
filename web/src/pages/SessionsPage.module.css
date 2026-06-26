@@ -1,13 +1,27 @@
 .layout {
   display: flex;
   height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* 左侧侧边栏固定宽度容器 */
+.sidebarWrap {
+  width: 240px;
+  flex-shrink: 0;
+  height: 100%;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
 }
 
 .main {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--bg-base);
+  height: 100%;
 }
 
 .header {
@@ -15,31 +29,32 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 20px;
-  background: #fff;
-  border-bottom: 1px solid #eee;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
 }
 
 .title {
   font-size: 18px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .userInfo {
-  color: #666;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
 .content {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
   padding: 16px 20px;
 }
 
 .createBtn {
   padding: 8px 16px;
-  background: #667eea;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   border: none;
   border-radius: 6px;
   font-size: 13px;
@@ -49,25 +64,89 @@
 }
 
 .createBtn:hover {
-  background: #5568d3;
+  background: var(--accent-hover);
 }
 
-.createForm {
-  background: #fff;
-  border: 1px solid #eee;
-  border-radius: 8px;
-  padding: 20px;
-  margin-bottom: 24px;
+/* 欢迎输入区 */
+.hero {
+  max-width: 760px;
+  margin: 48px auto 32px;
+  padding: 0 24px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  max-width: 500px;
+  gap: 18px;
+}
+
+.heroTitle {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.heroSubtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.heroAgent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 420px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* PromptInput 在首页场景下去掉底部输入栏的 border-top / padding / 背景，
+   让它融入 hero 区域而非形成「卡片套卡片」 */
+.heroPrompt {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+
+.heroPrompt :global(.container) {
+  padding: 14px 16px;
+  background: transparent;
+  border-top: none;
+}
+
+.advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.advancedToggle {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.advancedToggle:hover {
+  color: var(--accent);
+}
+
+.listTitle {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .defaultHint {
   margin: -8px 0 0 0;
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .field {
@@ -79,19 +158,21 @@
 .label {
   font-size: 13px;
   font-weight: 500;
-  color: #555;
+  color: var(--text-secondary);
 }
 
 .input {
   padding: 10px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 14px;
+  background: var(--bg-input);
+  color: var(--text-primary);
 }
 
 .input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--accent);
 }
 
 .cwdRow {
@@ -105,9 +186,9 @@
 
 .browseBtn {
   padding: 10px 16px;
-  border: 1px solid #667eea;
-  background: #fff;
-  color: #667eea;
+  border: 1px solid var(--accent);
+  background: var(--bg-surface);
+  color: var(--accent);
   border-radius: 6px;
   font-size: 14px;
   font-weight: 500;
@@ -117,14 +198,14 @@
 }
 
 .browseBtn:hover {
-  background: #667eea;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
 }
 
 .submitBtn {
   padding: 10px;
-  background: #667eea;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   border: none;
   border-radius: 6px;
   font-size: 14px;
@@ -134,11 +215,11 @@
 }
 
 .submitBtn:hover:not(:disabled) {
-  background: #5568d3;
+  background: var(--accent-hover);
 }
 
 .submitBtn:disabled {
-  background: #aaa;
+  background: var(--text-muted);
   cursor: not-allowed;
 }
 
@@ -150,14 +231,14 @@
 
 .empty {
   text-align: center;
-  color: #888;
+  color: var(--text-muted);
   padding: 24px;
   font-size: 14px;
 }
 
 .sessionCard {
-  background: #fff;
-  border: 1px solid #eee;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 10px 14px;
   cursor: pointer;
@@ -165,8 +246,8 @@
 }
 
 .sessionCard:hover {
-  border-color: #667eea;
-  box-shadow: 0 1px 4px rgba(102, 126, 234, 0.1);
+  border-color: var(--accent-border);
+  box-shadow: 0 1px 4px var(--accent-subtle);
 }
 
 .sessionHeader {
@@ -179,7 +260,7 @@
 .sessionAgent {
   font-size: 14px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .sessionStatus {
@@ -190,23 +271,23 @@
 }
 
 .status_active {
-  background: #d4edda;
-  color: #155724;
+  background: var(--success-bg);
+  color: var(--success);
 }
 
 .status_closed {
-  background: #e9ecef;
-  color: #6c757d;
+  background: var(--bg-hover);
+  color: var(--text-muted);
 }
 
 .status_error {
-  background: #f8d7da;
-  color: #721c24;
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
 .sessionPrompt {
   font-size: 12px;
-  color: #666;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -215,7 +296,7 @@
 
 .sessionTime {
   font-size: 11px;
-  color: #999;
+  color: var(--text-muted);
 }
 
 .sessionFooter {
@@ -227,9 +308,9 @@
 
 .deleteBtn {
   padding: 2px 10px;
-  background: #fff;
-  color: #e53e3e;
-  border: 1px solid #e53e3e;
+  background: var(--bg-surface);
+  color: var(--danger);
+  border: 1px solid var(--danger);
   border-radius: 4px;
   font-size: 11px;
   font-weight: 500;
@@ -237,6 +318,6 @@
 }
 
 .deleteBtn:hover {
-  background: #e53e3e;
-  color: #fff;
+  background: var(--danger);
+  color: var(--text-on-accent);
 }

@@ -1,11 +1,12 @@
 .sidebar {
-  width: 220px;
-  height: 100vh;
-  background: #1a1a2e;
-  color: #eee;
+  width: 100%;
+  height: 100%;
+  background: var(--bg-sidebar);
+  color: var(--text-primary);
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
 }
 
 .logo {
@@ -13,25 +14,47 @@
   align-items: center;
   gap: 8px;
   padding: 12px 14px;
-  border-bottom: 1px solid #2a2a3e;
+  border-bottom: 1px solid var(--border);
   text-decoration: none;
-  color: #eee;
+  color: var(--text-primary);
   transition: background 0.2s;
 }
 
 .logo:hover {
-  background: #2a2a3e;
+  background: var(--bg-hover);
 }
 
 .logoIcon {
   font-size: 18px;
-  color: #667eea;
+  color: var(--accent);
 }
 
 .logoText {
   font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.5px;
+  flex: 1;
+}
+
+.collapseBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.collapseBtn:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
 }
 
 .groups {
@@ -52,7 +75,7 @@
   background: transparent;
   border: none;
   border-radius: 4px;
-  color: #d0d0e0;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -60,15 +83,15 @@
 }
 
 .groupHeader:hover {
-  background: #2a2a3e;
-  color: #fff;
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .groupArrow {
   display: inline-block;
   width: 12px;
   font-size: 9px;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .groupTitle {
@@ -78,8 +101,8 @@
 
 .groupCount {
   font-size: 10px;
-  color: #888;
-  background: #2a2a3e;
+  color: var(--text-muted);
+  background: var(--bg-hover);
   padding: 0 6px;
   border-radius: 8px;
 }
@@ -93,15 +116,15 @@
   border-radius: 4px;
   font-size: 15px;
   font-weight: 700;
-  color: #667eea;
+  color: var(--accent);
   cursor: pointer;
   transition: background 0.2s, color 0.2s;
   flex-shrink: 0;
 }
 
 .addBtn:hover {
-  background: #667eea;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
 }
 
 .groupList {
@@ -115,17 +138,18 @@
   width: 100%;
   padding: 6px 10px;
   margin-bottom: 4px;
-  background: #2a2a4e;
-  border: 1px solid #3a3a5e;
+  background: var(--accent-subtle);
+  border: 1px solid var(--accent-border);
   border-radius: 6px;
-  color: #667eea;
+  color: var(--accent);
   font-size: 11px;
   cursor: pointer;
   transition: background 0.2s;
 }
 
 .recentEntry:hover {
-  background: #34346e;
+  background: var(--accent-subtle);
+  opacity: 0.85;
 }
 
 .recentIcon {
@@ -142,28 +166,28 @@
 }
 
 .taskSuccess {
-  background: #2d4a2d;
-  color: #4ade80;
+  background: var(--success-bg);
+  color: var(--success);
 }
 
 .taskRunning {
-  background: #2d3a4a;
-  color: #60a5fa;
+  background: var(--info-bg);
+  color: var(--info);
 }
 
 .taskFailed {
-  background: #4a2d2d;
-  color: #f87171;
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
 .taskSkipped {
-  background: #3a3a3a;
-  color: #fbbf24;
+  background: var(--warning-bg);
+  color: var(--warning);
 }
 
 .empty {
   text-align: center;
-  color: #888;
+  color: var(--text-muted);
   padding: 24px 0;
   font-size: 13px;
 }
@@ -177,11 +201,11 @@
 }
 
 .item:hover {
-  background: #2a2a3e;
+  background: var(--bg-hover);
 }
 
 .itemActive {
-  background: #2a2a4e;
+  background: var(--bg-active);
 }
 
 .itemLink {
@@ -220,7 +244,7 @@
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: #888;
+  color: var(--text-muted);
   font-size: 12px;
   cursor: pointer;
   transition: background 0.2s, color 0.2s;
@@ -228,13 +252,13 @@
 }
 
 .renameBtn:hover {
-  background: #2a2a4e;
-  color: #667eea;
+  background: var(--bg-active);
+  color: var(--accent);
 }
 
 .deleteBtn:hover {
-  background: #4a2d2d;
-  color: #f87171;
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
 .editRow {
@@ -246,10 +270,10 @@
 
 .editInput {
   flex: 1;
-  background: #1a1a2e;
-  border: 1px solid #667eea;
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
   border-radius: 4px;
-  color: #fff;
+  color: var(--text-primary);
   font-size: 13px;
   padding: 4px 8px;
   outline: none;
@@ -260,15 +284,15 @@
   height: 22px;
   border: none;
   border-radius: 4px;
-  background: #667eea;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   font-size: 12px;
   cursor: pointer;
   flex-shrink: 0;
 }
 
 .editOkBtn:hover {
-  background: #5568d3;
+  background: var(--accent-hover);
 }
 
 .itemHeader {
@@ -281,7 +305,7 @@
 .agentType {
   font-size: 13px;
   font-weight: 600;
-  color: #f0f0f5;
+  color: var(--text-primary);
 }
 
 .status {
@@ -292,23 +316,23 @@
 }
 
 .statusActive {
-  background: #2d4a2d;
-  color: #4ade80;
+  background: var(--success-bg);
+  color: var(--success);
 }
 
 .statusClosed {
-  background: #3a3a3a;
-  color: #999;
+  background: var(--bg-hover);
+  color: var(--text-muted);
 }
 
 .statusError {
-  background: #4a2d2d;
-  color: #f87171;
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
 .lastPrompt {
   font-size: 11px;
-  color: #aaa;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -317,33 +341,44 @@
 
 .time {
   font-size: 10px;
-  color: #777;
+  color: var(--text-muted);
 }
 
 .footer {
   padding: 6px 8px;
-  border-top: 1px solid #2a2a3e;
+  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 1px;
 }
 
 .navItem {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 6px 10px;
   font-size: 12px;
-  color: #aaa;
+  color: var(--text-secondary);
   text-decoration: none;
   border-radius: 4px;
   transition: background 0.2s, color 0.2s;
 }
 
+.navIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
 .navItem:hover {
-  background: #2a2a3e;
-  color: #fff;
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .navItemActive {
-  background: #2a2a4e;
-  color: #667eea;
+  background: var(--accent-subtle);
+  color: var(--accent);
 }

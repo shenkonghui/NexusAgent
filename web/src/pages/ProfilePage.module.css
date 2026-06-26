@@ -1,13 +1,27 @@
 .layout {
   display: flex;
   height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* 左侧侧边栏固定宽度容器 */
+.sidebarWrap {
+  width: 240px;
+  flex-shrink: 0;
+  height: 100%;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
 }
 
 .main {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--bg-base);
+  height: 100%;
 }
 
 .header {
@@ -15,31 +29,32 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 20px;
-  background: #fff;
-  border-bottom: 1px solid #eee;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
 }
 
 .title {
   font-size: 18px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .userInfo {
-  color: #666;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
 .content {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
   padding: 16px 20px;
   max-width: 640px;
 }
 
 .section {
-  background: #fff;
-  border: 1px solid #eee;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 20px;
   margin-bottom: 20px;
@@ -48,10 +63,10 @@
 .sectionTitle {
   font-size: 16px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
   margin: 0 0 16px 0;
   padding-bottom: 8px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .infoGrid {
@@ -68,14 +83,14 @@
 
 .infoLabel {
   font-size: 13px;
-  color: #888;
+  color: var(--text-muted);
   width: 80px;
   flex-shrink: 0;
 }
 
 .infoValue {
   font-size: 14px;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .form {
@@ -94,25 +109,27 @@
 .label {
   font-size: 13px;
   font-weight: 500;
-  color: #555;
+  color: var(--text-secondary);
 }
 
 .input {
   padding: 10px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 14px;
+  background: var(--bg-input);
+  color: var(--text-primary);
 }
 
 .input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--accent);
 }
 
 .submitBtn {
   padding: 10px 16px;
-  background: #667eea;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   border: none;
   border-radius: 6px;
   font-size: 14px;
@@ -123,17 +140,17 @@
 }
 
 .submitBtn:hover:not(:disabled) {
-  background: #5568d3;
+  background: var(--accent-hover);
 }
 
 .submitBtn:disabled {
-  background: #aaa;
+  background: var(--text-muted);
   cursor: not-allowed;
 }
 
 .successMsg {
-  color: #155724;
-  background: #d4edda;
+  color: var(--success);
+  background: var(--success-bg);
   padding: 8px 12px;
   border-radius: 6px;
   font-size: 13px;

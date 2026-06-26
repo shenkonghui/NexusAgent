@@ -10,8 +10,8 @@
 .spinner {
   width: 32px;
   height: 32px;
-  border: 3px solid #e0e0e0;
-  border-top-color: #667eea;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -21,6 +21,6 @@
 }
 
 .text {
-  color: #888;
+  color: var(--text-muted);
   font-size: 14px;
 }

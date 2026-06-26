@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
+import { ThemeProvider } from './context/ThemeContext'
 import LoginPage from './pages/LoginPage'
 import SessionsPage from './pages/SessionsPage'
 import ChatPage from './pages/ChatPage'
@@ -9,8 +10,9 @@ import ProfilePage from './pages/ProfilePage'
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
+    <ThemeProvider>
+      <AuthProvider>
+        <BrowserRouter>
         <Routes>
           {/* 首页即会话列表 */}
           <Route path="/" element={<SessionsPage />} />
@@ -23,7 +25,8 @@ export default function App() {
           {/* 404 路由：未匹配的路径重定向到登录页 */}
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+        </BrowserRouter>
+      </AuthProvider>
+    </ThemeProvider>
   )
 }

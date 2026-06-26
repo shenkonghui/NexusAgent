@@ -1,11 +1,10 @@
 .panel {
-  width: 520px;
-  flex-shrink: 0;
+  width: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid #e0e0e0;
-  background: #fff;
-  height: 100vh;
+  background: var(--bg-surface);
+  overflow: hidden;
 }
 
 .toolbar {
@@ -13,14 +12,14 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  border-bottom: 1px solid #eee;
-  background: #fafafa;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-muted);
 }
 
 .title {
   font-size: 14px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -28,8 +27,8 @@
 
 .count {
   font-size: 11px;
-  background: #667eea;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   border-radius: 10px;
   padding: 1px 7px;
 }
@@ -38,14 +37,14 @@
   background: none;
   border: none;
   font-size: 20px;
-  color: #888;
+  color: var(--text-muted);
   cursor: pointer;
   padding: 0 4px;
   line-height: 1;
 }
 
 .closeBtn:hover {
-  color: #333;
+  color: var(--text-primary);
 }
 
 .body {
@@ -58,13 +57,13 @@
   width: 220px;
   flex-shrink: 0;
   overflow-y: auto;
-  border-right: 1px solid #f0f0f0;
+  border-right: 1px solid var(--border-subtle);
   padding: 6px 0;
 }
 
 .empty {
   padding: 20px 12px;
-  color: #999;
+  color: var(--text-muted);
   font-size: 12px;
   text-align: center;
 }
@@ -81,15 +80,16 @@
   cursor: pointer;
   text-align: left;
   font-size: 12px;
+  color: var(--text-primary);
 }
 
 .fileItem:hover {
-  background: #f5f7fa;
+  background: var(--bg-hover);
 }
 
 .fileItemActive {
-  background: #eef2ff;
-  border-left-color: #667eea;
+  background: var(--accent-subtle);
+  border-left-color: var(--accent);
 }
 
 .fileName {
@@ -98,21 +98,21 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: 'Monaco', 'Menlo', monospace;
-  color: #333;
+  font-family: 'IBM Plex Mono', 'Monaco', 'Menlo', monospace;
+  color: var(--text-primary);
 }
 
 .badgeNew {
   font-size: 9px;
   padding: 1px 5px;
-  background: #e3f2fd;
-  color: #1565c0;
+  background: var(--info-bg);
+  color: var(--info);
   border-radius: 6px;
   flex-shrink: 0;
 }
 
 .fileStats {
-  font-family: 'Monaco', 'Menlo', monospace;
+  font-family: 'IBM Plex Mono', 'Monaco', 'Menlo', monospace;
   font-size: 10px;
   flex-shrink: 0;
   display: flex;
@@ -120,12 +120,12 @@
 }
 
 .added {
-  color: #2e7d32;
+  color: var(--success);
   font-weight: 600;
 }
 
 .removed {
-  color: #c62828;
+  color: var(--danger);
   font-weight: 600;
 }
 
@@ -141,7 +141,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #999;
+  color: var(--text-muted);
   font-size: 13px;
 }
 
@@ -150,16 +150,16 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  border-bottom: 1px solid #f0f0f0;
-  background: #fafbfc;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-muted);
   gap: 8px;
 }
 
 .detailPath {
-  font-family: 'Monaco', 'Menlo', monospace;
+  font-family: 'IBM Plex Mono', 'Monaco', 'Menlo', monospace;
   font-size: 12px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -168,19 +168,19 @@
 }
 
 .diskToggle {
-  background: #fff;
-  border: 1px solid #d0d4d9;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   border-radius: 4px;
   font-size: 11px;
   padding: 3px 10px;
-  color: #555;
+  color: var(--text-secondary);
   cursor: pointer;
   flex-shrink: 0;
 }
 
 .diskToggle:hover:not(:disabled) {
-  background: #f5f5f5;
-  color: #333;
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .diskToggle:disabled {
@@ -190,22 +190,22 @@
 
 .diskHint {
   font-size: 11px;
-  color: #8a6d3b;
+  color: var(--warning);
   padding: 4px 12px;
-  background: #fffbe6;
-  border-bottom: 1px solid #ffe58f;
+  background: var(--warning-bg);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .diskError {
   font-size: 11px;
-  color: #c62828;
+  color: var(--danger);
   padding: 4px 12px;
-  background: #fff0f0;
-  border-bottom: 1px solid #ffccd0;
+  background: var(--danger-bg);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .diffScroll {
   flex: 1;
   overflow: auto;
-  background: #fff;
+  background: var(--bg-surface);
 }

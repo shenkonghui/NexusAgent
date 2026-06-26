@@ -3,10 +3,10 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
-  background: #fff5f5;
-  border: 1px solid #fed7d7;
+  background: var(--danger-bg);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #e53e3e;
+  color: var(--danger);
   font-size: 14px;
 }
 
@@ -23,8 +23,8 @@
 
 .retryBtn {
   padding: 4px 14px;
-  background: #e53e3e;
-  color: #fff;
+  background: var(--danger);
+  color: var(--text-on-accent);
   border: none;
   border-radius: 4px;
   font-size: 13px;
@@ -34,18 +34,20 @@
 }
 
 .retryBtn:hover {
-  background: #c53030;
+  background: var(--danger);
+  opacity: 0.85;
 }
 
 .closeBtn {
   background: none;
   border: none;
-  color: #e53e3e;
+  color: var(--danger);
   font-size: 20px;
   line-height: 1;
   padding: 0 4px;
 }
 
 .closeBtn:hover {
-  color: #c53030;
+  color: var(--danger);
+  opacity: 0.7;
 }

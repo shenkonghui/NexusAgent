@@ -9,7 +9,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: #999;
+  color: var(--text-muted);
   font-size: 15px;
 }
 
@@ -23,7 +23,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #aaa;
+  background: var(--text-muted);
   animation: bounce 1.4s infinite ease-in-out both;
 }
 
@@ -38,7 +38,7 @@
 /* 定时任务执行块 */
 .executionBlock {
   margin: 8px 0 16px 0;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -49,38 +49,38 @@
   gap: 10px;
   width: 100%;
   padding: 8px 14px;
-  background: #f3f4f6;
+  background: var(--bg-muted);
   border: none;
   cursor: pointer;
   font-size: 13px;
-  color: #374151;
+  color: var(--text-secondary);
   transition: background 0.2s;
 }
 
 .executionHeader:hover {
-  background: #e5e7eb;
+  background: var(--bg-hover);
 }
 
 .executionArrow {
   font-size: 10px;
-  color: #6b7280;
+  color: var(--text-muted);
   width: 12px;
 }
 
 .executionTitle {
   font-weight: 600;
-  color: #4f46e5;
+  color: var(--accent);
 }
 
 .executionTime {
   font-size: 12px;
-  color: #6b7280;
+  color: var(--text-muted);
 }
 
 .executionRunning {
   font-size: 11px;
-  color: #2563eb;
-  background: #dbeafe;
+  color: var(--info);
+  background: var(--info-bg);
   padding: 1px 8px;
   border-radius: 8px;
 }
@@ -95,35 +95,35 @@
   padding: 1px 8px;
   border-radius: 8px;
   font-weight: 500;
-  background: #e9ecef;
-  color: #6c757d;
+  background: var(--bg-hover);
+  color: var(--text-muted);
 }
 
 .execStatus_success {
-  background: #d4edda;
-  color: #155724;
+  background: var(--success-bg);
+  color: var(--success);
 }
 
 .execStatus_running {
-  background: #cce5ff;
-  color: #004085;
+  background: var(--info-bg);
+  color: var(--info);
 }
 
 .execStatus_failed {
-  background: #f8d7da;
-  color: #721c24;
+  background: var(--danger-bg);
+  color: var(--danger);
 }
 
 .execStatus_skipped {
-  background: #fff3cd;
-  color: #856404;
+  background: var(--warning-bg);
+  color: var(--warning);
 }
 
 .execError {
   margin: 4px 14px 8px 14px;
   padding: 8px 12px;
-  background: #f8d7da;
-  color: #721c24;
+  background: var(--danger-bg);
+  color: var(--danger);
   border-radius: 6px;
   font-size: 12px;
 }

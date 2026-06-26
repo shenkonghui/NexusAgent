@@ -84,7 +84,9 @@ export default function ProfilePage() {
 
   return (
     <div className={styles.layout}>
-      <SessionSidebar sessions={sessions} />
+      <div className={styles.sidebarWrap}>
+        <SessionSidebar sessions={sessions} />
+      </div>
 
       <div className={styles.main}>
         <div className={styles.header}>

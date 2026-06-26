@@ -74,13 +74,25 @@ export default function MessageBubble({ message, defaultOpen = false, sessionId,
           className={`${styles.header} ${collapsible ? styles.headerClickable : ''}`}
           onClick={headerClick}
         >
-          <span className={styles.role}>{kindLabels[message.kind] || message.role}</span>
+          {!isUser && <span className={styles.role}>{kindLabels[message.kind] || message.role}</span>}
           {isPlan && <span className={styles.badge}>计划</span>}
           {isTool && (
             <span className={styles.summary}>{toolSummary(message.content)}</span>
           )}
           {collapsible && (
             <span className={styles.toggle}>{open ? '▾' : '▸'}</span>
+          )}
+          {message.raw_json && (!collapsible || open) && (
+            <button
+              className={styles.rawBtn}
+              onClick={(e) => {
+                e.stopPropagation()
+                setShowRaw(!showRaw)
+              }}
+              type="button"
+            >
+              {showRaw ? '隐藏详情' : '查看详情'}
+            </button>
           )}
         </div>
         {/* 折叠态：仅显示 header；展开态：显示完整内容 */}
@@ -98,19 +110,8 @@ export default function MessageBubble({ message, defaultOpen = false, sessionId,
                 defaultExpanded={defaultOpen}
               />
             )}
-            {message.raw_json && (
-              <div className={styles.rawToggle}>
-                <button
-                  className={styles.rawBtn}
-                  onClick={() => setShowRaw(!showRaw)}
-                  type="button"
-                >
-                  {showRaw ? '隐藏详情' : '查看详情'}
-                </button>
-                {showRaw && (
-                  <pre className={styles.rawJson}>{message.raw_json}</pre>
-                )}
-              </div>
+            {showRaw && message.raw_json && (
+              <pre className={styles.rawJson}>{message.raw_json}</pre>
             )}
           </>
         ) : null}

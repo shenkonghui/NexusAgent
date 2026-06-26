@@ -9,6 +9,8 @@ interface SessionSidebarProps {
   currentId?: number
   onDelete?: (id: number) => void
   onRename?: (id: number, title: string) => void
+  /** 折叠侧边栏回调 */
+  onCollapse?: () => void
 }
 
 // 状态标识颜色
@@ -36,7 +38,7 @@ function loadCollapsed(): { manual: boolean; scheduled: boolean } {
   return { manual: false, scheduled: false }
 }
 
-export default function SessionSidebar({ sessions, currentId, onDelete, onRename }: SessionSidebarProps) {
+export default function SessionSidebar({ sessions, currentId, onDelete, onRename, onCollapse }: SessionSidebarProps) {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const location = useLocation()
@@ -84,10 +86,24 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
 
   return (
     <div className={styles.sidebar}>
-      {/* 顶部 Logo：点击回首页 */}
+      {/* 顶部 Logo：点击回首页 + 折叠按钮 */}
       <Link to="/" className={styles.logo} title="返回首页">
         <span className={styles.logoIcon}>⚡</span>
         <span className={styles.logoText}>NexusAgent</span>
+        {onCollapse && (
+          <button
+            type="button"
+            className={styles.collapseBtn}
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onCollapse()
+            }}
+            title="折叠侧边栏"
+          >
+            ◀
+          </button>
+        )}
       </Link>
 
       {/* 顶部：双折叠分组 */}
@@ -278,19 +294,22 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
       {/* 底部：次级导航 */}
       <div className={styles.footer}>
         <Link to="/" className={`${styles.navItem} ${isHome ? styles.navItemActive : ''}`}>
-          📋 会话列表
+          <span className={styles.navIcon}>📋</span>
+          <span>会话列表</span>
         </Link>
         <Link
           to="/scheduled-tasks"
           className={`${styles.navItem} ${location.pathname === '/scheduled-tasks' ? styles.navItemActive : ''}`}
         >
-          ⏰ 定时任务配置
+          <span className={styles.navIcon}>⏰</span>
+          <span>定时任务配置</span>
         </Link>
         <Link
           to="/settings"
           className={`${styles.navItem} ${location.pathname === '/settings' ? styles.navItemActive : ''}`}
         >
-          ⚙ Agent 设置
+          <span className={styles.navIcon}>🤖</span>
+          <span>Agent 设置</span>
         </Link>
       </div>
     </div>

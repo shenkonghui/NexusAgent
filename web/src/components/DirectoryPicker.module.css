@@ -12,14 +12,15 @@
 }
 
 .modal {
-  background: #fff;
+  background: var(--bg-elevated);
   border-radius: 8px;
   width: 560px;
   max-width: 90vw;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
 }
 
 .header {
@@ -27,13 +28,13 @@
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border);
 }
 
 .title {
   font-size: 16px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .closeBtn {
@@ -42,15 +43,15 @@
   border: none;
   background: transparent;
   font-size: 20px;
-  color: #999;
+  color: var(--text-muted);
   cursor: pointer;
   border-radius: 4px;
   transition: background 0.2s;
 }
 
 .closeBtn:hover {
-  background: #f0f0f0;
-  color: #333;
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .pathBar {
@@ -58,23 +59,23 @@
   align-items: center;
   gap: 8px;
   padding: 10px 20px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .upBtn {
   padding: 4px 12px;
-  border: 1px solid #ddd;
-  background: #fff;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
   border-radius: 4px;
   font-size: 13px;
-  color: #555;
+  color: var(--text-secondary);
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.2s;
 }
 
 .upBtn:hover:not(:disabled) {
-  background: #f5f5f5;
+  background: var(--bg-hover);
 }
 
 .upBtn:disabled {
@@ -84,8 +85,8 @@
 
 .currentPath {
   font-size: 13px;
-  color: #666;
-  font-family: monospace;
+  color: var(--text-secondary);
+  font-family: 'IBM Plex Mono', 'Monaco', 'Menlo', monospace;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -94,9 +95,9 @@
 
 .error {
   padding: 8px 20px;
-  color: #e53e3e;
+  color: var(--danger);
   font-size: 13px;
-  background: #fff5f5;
+  background: var(--danger-bg);
 }
 
 .dirList {
@@ -108,7 +109,7 @@
 
 .empty {
   text-align: center;
-  color: #999;
+  color: var(--text-muted);
   padding: 40px 0;
   font-size: 14px;
 }
@@ -125,12 +126,12 @@
   cursor: pointer;
   text-align: left;
   font-size: 14px;
-  color: #333;
+  color: var(--text-primary);
   transition: background 0.15s;
 }
 
 .dirItem:hover {
-  background: #f0f4ff;
+  background: var(--accent-subtle);
 }
 
 .dirIcon {
@@ -149,29 +150,29 @@
   justify-content: flex-end;
   gap: 12px;
   padding: 12px 20px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--border);
 }
 
 .cancelBtn {
   padding: 8px 20px;
-  border: 1px solid #ddd;
-  background: #fff;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
   border-radius: 6px;
   font-size: 14px;
-  color: #666;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: background 0.2s;
 }
 
 .cancelBtn:hover {
-  background: #f5f5f5;
+  background: var(--bg-hover);
 }
 
 .confirmBtn {
   padding: 8px 20px;
   border: none;
-  background: #667eea;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   border-radius: 6px;
   font-size: 14px;
   font-weight: 500;
@@ -180,10 +181,10 @@
 }
 
 .confirmBtn:hover:not(:disabled) {
-  background: #5568d3;
+  background: var(--accent-hover);
 }
 
 .confirmBtn:disabled {
-  background: #aaa;
+  background: var(--text-muted);
   cursor: not-allowed;
 }

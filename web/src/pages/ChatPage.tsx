@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useRequireAuth } from '../hooks/useRequireAuth'
 import { getSession, listMessages, closeSession, cancelSession, resumeSession, listSessions, listCommands, listModes, listSkills, listConfigOptions, setConfigOption, deleteSession, updateSessionTitle } from '../api/sessions'
 import { listScheduledTasks, listExecutions } from '../api/scheduledTasks'
 import { streamPrompt, isTimeoutError } from '../api/sse'
+import { parseDiffsFromMessage } from '../utils/diff'
 import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution } from '../types'
 import SessionSidebar from '../components/SessionSidebar'
 import MessageList from '../components/MessageList'
@@ -11,10 +12,8 @@ import PromptInput from '../components/PromptInput'
 import ModelSelector from '../components/ModelSelector'
 import ErrorBanner from '../components/ErrorBanner'
 import LoadingSpinner from '../components/LoadingSpinner'
-import FilePanel from '../components/FilePanel'
+import WorkspacePanel from '../components/WorkspacePanel'
 import ContextStats from '../components/ContextStats'
-import TerminalPanel from '../components/Terminal'
-import ChangesPanel from '../components/ChangesPanel'
 import UserMenu from '../components/UserMenu'
 import styles from './ChatPage.module.css'
 
@@ -23,6 +22,11 @@ export default function ChatPage() {
   const sessionId = Number(id)
   const { user, loading: authLoading } = useRequireAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  // 首页快捷发起时携带的初始 prompt，发送后清除（避免刷新重复发送）
+  const initialPromptRef = useRef<string>(
+    (location.state as { initialPrompt?: string } | null)?.initialPrompt || '',
+  )
 
   const [session, setSession] = useState<Session | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -34,17 +38,26 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [sending, setSending] = useState(false)
-  const [showFilePanel, setShowFilePanel] = useState(false)
-  // 底部终端面板，默认不开启
-  const [showTerminal, setShowTerminal] = useState(false)
-  // 右侧改动文件汇总面板，默认不开启
-  const [showChanges, setShowChanges] = useState(false)
+  // 右侧工作区面板（Tab 切换文件/终端/改动），默认开启
+  const [showWorkspace, setShowWorkspace] = useState(true)
+  // 左侧侧边栏折叠状态
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   // 最近一次失败的 prompt（用于重试）
   const [lastFailedPrompt, setLastFailedPrompt] = useState('')
   // 错误是否可重试（超时/网络错误）
   const [retryable, setRetryable] = useState(false)
   // 定时会话的执行状态列表
   const [executions, setExecutions] = useState<Execution[]>([])
+
+  // 聚合所有消息中的文件改动数量（用于工作区 Tab 徽标）
+  // 注意：useMemo 必须在所有 early return 之前调用，否则违反 Hooks 规则
+  const changesCount = useMemo(() => {
+    const paths = new Set<string>()
+    for (const msg of messages) {
+      for (const d of parseDiffsFromMessage(msg)) paths.add(d.path)
+    }
+    return paths.size
+  }, [messages])
 
   // 加载会话和消息
   const loadData = useCallback(async () => {
@@ -89,6 +102,20 @@ export default function ChatPage() {
   useEffect(() => {
     if (user) loadData()
   }, [user, loadData])
+
+  // 首页快捷发起：会话加载完成且活跃时，自动发送携带的初始 prompt
+  useEffect(() => {
+    if (!session || session.status !== 'active') return
+    const pending = initialPromptRef.current
+    if (!pending) return
+    initialPromptRef.current = ''
+    // 清除 location.state，避免刷新或后退时重复发送
+    if (location.state) {
+      navigate(location.pathname, { replace: true, state: null })
+    }
+    handleSend(pending)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session])
 
   // 定时会话：通过 db_session_id 找到关联 task，获取执行状态
   async function loadExecutions(dbSessionId: number) {
@@ -251,133 +278,126 @@ export default function ChatPage() {
 
   return (
     <div className={styles.layout}>
-      <SessionSidebar sessions={allSessions} currentId={sessionId} onDelete={handleDeleteSession} onRename={handleRenameSession} />
-
-      <div className={styles.main}>
-        {/* 顶部会话信息 */}
-        <div className={styles.header}>
-          <div className={styles.sessionInfo}>
-            <span className={styles.agentType}>{session?.agent_type || '未知'}</span>
-            <span className={`${styles.statusBadge} ${styles[`status_${session?.status}`] || ''}`}>
-              {session?.status === 'active' ? '活跃' : session?.status === 'closed' ? '已关闭' : '错误'}
-            </span>
-            {session?.cwd && <span className={styles.cwd}>{session.cwd}</span>}
-          </div>
-          <div className={styles.actions}>
-            <button
-              className={`${styles.fileBtn} ${showFilePanel ? styles.fileBtnActive : ''}`}
-              onClick={() => setShowFilePanel(!showFilePanel)}
-              type="button"
-              title="文件浏览器"
-            >
-              📁 文件
-            </button>
-            <button
-              className={`${styles.fileBtn} ${showTerminal ? styles.fileBtnActive : ''}`}
-              onClick={() => setShowTerminal(!showTerminal)}
-              type="button"
-              title="终端"
-            >
-              ⌨ 终端
-            </button>
-            <button
-              className={`${styles.fileBtn} ${showChanges ? styles.fileBtnActive : ''}`}
-              onClick={() => setShowChanges(!showChanges)}
-              type="button"
-              title="改动文件汇总"
-            >
-              ✎ 改动
-            </button>
-            {(session?.status === 'error' || session?.status === 'closed') && (
-              <button className={styles.resumeBtn} onClick={handleResume} type="button">
-                {session?.status === 'closed' ? '重新打开' : '恢复会话'}
-              </button>
-            )}
-            {session?.status === 'active' && (
-              <button className={styles.closeBtn} onClick={handleClose} type="button">
-                关闭会话
-              </button>
-            )}
-            <UserMenu />
-          </div>
-        </div>
-
-        {/* 模型 / config option 选择条 + 上下文统计 */}
-        {session?.status === 'active' && (
-          <div className={styles.configBar}>
-            <ModelSelector
-              options={configOptions}
-              onApply={handleSetConfigOption}
-              disabled={sending}
-            />
-            <div className={styles.statsArea}>
-              <ContextStats messages={messages} />
-            </div>
-          </div>
-        )}
-
-        {error && (
-          <ErrorBanner
-            message={retryable ? `${error}（可重试）` : error}
-            onClose={() => { setError(''); setRetryable(false) }}
-            onRetry={retryable ? handleRetry : undefined}
+      {/* 左侧：会话侧边栏（固定宽度，可隐藏） */}
+      {!sidebarCollapsed && (
+        <div className={styles.sidebarWrap}>
+          <SessionSidebar
+            sessions={allSessions}
+            currentId={sessionId}
+            onDelete={handleDeleteSession}
+            onRename={handleRenameSession}
+            onCollapse={() => setSidebarCollapsed(true)}
           />
-        )}
-
-        {/* 消息列表（定时会话按执行块分块渲染） */}
-        <MessageList
-          messages={messages}
-          loading={sending}
-          scheduled={session?.source === 'scheduled'}
-          executions={executions}
-          sessionId={sessionId}
-          cwd={session?.cwd}
-        />
-
-        {/* 底部输入 */}
-        <PromptInput
-          onSend={handleSend}
-          onCancel={handleCancel}
-          sending={sending}
-          disabled={session?.status !== 'active'}
-          commands={commands}
-          modes={modes}
-          skills={skills}
-          cwd={session?.cwd}
-          placeholder={
-            session?.status === 'closed'
-              ? '会话已关闭，点击「重新打开」继续'
-              : session?.status === 'error'
-                ? '会话状态异常，请先恢复'
-                : '输入 prompt，/ 命令/模式，@ 文件引用，Enter 发送，Shift+Enter 换行'
-          }
-        />
-
-        {/* 底部终端面板（默认不开启，点击切换显示/隐藏） */}
-        {showTerminal && session && (
-          <div className={styles.terminalPanel}>
-            <TerminalPanel
-              sessionId={sessionId}
-              onClose={() => setShowTerminal(false)}
-            />
-          </div>
-        )}
-      </div>
-
-      {showFilePanel && session && (
-        <FilePanel
-          sessionId={sessionId}
-          onClose={() => setShowFilePanel(false)}
-        />
+        </div>
       )}
 
-      {showChanges && session?.cwd && (
-        <ChangesPanel
-          messages={messages}
-          sessionId={sessionId}
-          cwd={session.cwd}
-          onClose={() => setShowChanges(false)}
-        />
+      {/* 中间：聊天区 */}
+      <div className={styles.main}>
+            {/* 顶部会话信息 */}
+            <div className={styles.header}>
+              <div className={styles.sessionInfo}>
+                {sidebarCollapsed && (
+                  <button
+                    className={styles.iconBtn}
+                    onClick={() => setSidebarCollapsed(false)}
+                    type="button"
+                    title="展开侧边栏"
+                  >
+                    ☰
+                  </button>
+                )}
+                <span className={styles.agentType}>{session?.agent_type || '未知'}</span>
+                <span className={`${styles.statusBadge} ${styles[`status_${session?.status}`] || ''}`}>
+                  {session?.status === 'active' ? '活跃' : session?.status === 'closed' ? '已关闭' : '错误'}
+                </span>
+                {session?.cwd && <span className={styles.cwd}>{session.cwd}</span>}
+              </div>
+              <div className={styles.actions}>
+                <button
+                  className={`${styles.fileBtn} ${showWorkspace ? styles.fileBtnActive : ''}`}
+                  onClick={() => setShowWorkspace(!showWorkspace)}
+                  type="button"
+                  title="工作区"
+                >
+                  🗂
+                </button>
+                {(session?.status === 'error' || session?.status === 'closed') && (
+                  <button className={styles.resumeBtn} onClick={handleResume} type="button">
+                    {session?.status === 'closed' ? '重新打开' : '恢复会话'}
+                  </button>
+                )}
+                {session?.status === 'active' && (
+                  <button className={styles.closeBtn} onClick={handleClose} type="button" title="关闭会话">
+                    ✕
+                  </button>
+                )}
+                <UserMenu />
+              </div>
+            </div>
+
+            {/* 模型 / config option 选择条 + 上下文统计 */}
+            {session?.status === 'active' && (
+              <div className={styles.configBar}>
+                <ModelSelector
+                  options={configOptions}
+                  onApply={handleSetConfigOption}
+                  disabled={sending}
+                />
+                <div className={styles.statsArea}>
+                  <ContextStats messages={messages} />
+                </div>
+              </div>
+            )}
+
+            {error && (
+              <ErrorBanner
+                message={retryable ? `${error}（可重试）` : error}
+                onClose={() => { setError(''); setRetryable(false) }}
+                onRetry={retryable ? handleRetry : undefined}
+              />
+            )}
+
+            {/* 消息列表（定时会话按执行块分块渲染） */}
+            <MessageList
+              messages={messages}
+              loading={sending}
+              scheduled={session?.source === 'scheduled'}
+              executions={executions}
+              sessionId={sessionId}
+              cwd={session?.cwd}
+            />
+
+            {/* 底部输入 */}
+            <PromptInput
+              onSend={handleSend}
+              onCancel={handleCancel}
+              sending={sending}
+              disabled={session?.status !== 'active'}
+              commands={commands}
+              modes={modes}
+              skills={skills}
+              cwd={session?.cwd}
+              placeholder={
+                session?.status === 'closed'
+                  ? '会话已关闭，点击「重新打开」继续'
+                  : session?.status === 'error'
+                    ? '会话状态异常，请先恢复'
+                    : '输入 prompt，/ 命令/模式，@ 文件引用，Enter 发送，Shift+Enter 换行'
+              }
+            />
+      </div>
+
+      {/* 右侧：工作区面板（固定宽度，可隐藏） */}
+      {showWorkspace && session && (
+        <div className={styles.workspaceWrap}>
+          <WorkspacePanel
+            sessionId={sessionId}
+            cwd={session.cwd}
+            messages={messages}
+            changesCount={changesCount}
+            onClose={() => setShowWorkspace(false)}
+          />
+        </div>
       )}
     </div>
   )

@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthContext } from '../context/AuthContext'
+import { useTheme } from '../context/ThemeContext'
 import styles from './UserMenu.module.css'
 
 // UserMenu 是右上角用户菜单：显示用户名，点击展开下拉菜单（个人中心、退出登录）。
 export default function UserMenu() {
   const { user, logout } = useAuthContext()
+  const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -34,6 +36,10 @@ export default function UserMenu() {
     navigate('/profile')
   }
 
+  function handleToggleTheme() {
+    toggleTheme()
+  }
+
   return (
     <div className={styles.container} ref={ref}>
       <button
@@ -50,6 +56,10 @@ export default function UserMenu() {
           <button type="button" className={styles.menuItem} onClick={handleProfile}>
             <span className={styles.menuIcon}>👤</span>
             个人中心
+          </button>
+          <button type="button" className={styles.menuItem} onClick={handleToggleTheme}>
+            <span className={styles.menuIcon}>{theme === 'dark' ? '☀️' : '🌙'}</span>
+            {theme === 'dark' ? '浅色模式' : '深色模式'}
           </button>
           <div className={styles.divider} />
           <button type="button" className={styles.menuItem} onClick={handleLogout}>

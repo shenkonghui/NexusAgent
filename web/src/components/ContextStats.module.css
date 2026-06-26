@@ -4,7 +4,7 @@
   gap: 8px;
   padding: 4px 12px;
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
@@ -16,7 +16,7 @@
 .bar {
   width: 100px;
   height: 6px;
-  background: #e8e8e8;
+  background: var(--bg-hover);
   border-radius: 3px;
   overflow: hidden;
   flex-shrink: 0;
@@ -24,17 +24,17 @@
 
 .fill {
   height: 100%;
-  background: #667eea;
+  background: var(--accent);
   border-radius: 3px;
   transition: width 0.3s ease, background 0.3s ease;
 }
 
 .fillMedium {
-  background: #f59e0b;
+  background: var(--warning);
 }
 
 .fillHigh {
-  background: #e53e3e;
+  background: var(--danger);
 }
 
 .numbers {
@@ -44,6 +44,6 @@
 }
 
 .numbersHigh {
-  color: #e53e3e;
+  color: var(--danger);
   font-weight: 600;
 }

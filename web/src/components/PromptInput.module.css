@@ -2,8 +2,8 @@
   display: flex;
   gap: 12px;
   padding: 16px 20px;
-  background: #fff;
-  border-top: 1px solid #eee;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
   align-items: flex-end;
 }
 
@@ -22,7 +22,7 @@
 .input {
   width: 100%;
   padding: 10px 14px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 14px;
   resize: none;
@@ -30,15 +30,17 @@
   max-height: 120px;
   line-height: 1.5;
   box-sizing: border-box;
+  background: var(--bg-input);
+  color: var(--text-primary);
 }
 
 .input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--accent);
 }
 
 .input:disabled {
-  background: #f5f5f5;
+  background: var(--bg-muted);
   cursor: not-allowed;
 }
 
@@ -48,10 +50,10 @@
   left: 0;
   right: 0;
   margin-bottom: 4px;
-  background: #fff;
-  border: 1px solid #ddd;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-md);
   max-height: 240px;
   overflow-y: auto;
   z-index: 10;
@@ -59,9 +61,9 @@
 
 .commandMenuHeader {
   font-size: 11px;
-  color: #999;
+  color: var(--text-muted);
   padding: 8px 12px 4px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .commandItem {
@@ -73,7 +75,7 @@
 }
 
 .commandItemActive {
-  background: #f0f3ff;
+  background: var(--accent-subtle);
 }
 
 .itemIcon {
@@ -86,14 +88,14 @@
 .commandName {
   font-size: 13px;
   font-weight: 600;
-  color: #667eea;
-  font-family: 'Monaco', 'Menlo', monospace;
+  color: var(--accent);
+  font-family: 'IBM Plex Mono', 'Monaco', 'Menlo', monospace;
   white-space: nowrap;
 }
 
 .commandDesc {
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -102,14 +104,14 @@
 
 .loadingHint {
   font-size: 12px;
-  color: #999;
+  color: var(--text-muted);
   padding: 4px 12px;
 }
 
 .sendBtn {
   padding: 10px 24px;
-  background: #667eea;
-  color: #fff;
+  background: var(--accent);
+  color: var(--text-on-accent);
   border: none;
   border-radius: 8px;
   font-size: 14px;
@@ -119,18 +121,18 @@
 }
 
 .sendBtn:hover:not(:disabled) {
-  background: #5568d3;
+  background: var(--accent-hover);
 }
 
 .sendBtn:disabled {
-  background: #aaa;
+  background: var(--text-muted);
   cursor: not-allowed;
 }
 
 .cancelBtn {
   padding: 10px 24px;
-  background: #e53e3e;
-  color: #fff;
+  background: var(--danger);
+  color: var(--text-on-accent);
   border: none;
   border-radius: 8px;
   font-size: 14px;
@@ -139,5 +141,6 @@
 }
 
 .cancelBtn:hover {
-  background: #c53030;
+  background: var(--danger);
+  opacity: 0.85;
 }

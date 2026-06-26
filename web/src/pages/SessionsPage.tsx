@@ -1,4 +1,4 @@
-import { useState, useEffect, type FormEvent } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useRequireAuth } from '../hooks/useRequireAuth'
 import { listAgents } from '../api/agents'
@@ -8,6 +8,7 @@ import AgentSelector from '../components/AgentSelector'
 import DirectoryPicker from '../components/DirectoryPicker'
 import ErrorBanner from '../components/ErrorBanner'
 import LoadingSpinner from '../components/LoadingSpinner'
+import PromptInput from '../components/PromptInput'
 import SessionSidebar from '../components/SessionSidebar'
 import UserMenu from '../components/UserMenu'
 import styles from './SessionsPage.module.css'
@@ -23,9 +24,9 @@ export default function SessionsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  // 新建会话表单状态
-  const [showForm, setShowForm] = useState(false)
+  // 首页快捷发起会话状态
   const [showDirPicker, setShowDirPicker] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const [selectedAgent, setSelectedAgent] = useState('')
   const [cwd, setCwd] = useState('')
   const [creating, setCreating] = useState(false)
@@ -64,17 +65,16 @@ export default function SessionsPage() {
     }
   }
 
-  async function handleCreate(e: FormEvent) {
-    e.preventDefault()
-    if (!selectedAgent) return
+  // 首页输入 prompt 后：用默认 agent 创建会话，并携带初始 prompt 跳转到聊天页自动发送
+  async function handleQuickSend(prompt: string) {
+    if (!selectedAgent || creating) return
     setCreating(true)
     setError('')
     try {
       const resp = await createSession(selectedAgent, cwd)
-      navigate(`/sessions/${resp.data.id}`)
+      navigate(`/sessions/${resp.data.id}`, { state: { initialPrompt: prompt } })
     } catch (err) {
       setError(err instanceof Error ? err.message : '创建会话失败')
-    } finally {
       setCreating(false)
     }
   }
@@ -109,7 +109,9 @@ export default function SessionsPage() {
 
   return (
     <div className={styles.layout}>
-      <SessionSidebar sessions={sessions} onRename={handleRename} />
+      <div className={styles.sidebarWrap}>
+        <SessionSidebar sessions={sessions} onRename={handleRename} />
+      </div>
 
       <div className={styles.main}>
         <div className={styles.header}>
@@ -123,16 +125,13 @@ export default function SessionsPage() {
           <LoadingSpinner />
         ) : (
           <div className={styles.content}>
-            <button
-              className={styles.createBtn}
-              onClick={() => setShowForm(!showForm)}
-              type="button"
-            >
-              {showForm ? '取消' : '+ 新建会话'}
-            </button>
-
-            {showForm && (
-              <form className={styles.createForm} onSubmit={handleCreate}>
+            {/* 欢迎输入区：使用默认 agent，首次发送时创建会话 */}
+            <div className={styles.hero}>
+              <h2 className={styles.heroTitle}>开始新对话</h2>
+              <p className={styles.heroSubtitle}>
+                使用默认 Agent 开始，发送第一条消息后将自动创建会话
+              </p>
+              <div className={styles.heroAgent}>
                 <AgentSelector
                   agents={agents}
                   value={selectedAgent}
@@ -143,8 +142,25 @@ export default function SessionsPage() {
                     默认 Agent：{defaultAgent}（可在 Agent 设置中修改）
                   </p>
                 )}
-                <div className={styles.field}>
-                  <label className={styles.label}>工作目录（可选，留空使用临时目录）</label>
+              </div>
+              <div className={styles.heroPrompt}>
+                <PromptInput
+                  onSend={handleQuickSend}
+                  sending={creating}
+                  disabled={!selectedAgent || creating}
+                  placeholder="输入你想做的事，Enter 发送，Shift+Enter 换行"
+                />
+              </div>
+              {/* 高级选项：工作目录 */}
+              <div className={styles.advanced}>
+                <button
+                  type="button"
+                  className={styles.advancedToggle}
+                  onClick={() => setShowAdvanced(!showAdvanced)}
+                >
+                  {showAdvanced ? '▾' : '▸'} 高级选项{cwd ? `（工作目录：${cwd}）` : ''}
+                </button>
+                {showAdvanced && (
                   <div className={styles.cwdRow}>
                     <input
                       className={styles.input}
@@ -161,12 +177,9 @@ export default function SessionsPage() {
                       浏览
                     </button>
                   </div>
-                </div>
-                <button className={styles.submitBtn} type="submit" disabled={creating || !selectedAgent}>
-                  {creating ? '创建中...' : '创建会话'}
-                </button>
-              </form>
-            )}
+                )}
+              </div>
+            </div>
 
             {showDirPicker && (
               <DirectoryPicker
@@ -179,9 +192,11 @@ export default function SessionsPage() {
               />
             )}
 
+            {/* 历史会话列表 */}
             <div className={styles.sessionList}>
+              <h3 className={styles.listTitle}>历史会话</h3>
               {sessions.length === 0 ? (
-                <p className={styles.empty}>暂无会话，点击「新建会话」开始</p>
+                <p className={styles.empty}>暂无会话，在上方输入框开始第一次对话</p>
               ) : (
                 sessions.map((session) => (
                   <div
