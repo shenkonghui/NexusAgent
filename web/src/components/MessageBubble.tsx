@@ -1,11 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import type { Message } from '../types'
+import { parseDiffsFromMessage } from '../utils/diff'
+import DiffView from './DiffView'
 import styles from './MessageBubble.module.css'
 
 interface MessageBubbleProps {
   message: Message
   // 思考消息在流式输出中时默认展开，结束后自动折叠
   defaultOpen?: boolean
+  // 会话 ID 与工作目录，用于文件 diff 渲染与磁盘对比
+  sessionId?: number
+  cwd?: string
 }
 
 // kind 标签映射
@@ -26,9 +31,16 @@ function toolSummary(content: string): string {
   return '工具调用'
 }
 
-export default function MessageBubble({ message, defaultOpen = false }: MessageBubbleProps) {
+export default function MessageBubble({ message, defaultOpen = false, sessionId, cwd }: MessageBubbleProps) {
   const [showRaw, setShowRaw] = useState(false)
   const [open, setOpen] = useState(defaultOpen)
+
+  // 检测 tool_call 消息是否携带文件 diff
+  const hasDiff = useMemo(
+    () => (message.kind === 'tool_call' || message.kind === 'tool_call_update')
+      && parseDiffsFromMessage(message).length > 0,
+    [message],
+  )
 
   // 流式思考：开始时展开，结束后折叠
   useEffect(() => {
@@ -77,6 +89,14 @@ export default function MessageBubble({ message, defaultOpen = false }: MessageB
             {message.content && <div className={styles.content}>{message.content}</div>}
             {!message.content && !isPlan && (
               <div className={styles.contentMuted}>（无文本内容）</div>
+            )}
+            {hasDiff && sessionId != null && cwd != null && (
+              <DiffView
+                message={message}
+                sessionId={sessionId}
+                cwd={cwd}
+                defaultExpanded={defaultOpen}
+              />
             )}
             {message.raw_json && (
               <div className={styles.rawToggle}>

@@ -10,6 +10,9 @@ interface MessageListProps {
   scheduled?: boolean
   // 定时会话的执行状态映射（execution_id -> Execution），用于显示每次执行状态
   executions?: Execution[]
+  // 会话 ID 与工作目录，用于工具调用消息的文件 diff 渲染
+  sessionId?: number
+  cwd?: string
 }
 
 // 可合并为同一个气泡的文本流式 kind（同一 kind 的连续 chunk 拼接成一条）
@@ -84,7 +87,7 @@ function groupByExecution(messages: Message[]): ExecutionBlock[] {
     .map((id) => map.get(id)!)
 }
 
-export default function MessageList({ messages, loading, scheduled, executions }: MessageListProps) {
+export default function MessageList({ messages, loading, scheduled, executions, sessionId, cwd }: MessageListProps) {
   const endRef = useRef<HTMLDivElement>(null)
 
   // 新消息时自动滚动到底部
@@ -93,7 +96,7 @@ export default function MessageList({ messages, loading, scheduled, executions }
   }, [messages])
 
   if (!scheduled) {
-    return <PlainList messages={messages} loading={loading} endRef={endRef} />
+    return <PlainList messages={messages} loading={loading} endRef={endRef} sessionId={sessionId} cwd={cwd} />
   }
 
   // 定时会话：按 execution_id 分块渲染
@@ -117,7 +120,7 @@ export default function MessageList({ messages, loading, scheduled, executions }
         </div>
       )}
       {unblocked.length > 0 && (
-        <PlainList messages={unblocked} loading={scheduledLoading} endRef={undefined} />
+        <PlainList messages={unblocked} loading={scheduledLoading} endRef={undefined} sessionId={sessionId} cwd={cwd} />
       )}
       {blocks.map((block, idx) => (
         <ExecutionBlockView
@@ -128,6 +131,8 @@ export default function MessageList({ messages, loading, scheduled, executions }
           loading={scheduledLoading && idx === blocks.length - 1}
           status={execStatusMap.get(block.executionId)?.status || ''}
           errorMsg={execStatusMap.get(block.executionId)?.error || ''}
+          sessionId={sessionId}
+          cwd={cwd}
         />
       ))}
       {scheduledLoading && blocks.length === 0 && (
@@ -158,6 +163,8 @@ function ExecutionBlockView({
   loading,
   status,
   errorMsg,
+  sessionId,
+  cwd,
 }: {
   block: ExecutionBlock
   index: number
@@ -165,6 +172,8 @@ function ExecutionBlockView({
   loading: boolean
   status: string
   errorMsg: string
+  sessionId?: number
+  cwd?: string
 }) {
   // 最新一块默认展开，其余默认折叠
   const [open, setOpen] = useState(index === total)
@@ -215,6 +224,8 @@ function ExecutionBlockView({
                 key={key}
                 message={msg}
                 defaultOpen={isLastThoughtStreaming}
+                sessionId={sessionId}
+                cwd={cwd}
               />
             )
           })}
@@ -229,10 +240,14 @@ function PlainList({
   messages,
   loading,
   endRef,
+  sessionId,
+  cwd,
 }: {
   messages: Message[]
   loading?: boolean
   endRef?: React.RefObject<HTMLDivElement | null>
+  sessionId?: number
+  cwd?: string
 }) {
   const endRefObj = endRef as React.RefObject<HTMLDivElement> | undefined
   const displayMessages = filterDisplay(messages)
@@ -263,6 +278,8 @@ function PlainList({
             key={key}
             message={msg}
             defaultOpen={isLastThoughtStreaming}
+            sessionId={sessionId}
+            cwd={cwd}
           />
         )
       })}

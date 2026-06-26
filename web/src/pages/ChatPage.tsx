@@ -14,6 +14,7 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import FilePanel from '../components/FilePanel'
 import ContextStats from '../components/ContextStats'
 import TerminalPanel from '../components/Terminal'
+import ChangesPanel from '../components/ChangesPanel'
 import UserMenu from '../components/UserMenu'
 import styles from './ChatPage.module.css'
 
@@ -36,6 +37,8 @@ export default function ChatPage() {
   const [showFilePanel, setShowFilePanel] = useState(false)
   // 底部终端面板，默认不开启
   const [showTerminal, setShowTerminal] = useState(false)
+  // 右侧改动文件汇总面板，默认不开启
+  const [showChanges, setShowChanges] = useState(false)
   // 最近一次失败的 prompt（用于重试）
   const [lastFailedPrompt, setLastFailedPrompt] = useState('')
   // 错误是否可重试（超时/网络错误）
@@ -277,6 +280,14 @@ export default function ChatPage() {
             >
               ⌨ 终端
             </button>
+            <button
+              className={`${styles.fileBtn} ${showChanges ? styles.fileBtnActive : ''}`}
+              onClick={() => setShowChanges(!showChanges)}
+              type="button"
+              title="改动文件汇总"
+            >
+              ✎ 改动
+            </button>
             {(session?.status === 'error' || session?.status === 'closed') && (
               <button className={styles.resumeBtn} onClick={handleResume} type="button">
                 {session?.status === 'closed' ? '重新打开' : '恢复会话'}
@@ -319,6 +330,8 @@ export default function ChatPage() {
           loading={sending}
           scheduled={session?.source === 'scheduled'}
           executions={executions}
+          sessionId={sessionId}
+          cwd={session?.cwd}
         />
 
         {/* 底部输入 */}
@@ -355,6 +368,15 @@ export default function ChatPage() {
         <FilePanel
           sessionId={sessionId}
           onClose={() => setShowFilePanel(false)}
+        />
+      )}
+
+      {showChanges && session?.cwd && (
+        <ChangesPanel
+          messages={messages}
+          sessionId={sessionId}
+          cwd={session.cwd}
+          onClose={() => setShowChanges(false)}
         />
       )}
     </div>

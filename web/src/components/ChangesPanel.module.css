@@ -1,0 +1,211 @@
+.panel {
+  width: 520px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #e0e0e0;
+  background: #fff;
+  height: 100vh;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #eee;
+  background: #fafafa;
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.count {
+  font-size: 11px;
+  background: #667eea;
+  color: #fff;
+  border-radius: 10px;
+  padding: 1px 7px;
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: #888;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.closeBtn:hover {
+  color: #333;
+}
+
+.body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.fileList {
+  width: 220px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border-right: 1px solid #f0f0f0;
+  padding: 6px 0;
+}
+
+.empty {
+  padding: 20px 12px;
+  color: #999;
+  font-size: 12px;
+  text-align: center;
+}
+
+.fileItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 12px;
+  background: none;
+  border: none;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+}
+
+.fileItem:hover {
+  background: #f5f7fa;
+}
+
+.fileItemActive {
+  background: #eef2ff;
+  border-left-color: #667eea;
+}
+
+.fileName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'Monaco', 'Menlo', monospace;
+  color: #333;
+}
+
+.badgeNew {
+  font-size: 9px;
+  padding: 1px 5px;
+  background: #e3f2fd;
+  color: #1565c0;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.fileStats {
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 10px;
+  flex-shrink: 0;
+  display: flex;
+  gap: 4px;
+}
+
+.added {
+  color: #2e7d32;
+  font-weight: 600;
+}
+
+.removed {
+  color: #c62828;
+  font-weight: 600;
+}
+
+.detail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 13px;
+}
+
+.detailHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fafbfc;
+  gap: 8px;
+}
+
+.detailPath {
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.diskToggle {
+  background: #fff;
+  border: 1px solid #d0d4d9;
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 3px 10px;
+  color: #555;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.diskToggle:hover:not(:disabled) {
+  background: #f5f5f5;
+  color: #333;
+}
+
+.diskToggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.diskHint {
+  font-size: 11px;
+  color: #8a6d3b;
+  padding: 4px 12px;
+  background: #fffbe6;
+  border-bottom: 1px solid #ffe58f;
+}
+
+.diskError {
+  font-size: 11px;
+  color: #c62828;
+  padding: 4px 12px;
+  background: #fff0f0;
+  border-bottom: 1px solid #ffccd0;
+}
+
+.diffScroll {
+  flex: 1;
+  overflow: auto;
+  background: #fff;
+}
