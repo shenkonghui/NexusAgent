@@ -5,6 +5,7 @@ import { updateProfile, changePassword } from '../api/auth'
 import { listSessions } from '../api/sessions'
 import type { Session } from '../types'
 import { useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import SessionSidebar from '../components/SessionSidebar'
 import UserMenu from '../components/UserMenu'
 import ErrorBanner from '../components/ErrorBanner'
@@ -12,6 +13,7 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import styles from './ProfilePage.module.css'
 
 export default function ProfilePage() {
+  const { t } = useTranslation()
   const { user, loading: authLoading } = useRequireAuth()
   const { refreshUser } = useAuthContext()
 
@@ -38,7 +40,7 @@ export default function ProfilePage() {
   async function handleProfileSubmit(e: FormEvent) {
     e.preventDefault()
     if (!profileForm.username || !profileForm.email) {
-      setError('用户名与邮箱不能为空')
+      setError(t('profile.usernameEmailRequired'))
       return
     }
     setSavingProfile(true)
@@ -47,9 +49,9 @@ export default function ProfilePage() {
     try {
       await updateProfile(profileForm.username, profileForm.email)
       await refreshUser()
-      setProfileMsg('个人信息已更新')
+      setProfileMsg(t('profile.updateSuccess'))
     } catch (err) {
-      setError(err instanceof Error ? err.message : '更新失败')
+      setError(err instanceof Error ? err.message : t('common.failed'))
     } finally {
       setSavingProfile(false)
     }
@@ -58,11 +60,11 @@ export default function ProfilePage() {
   async function handlePasswordSubmit(e: FormEvent) {
     e.preventDefault()
     if (passwordForm.new_password !== passwordForm.confirm_password) {
-      setError('两次输入的新密码不一致')
+      setError(t('profile.passwordMismatch'))
       return
     }
     if (passwordForm.new_password.length < 8) {
-      setError('新密码至少 8 位，需含字母与数字')
+      setError(t('profile.passwordRequirements'))
       return
     }
     setSavingPassword(true)
@@ -70,16 +72,16 @@ export default function ProfilePage() {
     setPasswordMsg('')
     try {
       await changePassword(passwordForm.old_password, passwordForm.new_password)
-      setPasswordMsg('密码已修改')
+      setPasswordMsg(t('profile.passwordChanged'))
       setPasswordForm({ old_password: '', new_password: '', confirm_password: '' })
     } catch (err) {
-      setError(err instanceof Error ? err.message : '修改密码失败')
+      setError(err instanceof Error ? err.message : t('common.failed'))
     } finally {
       setSavingPassword(false)
     }
   }
 
-  if (authLoading) return <LoadingSpinner text="验证登录状态..." />
+  if (authLoading) return <LoadingSpinner text={t('common.loading')} />
   if (!user) return null
 
   return (
@@ -90,39 +92,37 @@ export default function ProfilePage() {
 
       <div className={styles.main}>
         <div className={styles.header}>
-          <h1 className={styles.title}>个人中心</h1>
+          <h1 className={styles.title}>{t('profile.title')}</h1>
           <UserMenu />
         </div>
 
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}
 
         <div className={styles.content}>
-          {/* 账户信息展示 */}
           <section className={styles.section}>
-            <h2 className={styles.sectionTitle}>账户信息</h2>
+            <h2 className={styles.sectionTitle}>{t('profile.basicInfo')}</h2>
             <div className={styles.infoGrid}>
               <div className={styles.infoItem}>
-                <span className={styles.infoLabel}>用户 ID</span>
+                <span className={styles.infoLabel}>{t('profile.userId')}</span>
                 <span className={styles.infoValue}>{user.id}</span>
               </div>
               <div className={styles.infoItem}>
-                <span className={styles.infoLabel}>角色</span>
-                <span className={styles.infoValue}>{user.role === 'admin' ? '管理员' : '普通用户'}</span>
+                <span className={styles.infoLabel}>{t('profile.role')}</span>
+                <span className={styles.infoValue}>{user.role === 'admin' ? t('profile.admin') : t('profile.user')}</span>
               </div>
               <div className={styles.infoItem}>
-                <span className={styles.infoLabel}>状态</span>
-                <span className={styles.infoValue}>{user.status === 'active' ? '正常' : '已禁用'}</span>
+                <span className={styles.infoLabel}>{t('profile.status')}</span>
+                <span className={styles.infoValue}>{user.status === 'active' ? t('profile.active') : t('profile.disabled')}</span>
               </div>
             </div>
           </section>
 
-          {/* 修改个人信息 */}
           <section className={styles.section}>
-            <h2 className={styles.sectionTitle}>修改个人信息</h2>
+            <h2 className={styles.sectionTitle}>{t('profile.editProfile')}</h2>
             {profileMsg && <p className={styles.successMsg}>{profileMsg}</p>}
             <form className={styles.form} onSubmit={handleProfileSubmit}>
               <div className={styles.field}>
-                <label className={styles.label}>用户名</label>
+                <label className={styles.label}>{t('profile.username')}</label>
                 <input
                   className={styles.input}
                   type="text"
@@ -132,7 +132,7 @@ export default function ProfilePage() {
                 />
               </div>
               <div className={styles.field}>
-                <label className={styles.label}>邮箱</label>
+                <label className={styles.label}>{t('profile.email')}</label>
                 <input
                   className={styles.input}
                   type="email"
@@ -142,18 +142,17 @@ export default function ProfilePage() {
                 />
               </div>
               <button className={styles.submitBtn} type="submit" disabled={savingProfile}>
-                {savingProfile ? '保存中...' : '保存'}
+                {savingProfile ? t('common.saving') : t('common.save')}
               </button>
             </form>
           </section>
 
-          {/* 修改密码 */}
           <section className={styles.section}>
-            <h2 className={styles.sectionTitle}>修改密码</h2>
+            <h2 className={styles.sectionTitle}>{t('profile.changePassword')}</h2>
             {passwordMsg && <p className={styles.successMsg}>{passwordMsg}</p>}
             <form className={styles.form} onSubmit={handlePasswordSubmit}>
               <div className={styles.field}>
-                <label className={styles.label}>原密码</label>
+                <label className={styles.label}>{t('profile.currentPassword')}</label>
                 <input
                   className={styles.input}
                   type="password"
@@ -164,7 +163,7 @@ export default function ProfilePage() {
                 />
               </div>
               <div className={styles.field}>
-                <label className={styles.label}>新密码</label>
+                <label className={styles.label}>{t('profile.newPassword')}</label>
                 <input
                   className={styles.input}
                   type="password"
@@ -172,11 +171,11 @@ export default function ProfilePage() {
                   onChange={(e) => setPasswordForm({ ...passwordForm, new_password: e.target.value })}
                   required
                   autoComplete="new-password"
-                  placeholder="至少 8 位，含字母与数字"
+                  placeholder={t('profile.passwordHint')}
                 />
               </div>
               <div className={styles.field}>
-                <label className={styles.label}>确认新密码</label>
+                <label className={styles.label}>{t('profile.confirmPassword')}</label>
                 <input
                   className={styles.input}
                   type="password"
@@ -187,7 +186,7 @@ export default function ProfilePage() {
                 />
               </div>
               <button className={styles.submitBtn} type="submit" disabled={savingPassword}>
-                {savingPassword ? '修改中...' : '修改密码'}
+                {savingPassword ? t('common.saving') : t('profile.changePassword')}
               </button>
             </form>
           </section>

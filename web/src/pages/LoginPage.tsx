@@ -1,13 +1,14 @@
 import { useState, useEffect, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuth } from '../hooks/useAuth'
 import styles from './LoginPage.module.css'
 
 export default function LoginPage() {
+  const { t } = useTranslation()
   const { user, loading, login, register } = useAuth()
   const navigate = useNavigate()
 
-  // 如果用户已登录，跳转到首页
   useEffect(() => {
     if (!loading && user) {
       navigate('/', { replace: true })
@@ -35,7 +36,7 @@ export default function LoginPage() {
       }
       navigate('/', { replace: true })
     } catch (err) {
-      setError(err instanceof Error ? err.message : '操作失败')
+      setError(err instanceof Error ? err.message : t('common.failed'))
     } finally {
       setSubmitting(false)
     }
@@ -45,7 +46,7 @@ export default function LoginPage() {
     <div className={styles.container}>
       <div className={styles.card}>
         <h1 className={styles.title}>NexusAgent</h1>
-        <p className={styles.subtitle}>编码 Agent 编排平台</p>
+        <p className={styles.subtitle}>{t('auth.subtitle')}</p>
 
         <div className={styles.tabs}>
           <button
@@ -53,73 +54,73 @@ export default function LoginPage() {
             onClick={() => setMode('login')}
             type="button"
           >
-            登录
+            {t('auth.login')}
           </button>
           <button
             className={`${styles.tab} ${mode === 'register' ? styles.tabActive : ''}`}
             onClick={() => setMode('register')}
             type="button"
           >
-            注册
+            {t('auth.register')}
           </button>
         </div>
 
         <form className={styles.form} onSubmit={handleSubmit}>
           {mode === 'login' ? (
             <div className={styles.field}>
-              <label className={styles.label}>用户名或邮箱</label>
+              <label className={styles.label}>{t('auth.accountLabel')}</label>
               <input
                 className={styles.input}
                 type="text"
                 value={account}
                 onChange={(e) => setAccount(e.target.value)}
                 required
-                placeholder="输入用户名或邮箱"
+                placeholder={t('auth.accountPlaceholder')}
               />
             </div>
           ) : (
             <>
               <div className={styles.field}>
-                <label className={styles.label}>用户名</label>
+                <label className={styles.label}>{t('auth.username')}</label>
                 <input
                   className={styles.input}
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   required
-                  placeholder="输入用户名"
+                  placeholder={t('auth.usernamePlaceholder')}
                 />
               </div>
               <div className={styles.field}>
-                <label className={styles.label}>邮箱</label>
+                <label className={styles.label}>Email</label>
                 <input
                   className={styles.input}
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  placeholder="输入邮箱"
+                  placeholder="Email"
                 />
               </div>
             </>
           )}
 
           <div className={styles.field}>
-            <label className={styles.label}>密码</label>
+            <label className={styles.label}>{t('auth.password')}</label>
             <input
               className={styles.input}
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              placeholder="输入密码"
+              placeholder={t('auth.passwordPlaceholder')}
             />
           </div>
 
           {error && <div className={styles.error}>{error}</div>}
 
           <button className={styles.submitBtn} type="submit" disabled={submitting}>
-            {submitting ? '处理中...' : mode === 'login' ? '登录' : '注册'}
+            {submitting ? t('common.saving') : mode === 'login' ? t('auth.loginBtn') : t('auth.registerBtn')}
           </button>
         </form>
       </div>

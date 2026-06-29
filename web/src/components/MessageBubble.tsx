@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { Message } from '../types'
 import { parseDiffsFromMessage } from '../utils/diff'
 import DiffView from './DiffView'
@@ -6,32 +7,29 @@ import styles from './MessageBubble.module.css'
 
 interface MessageBubbleProps {
   message: Message
-  // 思考消息在流式输出中时默认展开，结束后自动折叠
   defaultOpen?: boolean
-  // 会话 ID 与工作目录，用于文件 diff 渲染与磁盘对比
   sessionId?: number
   cwd?: string
 }
 
-// kind 标签映射
 const kindLabels: Record<string, string> = {
-  user_message_chunk: '用户',
-  agent_message_chunk: '助手',
-  agent_thought_chunk: '思考',
-  tool_call: '工具调用',
-  tool_call_update: '工具更新',
-  plan: '计划',
-  usage_update: '用量',
+  user_message_chunk: 'chat.user',
+  agent_message_chunk: 'chat.assistant',
+  agent_thought_chunk: 'chat.thinking',
+  tool_call: 'chat.toolCall',
+  tool_call_update: 'chat.toolCallUpdate',
+  plan: 'chat.plan',
+  usage_update: 'chat.usage',
 }
 
-// 提取工具调用的单行摘要
 function toolSummary(content: string): string {
   const firstLine = content.split('\n')[0]?.trim() || ''
   if (firstLine) return firstLine
-  return '工具调用'
+  return 'chat.toolCall'
 }
 
 export default function MessageBubble({ message, defaultOpen = false, sessionId, cwd }: MessageBubbleProps) {
+  const { t } = useTranslation()
   const [showRaw, setShowRaw] = useState(false)
   const [open, setOpen] = useState(defaultOpen)
 
@@ -74,10 +72,10 @@ export default function MessageBubble({ message, defaultOpen = false, sessionId,
           className={`${styles.header} ${collapsible ? styles.headerClickable : ''}`}
           onClick={headerClick}
         >
-          {!isUser && <span className={styles.role}>{kindLabels[message.kind] || message.role}</span>}
-          {isPlan && <span className={styles.badge}>计划</span>}
+          {!isUser && <span className={styles.role}>{t(kindLabels[message.kind] || message.role)}</span>}
+          {isPlan && <span className={styles.badge}>{t('chat.plan')}</span>}
           {isTool && (
-            <span className={styles.summary}>{toolSummary(message.content)}</span>
+            <span className={styles.summary}>{t(toolSummary(message.content))}</span>
           )}
           {collapsible && (
             <span className={styles.toggle}>{open ? '▾' : '▸'}</span>
@@ -91,16 +89,15 @@ export default function MessageBubble({ message, defaultOpen = false, sessionId,
               }}
               type="button"
             >
-              {showRaw ? '隐藏详情' : '查看详情'}
+              {showRaw ? t('chat.hideDetail') : t('chat.viewDetail')}
             </button>
           )}
         </div>
-        {/* 折叠态：仅显示 header；展开态：显示完整内容 */}
         {!collapsible || open ? (
           <>
             {message.content && <div className={styles.content}>{message.content}</div>}
             {!message.content && !isPlan && (
-              <div className={styles.contentMuted}>（无文本内容）</div>
+              <div className={styles.contentMuted}>{t('common.noData')}</div>
             )}
             {hasDiff && sessionId != null && cwd != null && (
               <DiffView

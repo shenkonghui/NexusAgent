@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { Message, Execution } from '../types'
 import MessageBubble from './MessageBubble'
 import styles from './MessageList.module.css'
@@ -6,24 +7,18 @@ import styles from './MessageList.module.css'
 interface MessageListProps {
   messages: Message[]
   loading?: boolean
-  // scheduled=true 时按 execution_id 分块渲染（定时会话）
   scheduled?: boolean
-  // 定时会话的执行状态映射（execution_id -> Execution），用于显示每次执行状态
   executions?: Execution[]
-  // 会话 ID 与工作目录，用于工具调用消息的文件 diff 渲染
   sessionId?: number
   cwd?: string
 }
 
-// 可合并为同一个气泡的文本流式 kind（同一 kind 的连续 chunk 拼接成一条）
 const MERGEABLE_KINDS = new Set([
   'user_message_chunk',
   'agent_message_chunk',
   'agent_thought_chunk',
 ])
 
-// groupMessages 将连续的同 kind 文本 chunk 合并为同一条消息，
-// 使流式返回持续显示在同一个框内（参考 Cursor）。tool_call / plan / usage 等保持独立。
 function groupMessages(messages: Message[]): Message[] {
   const grouped: Message[] = []
   for (const msg of messages) {
@@ -48,21 +43,18 @@ function groupMessages(messages: Message[]): Message[] {
   return grouped
 }
 
-// filterDisplay 分组后过滤掉无文本内容的消息（plan 例外）
 function filterDisplay(messages: Message[]): Message[] {
   return groupMessages(messages).filter(
     (msg) => msg.content.trim() !== '' || msg.kind === 'plan',
   )
 }
 
-// ExecutionBlock 是按 execution_id 聚合的一组消息
 interface ExecutionBlock {
   executionId: number
   startedAt: string
   messages: Message[]
 }
 
-// groupByExecution 按 execution_id 将消息分块。execution_id 为 null 的消息归入"无执行块"（手动）。
 function groupByExecution(messages: Message[]): ExecutionBlock[] {
   const map = new Map<number, ExecutionBlock>()
   const order: number[] = []
@@ -81,16 +73,15 @@ function groupByExecution(messages: Message[]): ExecutionBlock[] {
     block.messages.push(msg)
     if (msg.created_at < block.startedAt) block.startedAt = msg.created_at
   }
-  // 按 execution_id 升序（最早执行在前）
   return order
     .sort((a, b) => a - b)
     .map((id) => map.get(id)!)
 }
 
 export default function MessageList({ messages, loading, scheduled, executions, sessionId, cwd }: MessageListProps) {
+  const { t } = useTranslation()
   const endRef = useRef<HTMLDivElement>(null)
 
-  // 新消息时自动滚动到底部
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
@@ -99,12 +90,9 @@ export default function MessageList({ messages, loading, scheduled, executions, 
     return <PlainList messages={messages} loading={loading} endRef={endRef} sessionId={sessionId} cwd={cwd} />
   }
 
-  // 定时会话：按 execution_id 分块渲染
   const blocks = groupByExecution(messages)
-  // 不属于任何执行块的消息（理论上定时会话不应出现）
   const unblocked = messages.filter((m) => m.execution_id == null)
   const scheduledLoading = !!loading
-  // 构建 execution_id -> status 映射
   const execStatusMap = new Map<number, Execution>()
   if (executions) {
     for (const e of executions) {
@@ -116,7 +104,7 @@ export default function MessageList({ messages, loading, scheduled, executions, 
     <div className={styles.container}>
       {blocks.length === 0 && unblocked.length === 0 && !loading && (
         <div className={styles.empty}>
-          <p>暂无执行记录</p>
+          <p>{t('scheduledTask.noTasks')}</p>
         </div>
       )}
       {unblocked.length > 0 && (
@@ -147,15 +135,6 @@ export default function MessageList({ messages, loading, scheduled, executions, 
   )
 }
 
-// 执行状态标签映射
-const execStatusLabels: Record<string, string> = {
-  success: '成功',
-  running: '运行中',
-  failed: '失败',
-  skipped: '跳过',
-}
-
-// ExecutionBlockView 渲染单个执行块（可折叠）
 function ExecutionBlockView({
   block,
   index,
@@ -175,18 +154,24 @@ function ExecutionBlockView({
   sessionId?: number
   cwd?: string
 }) {
-  // 最新一块默认展开，其余默认折叠
+  const { t, i18n } = useTranslation()
   const [open, setOpen] = useState(index === total)
-
   const displayMessages = filterDisplay(block.messages)
 
-  // 找到最后一条思考消息
   let lastThoughtKey: string | number | null = null
   for (let i = displayMessages.length - 1; i >= 0; i--) {
     if (displayMessages[i].kind === 'agent_thought_chunk') {
       lastThoughtKey = displayMessages[i].id || displayMessages[i].sequence
       break
     }
+  }
+
+  const locale = i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US'
+  const execStatusMap: Record<string, string> = {
+    success: t('scheduledTask.statusSuccess'),
+    running: t('scheduledTask.statusRunning'),
+    failed: t('scheduledTask.statusFailed'),
+    skipped: t('scheduledTask.statusCancelled'),
   }
 
   return (
@@ -197,21 +182,21 @@ function ExecutionBlockView({
         onClick={() => setOpen((v) => !v)}
       >
         <span className={styles.executionArrow}>{open ? '▼' : '▶'}</span>
-        <span className={styles.executionTitle}>执行 #{index}</span>
+        <span className={styles.executionTitle}>{t('scheduledTask.execution')} #{index}</span>
         <span className={styles.executionTime}>
-          {new Date(block.startedAt).toLocaleString('zh-CN')}
+          {new Date(block.startedAt).toLocaleString(locale)}
         </span>
         {status && (
           <span className={`${styles.execStatusBadge} ${styles[`execStatus_${status}`] || ''}`}>
-            {execStatusLabels[status] || status}
+            {execStatusMap[status] || status}
           </span>
         )}
-        {loading && <span className={styles.executionRunning}>执行中…</span>}
+        {loading && <span className={styles.executionRunning}>{t('scheduledTask.statusRunning')}</span>}
       </button>
       {open && (
         <div className={styles.executionBody}>
           {status === 'failed' && errorMsg && (
-            <div className={styles.execError}>错误：{errorMsg}</div>
+            <div className={styles.execError}>{t('status.error')}：{errorMsg}</div>
           )}
           {displayMessages.map((msg) => {
             const key = msg.id || msg.sequence
@@ -235,7 +220,6 @@ function ExecutionBlockView({
   )
 }
 
-// PlainList 渲染普通（非分块）消息列表
 function PlainList({
   messages,
   loading,
@@ -249,6 +233,7 @@ function PlainList({
   sessionId?: number
   cwd?: string
 }) {
+  const { t } = useTranslation()
   const endRefObj = endRef as React.RefObject<HTMLDivElement> | undefined
   const displayMessages = filterDisplay(messages)
 
@@ -264,7 +249,7 @@ function PlainList({
     <div className={styles.container}>
       {displayMessages.length === 0 && !loading && (
         <div className={styles.empty}>
-          <p>暂无消息，发送 prompt 开始对话</p>
+          <p>{t('chat.noMessages')}</p>
         </div>
       )}
       {displayMessages.map((msg) => {

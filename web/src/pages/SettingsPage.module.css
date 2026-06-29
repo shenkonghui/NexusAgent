@@ -81,6 +81,37 @@
   align-items: center;
 }
 
+.langRow {
+  display: flex;
+  gap: 8px;
+}
+
+.langBtn {
+  padding: 8px 18px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.langBtn:hover {
+  background: var(--bg-hover);
+}
+
+.langBtnActive {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.langBtnActive:hover {
+  background: var(--accent-hover);
+}
+
 .defaultRow select {
   flex: 1;
   padding: 8px 12px;

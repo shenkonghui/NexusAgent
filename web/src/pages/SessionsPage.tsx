@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useRequireAuth } from '../hooks/useRequireAuth'
 import { listAgents, probeAgentConfigs } from '../api/agents'
 import { listSessions, createSession, deleteSession, updateSessionTitle } from '../api/sessions'
@@ -16,6 +17,7 @@ import styles from './SessionsPage.module.css'
 const DEFAULT_AGENT_KEY = 'nexus.default.agent'
 
 export default function SessionsPage() {
+  const { t, i18n } = useTranslation()
   const { user, loading: authLoading } = useRequireAuth()
   const navigate = useNavigate()
 
@@ -24,14 +26,12 @@ export default function SessionsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  // 首页快捷发起会话状态
   const [showDirPicker, setShowDirPicker] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [selectedAgent, setSelectedAgent] = useState('')
   const [cwd, setCwd] = useState('')
   const [creating, setCreating] = useState(false)
   const [defaultAgent, setDefaultAgent] = useState('')
-  // 模型选择：选中 agent 后探测其 config options，提取 category=model 的 option
   const [modelOptions, setModelOptions] = useState<ConfigOption | null>(null)
   const [selectedModel, setSelectedModel] = useState('')
   const [probing, setProbing] = useState(false)
@@ -42,7 +42,6 @@ export default function SessionsPage() {
     loadData()
   }, [user])
 
-  // 选中 agent 变化时探测该 agent 的模型选项
   useEffect(() => {
     if (!selectedAgent) {
       setModelOptions(null)
@@ -59,92 +58,67 @@ export default function SessionsPage() {
         if (modelOpt) {
           setModelOptions(modelOpt)
           setSelectedModel(modelOpt.current_value || modelOpt.options[0]?.value || '')
-        } else {
-          setModelOptions(null)
-          setSelectedModel('')
-        }
+        } else { setModelOptions(null); setSelectedModel('') }
       })
-      .catch(() => {
-        if (!alive) return
-        setModelOptions(null)
-        setSelectedModel('')
-      })
-      .finally(() => {
-        if (alive) setProbing(false)
-      })
-    return () => {
-      alive = false
-    }
+      .catch(() => { if (!alive) return; setModelOptions(null); setSelectedModel('') })
+      .finally(() => { if (alive) setProbing(false) })
+    return () => { alive = false }
   }, [selectedAgent])
 
   async function loadData() {
-    setLoading(true)
-    setError('')
+    setLoading(true); setError('')
     try {
-      const [agentsResp, sessionsResp] = await Promise.all([
-        listAgents(),
-        listSessions(),
-      ])
+      const [agentsResp, sessionsResp] = await Promise.all([listAgents(), listSessions()])
       setAgents(agentsResp.data.agents || [])
       setSessions(sessionsResp.data.sessions || [])
       if (agentsResp.data.agents?.length > 0) {
-        // 优先使用 localStorage 中的默认 agent，否则取第一个
         const saved = localStorage.getItem(DEFAULT_AGENT_KEY)
         const types = agentsResp.data.agents.map((a) => a.type)
-        if (saved && types.includes(saved)) {
-          setSelectedAgent(saved)
-        } else {
-          setSelectedAgent(agentsResp.data.agents[0].type)
-        }
+        if (saved && types.includes(saved)) setSelectedAgent(saved)
+        else setSelectedAgent(agentsResp.data.agents[0].type)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载数据失败')
-    } finally {
-      setLoading(false)
-    }
+      setError(err instanceof Error ? err.message : t('common.failed'))
+    } finally { setLoading(false) }
   }
 
-  // 首页输入 prompt 后：用默认 agent 创建会话，并携带初始 prompt 跳转到聊天页自动发送
   async function handleQuickSend(prompt: string) {
     if (!selectedAgent || creating) return
-    setCreating(true)
-    setError('')
+    setCreating(true); setError('')
     try {
       const resp = await createSession(selectedAgent, cwd, selectedModel || undefined)
       navigate(`/sessions/${resp.data.id}`, { state: { initialPrompt: prompt } })
     } catch (err) {
-      setError(err instanceof Error ? err.message : '创建会话失败')
+      setError(err instanceof Error ? err.message : t('common.failed'))
       setCreating(false)
     }
   }
 
-  // 删除会话：彻底移除会话及其消息。active 会话会先释放连接。
   async function handleDelete(session: Session) {
-    if (!window.confirm(`确定删除会话「${session.title || session.agent_type}」？此操作不可恢复，将同时删除其全部消息。`)) {
-      return
-    }
+    if (!window.confirm(t('session.deleteConfirm'))) return
     setError('')
     try {
       await deleteSession(session.id)
       setSessions((prev) => prev.filter((s) => s.id !== session.id))
     } catch (err) {
-      setError(err instanceof Error ? err.message : '删除会话失败')
+      setError(err instanceof Error ? err.message : t('common.failed'))
     }
   }
 
-  // 重命名会话
   async function handleRename(id: number, title: string) {
     setError('')
     try {
       const resp = await updateSessionTitle(id, title)
       setSessions((prev) => prev.map((s) => (s.id === id ? resp.data : s)))
     } catch (err) {
-      setError(err instanceof Error ? err.message : '修改标题失败')
+      setError(err instanceof Error ? err.message : t('common.failed'))
     }
   }
 
-  if (authLoading) return <LoadingSpinner text="验证登录状态..." />
+  if (authLoading) return <LoadingSpinner text={t('common.loading')} />
   if (!user) return null
+
+  const locale = i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US'
 
   return (
     <div className={styles.layout}>
@@ -154,135 +128,91 @@ export default function SessionsPage() {
 
       <div className={styles.main}>
         <div className={styles.header}>
-          <h1 className={styles.title}>首页</h1>
+          <h1 className={styles.title}>{t('nav.sessionList')}</h1>
           <UserMenu />
         </div>
 
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}
 
-        {loading ? (
-          <LoadingSpinner />
-        ) : (
+        {loading ? <LoadingSpinner /> : (
           <div className={styles.content}>
-            {/* 欢迎输入区：使用默认 agent，首次发送时创建会话 */}
             <div className={styles.hero}>
-              <h2 className={styles.heroTitle}>开始新对话</h2>
-              <p className={styles.heroSubtitle}>
-                使用默认 Agent 开始，发送第一条消息后将自动创建会话
-              </p>
+              <h2 className={styles.heroTitle}>{t('session.newSession')}</h2>
+              <p className={styles.heroSubtitle}>{t('session.autoCreateHint')}</p>
               <div className={styles.heroAgent}>
-                <AgentSelector
-                  agents={agents}
-                  value={selectedAgent}
-                  onChange={setSelectedAgent}
-                />
+                <AgentSelector agents={agents} value={selectedAgent} onChange={setSelectedAgent} />
                 {modelOptions && (
                   <div className={styles.modelRow}>
-                    <label className={styles.modelLabel}>模型</label>
-                    <select
-                      className={styles.modelSelect}
-                      value={selectedModel}
+                    <label className={styles.modelLabel}>{t('chat.model')}</label>
+                    <select className={styles.modelSelect} value={selectedModel}
                       disabled={probing || creating}
                       onChange={(e) => setSelectedModel(e.target.value)}
                     >
                       {modelOptions.options.map((v) => (
-                        <option key={v.value} value={v.value}>
-                          {v.name}{v.description ? ` — ${v.description}` : ''}
-                        </option>
+                        <option key={v.value} value={v.value}>{v.name}{v.description ? ` — ${v.description}` : ''}</option>
                       ))}
                     </select>
                   </div>
                 )}
                 {defaultAgent && (
-                  <p className={styles.defaultHint}>
-                    默认 Agent：{defaultAgent}（可在 Agent 设置中修改）
-                  </p>
+                  <p className={styles.defaultHint}>{t('session.defaultAgent')}: {defaultAgent}</p>
                 )}
               </div>
               <div className={styles.heroPrompt}>
                 <PromptInput
-                  onSend={handleQuickSend}
-                  sending={creating}
+                  onSend={handleQuickSend} sending={creating}
                   disabled={!selectedAgent || creating}
-                  placeholder="输入你想做的事，Enter 发送，Shift+Enter 换行"
+                  placeholder={t('session.quickSendPlaceholder')}
                 />
               </div>
-              {/* 高级选项：工作目录 */}
               <div className={styles.advanced}>
-                <button
-                  type="button"
-                  className={styles.advancedToggle}
+                <button type="button" className={styles.advancedToggle}
                   onClick={() => setShowAdvanced(!showAdvanced)}
                 >
-                  {showAdvanced ? '▾' : '▸'} 高级选项{cwd ? `（工作目录：${cwd}）` : ''}
+                  {showAdvanced ? '▾' : '▸'} {t('session.advancedOptions')}{cwd ? ` (${cwd})` : ''}
                 </button>
                 {showAdvanced && (
                   <div className={styles.cwdRow}>
-                    <input
-                      className={styles.input}
-                      type="text"
-                      value={cwd}
+                    <input className={styles.input} type="text" value={cwd}
                       onChange={(e) => setCwd(e.target.value)}
-                      placeholder="/path/to/project（留空则自动创建临时目录）"
+                      placeholder={t('scheduledTask.cwdPlaceholder')}
                     />
-                    <button
-                      type="button"
-                      className={styles.browseBtn}
+                    <button type="button" className={styles.browseBtn}
                       onClick={() => setShowDirPicker(true)}
-                    >
-                      浏览
-                    </button>
+                    >{t('common.search')}</button>
                   </div>
                 )}
               </div>
             </div>
 
             {showDirPicker && (
-              <DirectoryPicker
-                initialPath={cwd}
-                onSelect={(path) => {
-                  setCwd(path)
-                  setShowDirPicker(false)
-                }}
+              <DirectoryPicker initialPath={cwd}
+                onSelect={(path) => { setCwd(path); setShowDirPicker(false) }}
                 onClose={() => setShowDirPicker(false)}
               />
             )}
 
-            {/* 历史会话列表 */}
             <div className={styles.sessionList}>
-              <h3 className={styles.listTitle}>历史会话</h3>
+              <h3 className={styles.listTitle}>{t('session.history')}</h3>
               {sessions.length === 0 ? (
-                <p className={styles.empty}>暂无会话，在上方输入框开始第一次对话</p>
+                <p className={styles.empty}>{t('session.noSessions')}</p>
               ) : (
                 sessions.map((session) => (
-                  <div
-                    key={session.id}
-                    className={styles.sessionCard}
+                  <div key={session.id} className={styles.sessionCard}
                     onClick={() => navigate(`/sessions/${session.id}`)}
                   >
                     <div className={styles.sessionHeader}>
                       <span className={styles.sessionAgent}>{session.title || session.agent_type}</span>
                       <span className={`${styles.sessionStatus} ${styles[`status_${session.status}`] || ''}`}>
-                        {session.status === 'active' ? '活跃' : session.status === 'closed' ? '已关闭' : '错误'}
+                        {session.status === 'active' ? t('session.active') : session.status === 'closed' ? t('session.closed') : t('status.error')}
                       </span>
                     </div>
-                    {session.last_prompt && (
-                      <p className={styles.sessionPrompt}>{session.last_prompt}</p>
-                    )}
+                    {session.last_prompt && <p className={styles.sessionPrompt}>{session.last_prompt}</p>}
                     <div className={styles.sessionFooter}>
-                      <span className={styles.sessionTime}>
-                        {new Date(session.created_at).toLocaleString('zh-CN')}
-                      </span>
-                      <button
-                        type="button"
-                        className={styles.deleteBtn}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDelete(session)
-                        }}
-                      >
-                        删除
-                      </button>
+                      <span className={styles.sessionTime}>{new Date(session.created_at).toLocaleString(locale)}</span>
+                      <button type="button" className={styles.deleteBtn}
+                        onClick={(e) => { e.stopPropagation(); handleDelete(session) }}
+                      >{t('common.delete')}</button>
                     </div>
                   </div>
                 ))

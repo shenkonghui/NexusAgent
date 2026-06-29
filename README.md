@@ -1,128 +1,123 @@
 # NexusAgent
 
-基于 [Agent Client Protocol (ACP)](https://github.com/coder/acp-go-sdk) 的多 Agent 统一管理与对话平台。在一个界面中接入并驱动 Claude Code、CodeBuddy、Kilo Code、Devin 等编码 Agent，实现多会话并发、流式对话、文件浏览编辑、终端交互与定时任务调度。
+A multi-Agent orchestration and conversation platform based on the [Agent Client Protocol (ACP)](https://github.com/coder/acp-go-sdk). Connect and drive coding agents like Claude Code, CodeBuddy, Kilo Code and Devin from a single interface with multi-session concurrency, streaming conversations, file editing, terminal interaction, and scheduled task automation.
 
-## 功能特性
+[🇨🇳 中文文档](README.zh-CN.md)
 
-- **多 Agent 接入**：内置 Claude Code、CodeBuddy、Kilo Code、Devin 等 ACP Agent，支持在设置页动态添加自定义 Agent 配置
-- **会话管理**：创建 / 恢复 / 关闭 / 删除会话，每个 Agent 共享一条 ACP 连接（多路复用），支持同时并发多个会话
-- **流式对话**：基于 SSE 的实时流式输出，展示 Agent 的思考、工具调用与最终回复
-- **文件浏览与编辑**：在会话工作区内浏览目录、查看与编辑文件（集成 CodeMirror，支持多语言语法高亮）
-- **终端交互**：基于 WebSocket 的 xterm 终端，可直接操作会话工作区
-- **定时任务**：支持 cron 表达式调度，自动创建会话并发送 prompt，可查看历史执行记录
-- **连接健康检查与自动重连**：后台定期检测各 Agent 连接状态，断线自动重连；侧边栏实时展示连接状态
-- **用户认证**：JWT 鉴权，支持注册 / 登录 / 密码修改 / 个人资料
-- **主题切换**：内置亮色 / 暗色主题
-- **单端口部署**：生产模式下前端构建产物由后端直接服务，前后端同一端口；同时支持 Docker 化部署
+## Features
 
-## 技术栈
+- **Multi-Agent Access**: Built-in support for Claude Code, CodeBuddy, Kilo Code, Devin and more ACP agents. Add custom agent configurations dynamically via the Settings page.
+- **Session Management**: Create / resume / close / delete sessions. Multiple sessions share a single ACP connection per agent type (multiplexed) for concurrent usage.
+- **Streaming Conversations**: Real-time SSE streaming output showing Agent thinking, tool calls, and final responses.
+- **File Browsing & Editing**: Browse directories, view and edit files within the session workspace (CodeMirror with multi-language syntax highlighting).
+- **Terminal**: WebSocket-based xterm terminal for direct session workspace interaction.
+- **Scheduled Tasks**: Cron-driven task scheduling with automatic session creation and prompt execution. View execution history.
+- **Health Check & Auto-Reconnect**: Background agent connection health monitoring with automatic reconnection on failure. Real-time status badges in the sidebar.
+- **User Authentication**: JWT-based auth with registration, login, password change, and profile management.
+- **Theme Toggle**: Light and dark theme support.
+- **Internationalization**: Chinese and English UI. Switch language in the Settings page.
+- **Single-Port Deployment**: Production mode serves the frontend build directly from the backend. Docker support included.
 
-| 层 | 技术 |
-|------|------|
-| 后端 | Go 1.25 · Gin · GORM · SQLite · JWT |
-| 前端 | React 18 · TypeScript · Vite · CodeMirror · xterm.js |
-| 协议 | Agent Client Protocol (ACP) |
+## Tech Stack
 
-## 项目结构
+| Layer | Technology |
+|-------|-----------|
+| Backend | Go 1.25 · Gin · GORM · SQLite · JWT |
+| Frontend | React 18 · TypeScript · Vite · CodeMirror · xterm.js |
+| Protocol | Agent Client Protocol (ACP) |
+
+## Project Structure
 
 ```
 NexusAgent/
-├── cmd/server/          # 程序入口
+├── cmd/server/          # Entry point
 ├── internal/
-│   ├── acp/             # ACP 协议封装：连接、客户端、会话管理、健康检查
-│   ├── agent/           # Agent 注册表与路由层
-│   ├── config/          # 配置加载与校验
-│   ├── database/        # 数据库连接
-│   ├── handlers/        # HTTP 处理器（会话、Agent、文件、终端、定时任务等）
-│   ├── middleware/      # 中间件（JWT 鉴权）
-│   ├── models/          # 数据模型
-│   ├── repository/      # 数据访问层
-│   ├── router/          # 路由注册与静态文件服务
-│   └── services/        # 业务服务（认证、JWT、调度器）
-├── web/                 # 前端源码（React + Vite）
-├── config.yaml          # 默认配置文件
-├── Dockerfile           # 多阶段构建（前端 + 后端）
-├── docker-compose.yml   # 容器编排
-└── Makefile             # 常用命令快捷方式
+│   ├── acp/             # ACP protocol: connection, client, session, health check
+│   ├── agent/           # Agent registry and router
+│   ├── config/          # Config loading and validation
+│   ├── database/        # DB connection
+│   ├── handlers/        # HTTP handlers (sessions, agents, files, terminal, tasks)
+│   ├── middleware/      # JWT auth middleware
+│   ├── models/          # Data models
+│   ├── repository/      # Data access layer
+│   ├── router/          # Route registration and static file serving
+│   └── services/        # Business services (auth, JWT, scheduler)
+├── web/                 # Frontend (React + Vite)
+├── config.yaml          # Default configuration
+├── Dockerfile           # Multi-stage build (frontend + backend)
+├── docker-compose.yml   # Container orchestration
+└── Makefile             # Common command shortcuts
 ```
 
-## 快速开始
+## Quick Start
 
-### 环境要求
+### Prerequisites
 
 - Go >= 1.25
 - Node.js >= 20
-- 各 Agent 所需的 API Key（如 Claude Code 需要 `ANTHROPIC_API_KEY`）
+- API keys for the agents you want to use (e.g., `ANTHROPIC_API_KEY` for Claude Code)
 
-### 本地开发
+### Local Development
 
 ```bash
-# 一键启动前后端开发服务器（后端 :8080，前端 :3000）
+# Start both frontend and backend dev servers
 make dev
 ```
 
-启动后访问 http://localhost:3000 即可使用。首次使用需注册账号。
+Visit http://localhost:3000. Register an account to get started.
 
-如需单独启动：
-
-```bash
-make backend    # 仅启动后端 http://localhost:8080
-make frontend   # 仅启动前端 http://localhost:3000
-```
-
-### 单端口运行（生产模式）
+### Production Mode (Single Port)
 
 ```bash
-# 构建前端 + 后端，以 release 模式启动（前端 + API 同端口）
+# Build frontend + backend, run in release mode
 make run
 ```
 
-访问 http://localhost:8080。
+Visit http://localhost:8080.
 
-### Docker 部署
+### Docker Deployment
 
 ```bash
-# 构建镜像并前台启动
+# Build image and start
 make docker-up
 
-# 或后台启动
+# Or run in background
 make docker-up-d
 ```
 
-如需配置 `ANTHROPIC_API_KEY` 等环境变量，在启动前设置：
+Set environment variables like `ANTHROPIC_API_KEY` before starting:
 
 ```bash
 ANTHROPIC_API_KEY=sk-xxx make docker-up-d
 ```
 
-## 配置说明
+## Configuration
 
-配置文件为 `config.yaml`，也可通过环境变量覆盖：
+The configuration file is `config.yaml`. Environment variable overrides:
 
-| 配置项 | 环境变量 | 说明 |
-|--------|---------|------|
-| `server.port` | `SERVER_PORT` | 服务端口，默认 `8080` |
-| `server.mode` | `SERVER_MODE` | `debug` / `release`，release 为单端口模式 |
-| `server.web_dist` | `WEB_DIST` | 前端构建产物目录，默认 `./web/dist` |
-| `database.path` | `DATABASE_PATH` | SQLite 数据库路径，默认 `./data/nexus.db` |
-| `jwt.secret` | `JWT_SECRET` | JWT 签名密钥（生产环境务必修改） |
-| `agents.workspace.session_dir` | `AGENTS_WORKSPACE_SESSION_DIR` | 会话工作区根目录 |
+| Config | Env Var | Description |
+|--------|---------|-------------|
+| `server.port` | `SERVER_PORT` | Server port (default: `8080`) |
+| `server.mode` | `SERVER_MODE` | `debug` / `release` |
+| `server.web_dist` | `WEB_DIST` | Frontend build directory (default: `./web/dist`) |
+| `database.path` | `DATABASE_PATH` | SQLite database path (default: `./data/nexus.db`) |
+| `jwt.secret` | `JWT_SECRET` | JWT signing secret (change in production!) |
 
-Agent 的连接命令、参数、API Key 等可在前端「设置」页面动态管理，修改后实时生效。
+Agent commands, arguments, and API keys can be managed dynamically in the Settings page — changes take effect immediately.
 
-## 常用命令
+## Makefile Commands
 
-| 命令 | 说明 |
-|------|------|
-| `make dev` | 一键启动前后端开发服务器 |
-| `make run` | 单端口启动（release 模式） |
-| `make build` | 构建前端 + 后端 |
-| `make test` | 运行后端全部测试 |
-| `make clean` | 清理构建产物 |
-| `make docker-up` | 构建 Docker 镜像并前台启动 |
-| `make docker-down` | 停止并清理 Docker 容器 |
-| `make docker-logs` | 查看 Docker 容器日志 |
+| Command | Description |
+|---------|-------------|
+| `make dev` | Start frontend + backend dev servers |
+| `make run` | Single-port production mode |
+| `make build` | Build frontend + backend |
+| `make test` | Run all backend tests |
+| `make clean` | Clean build artifacts |
+| `make docker-up` | Build Docker image and start |
+| `make docker-down` | Stop and clean Docker containers |
+| `make docker-logs` | View Docker container logs |
 
-## 许可证
+## License
 
-私有项目，保留所有权利。
+Private project. All rights reserved.
