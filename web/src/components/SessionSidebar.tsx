@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import type { Session, ScheduledTask } from '../types'
+import type { Session, ScheduledTask, AgentStatus } from '../types'
 import { listScheduledTasks } from '../api/scheduledTasks'
+import { listAgentStatus } from '../api/agents'
 import styles from './SessionSidebar.module.css'
 
 interface SessionSidebarProps {
@@ -47,6 +48,7 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
 
   const [collapsed, setCollapsed] = useState(loadCollapsed)
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
+  const [agentStatuses, setAgentStatuses] = useState<AgentStatus[]>([])
 
   // 折叠状态持久化
   useEffect(() => {
@@ -71,6 +73,26 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
       alive = false
     }
   }, [location.pathname])
+
+  // 加载 agent 连接状态（轮询，每 3s 刷新一次，近实时显示）
+  useEffect(() => {
+    let alive = true
+    const load = () => {
+      listAgentStatus()
+        .then((r) => {
+          if (alive) setAgentStatuses(r.data.agents || [])
+        })
+        .catch(() => {
+          if (alive) setAgentStatuses([])
+        })
+    }
+    load()
+    const timer = setInterval(load, 3000)
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+  }, [])
 
   // 按来源拆分会话（定时任务分组由 tasks 驱动展示，此处仅取手动会话）
   const manualSessions = sessions.filter((s) => !s.source || s.source === 'manual')
@@ -105,6 +127,24 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
           </button>
         )}
       </Link>
+
+      {/* Agent 连接状态 */}
+      {agentStatuses.length > 0 && (
+        <div className={styles.agentStatus}>
+          {agentStatuses.map((s) => {
+            const statusLabel = s.status === 'connected' ? '已连接' : s.status === 'connecting' ? '连接中' : '未连接'
+            const dotClass = s.status === 'connected' ? styles.agentDotOn : s.status === 'connecting' ? styles.agentDotConnecting : styles.agentDotOff
+            return (
+              <div key={s.agent_type} className={styles.agentStatusItem} title={`${s.agent_type}：${statusLabel}，活跃会话 ${s.active_count}`}>
+                <span className={`${styles.agentDot} ${dotClass}`} />
+                <span className={styles.agentName}>{s.agent_type}</span>
+                {s.status === 'connecting' && <span className={styles.agentStatusText}>{statusLabel}</span>}
+                <span className={styles.agentCount}>{s.active_count}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       {/* 顶部：双折叠分组 */}
       <div className={styles.groups}>

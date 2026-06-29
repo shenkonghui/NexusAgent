@@ -95,10 +95,43 @@
 .heroAgent {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 10px;
   max-width: 420px;
   margin: 0 auto;
   width: 100%;
+}
+
+.modelRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modelLabel {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.modelSelect {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.modelSelect:focus {
+  border-color: var(--accent);
+}
+
+.modelSelect:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* PromptInput 在首页场景下去掉底部输入栏的 border-top / padding / 背景，
@@ -144,7 +177,7 @@
 }
 
 .defaultHint {
-  margin: -8px 0 0 0;
+  margin: 0;
   font-size: 12px;
   color: var(--text-muted);
 }

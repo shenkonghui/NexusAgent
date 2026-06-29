@@ -8,7 +8,10 @@ import (
 	"github.com/coder/acp-go-sdk"
 )
 
-// Connection 封装 acp.ClientSideConnection，管理 agent 进程与 ACP 连接。
+// Connection 封装 acp.ClientSideConnection，管理一个 agent 进程与一条 ACP 连接。
+//
+// 一条 Connection 可承载多个 ACP session（多路复用同一 agent 进程），
+// 各 session 的 update 通过 Client 按 SessionId 路由分发。
 type Connection struct {
 	conn    *acp.ClientSideConnection
 	process *Process
@@ -22,7 +25,7 @@ func NewConnection(backend Backend) (*Connection, error) {
 		return nil, err
 	}
 
-	client := NewClient(256)
+	client := NewClient()
 	conn := acp.NewClientSideConnection(client, proc.Stdin(), proc.Stdout())
 	conn.SetLogger(slog.Default())
 
@@ -50,10 +53,9 @@ func (c *Connection) Initialize(ctx context.Context) (acp.InitializeResponse, er
 	return resp, nil
 }
 
-// NewSession 创建新的 ACP 会话，返回 session ID、初始 config options 和初始 modes。
+// NewSession 在当前连接上创建新的 ACP session，返回 session ID、初始 config options 和初始 modes。
+// 同一 Connection 可多次调用，每次返回不同的 session ID。
 func (c *Connection) NewSession(ctx context.Context, cwd string) (string, []acp.SessionConfigOption, []acp.SessionMode, error) {
-	c.client.Reset(256)
-
 	resp, err := c.conn.NewSession(ctx, acp.NewSessionRequest{
 		Cwd:        cwd,
 		McpServers: []acp.McpServer{},
@@ -69,20 +71,21 @@ func (c *Connection) NewSession(ctx context.Context, cwd string) (string, []acp.
 	return string(resp.SessionId), resp.ConfigOptions, modes, nil
 }
 
-// Prompt 发送 prompt 并返回流式 update channel。
-// channel 在 prompt turn 完成后关闭。
+// Prompt 发送 prompt 并返回该 session 专属的流式 update channel。
+// channel 在 prompt turn 完成后关闭（由内部 goroutine 注销 stream 时关闭）。
 func (c *Connection) Prompt(ctx context.Context, sessionID, prompt string) (<-chan acp.SessionUpdate, error) {
-	c.client.Reset(256)
+	sid := acp.SessionId(sessionID)
+	ch := c.client.RegisterStream(sid, 256)
 
 	go func() {
-		defer c.client.CloseUpdates()
+		defer c.client.UnregisterStream(sid)
 		_, _ = c.conn.Prompt(ctx, acp.PromptRequest{
-			SessionId: acp.SessionId(sessionID),
+			SessionId: sid,
 			Prompt:    []acp.ContentBlock{acp.TextBlock(prompt)},
 		})
 	}()
 
-	return c.client.Updates(), nil
+	return ch, nil
 }
 
 // Cancel 取消正在进行的 prompt。
@@ -102,7 +105,24 @@ func (c *Connection) SetConfigOption(ctx context.Context, sessionID, configID, v
 	return err
 }
 
+// CloseSessionByID 关闭单个 ACP session（释放 agent 侧该 session 的资源），
+// 但不停止 agent 进程，连接可继续承载其他 session。
+func (c *Connection) CloseSessionByID(ctx context.Context, sessionID string) error {
+	c.client.UnregisterStream(acp.SessionId(sessionID))
+	_, err := c.conn.CloseSession(ctx, acp.CloseSessionRequest{
+		SessionId: acp.SessionId(sessionID),
+	})
+	return err
+}
+
+// Done 返回连接关闭信号 channel。
+// agent 进程退出或连接断开时该 channel 关闭。
+func (c *Connection) Done() <-chan struct{} {
+	return c.conn.Done()
+}
+
 // Close 关闭连接并停止 agent 进程。
+// 用于彻底销毁该 Connection（不再承载任何 session）。
 func (c *Connection) Close() error {
 	return c.process.Stop()
 }

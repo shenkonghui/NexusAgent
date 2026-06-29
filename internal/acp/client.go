@@ -10,46 +10,45 @@ import (
 	"github.com/coder/acp-go-sdk"
 )
 
-// Client 实现 acp.Client 接口，自动批准权限请求并转发 session update。
-// 内部通过 buffered channel 转发 update，并使用 mutex + closed 标志保护，
-// 避免 SDK 后台 goroutine 在 channel 关闭后发送导致 "send on closed channel" panic。
+// Client 实现 acp.Client 接口，自动批准权限请求并按 sessionID 路由 session update。
+//
+// 多 session 共享同一条 ACP 连接时，agent 推回的 SessionNotification 携带
+// SessionId，Client 据此分发到对应 session 的 stream channel，
+// 避免不同会话的流式输出互相串扰。
 type Client struct {
 	mu      sync.Mutex
-	updates chan acp.SessionUpdate
-	closed  bool
+	streams map[acp.SessionId]chan acp.SessionUpdate
 }
 
 // NewClient 创建一个新的 Client。
-func NewClient(bufSize int) *Client {
+func NewClient() *Client {
 	return &Client{
-		updates: make(chan acp.SessionUpdate, bufSize),
+		streams: make(map[acp.SessionId]chan acp.SessionUpdate),
 	}
 }
 
-// Updates 返回 session update 的只读 channel。
-func (c *Client) Updates() <-chan acp.SessionUpdate {
+// RegisterStream 为指定 session 注册一个 update stream，返回只读 channel。
+// 同一 sessionID 重复注册会覆盖旧 stream（旧 stream 不会被关闭，调用方需自行处理）。
+func (c *Client) RegisterStream(sessionID acp.SessionId, bufSize int) chan acp.SessionUpdate {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.updates
+	ch := make(chan acp.SessionUpdate, bufSize)
+	c.streams[sessionID] = ch
+	return ch
 }
 
-// CloseUpdates 关闭 update channel。后续 SessionUpdate 调用会被安全丢弃。
-func (c *Client) CloseUpdates() {
+// UnregisterStream 注销并关闭指定 session 的 stream。
+// 后续该 session 的 update 会被安全丢弃。
+func (c *Client) UnregisterStream(sessionID acp.SessionId) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.closed {
-		return
+	if ch, ok := c.streams[sessionID]; ok {
+		delete(c.streams, sessionID)
+		// 安全关闭：仅在没有其他持有者时关闭。
+		// 由于 UnregisterStream 只在 prompt goroutine 结束时调用，且 stream 仅由该 goroutine 持有，
+		// 关闭是安全的。
+		close(ch)
 	}
-	c.closed = true
-	close(c.updates)
-}
-
-// Reset 重置 update channel 以便复用（重新打开一个未关闭的 channel）。
-func (c *Client) Reset(bufSize int) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.updates = make(chan acp.SessionUpdate, bufSize)
-	c.closed = false
 }
 
 // RequestPermission 自动批准所有权限请求。
@@ -75,17 +74,15 @@ func (c *Client) RequestPermission(ctx context.Context, params acp.RequestPermis
 	}, nil
 }
 
-// SessionUpdate 将 update 转发到 channel。
-// 若 channel 已关闭（prompt turn 已结束），安全丢弃迟到的 update 而非 panic。
+// SessionUpdate 将 update 按 SessionId 路由到对应 session 的 stream。
+// 若该 session 未注册 stream（未在 prompt 中或已关闭），update 被安全丢弃。
 func (c *Client) SessionUpdate(ctx context.Context, params acp.SessionNotification) error {
 	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
+	ch, ok := c.streams[params.SessionId]
+	c.mu.Unlock()
+	if !ok {
 		return nil
 	}
-	ch := c.updates
-	c.mu.Unlock()
-
 	select {
 	case ch <- params.Update:
 	case <-ctx.Done():

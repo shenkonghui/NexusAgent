@@ -28,7 +28,7 @@ type commandItem struct {
 
 // SessionStore 暴露会话相关业务能力（*agent.Router 实现该接口）。
 type SessionStore interface {
-	CreateSession(ctx context.Context, agentType, cwd string, userID uint) (*models.Session, error)
+	CreateSession(ctx context.Context, agentType, cwd string, userID uint, modelValue string) (*models.Session, error)
 	ListSessions(userID uint) ([]models.Session, error)
 	ListSessionsBySource(userID uint, source string) ([]models.Session, error)
 	GetSessionByDBID(id uint) (*models.Session, error)
@@ -113,8 +113,9 @@ func writeSessionError(c *gin.Context, err error) {
 }
 
 type createSessionRequest struct {
-	AgentType string `json:"agent_type" binding:"required"`
-	Cwd       string `json:"cwd"`
+	AgentType  string `json:"agent_type" binding:"required"`
+	Cwd        string `json:"cwd"`
+	ModelValue string `json:"model_value"`
 }
 
 // Create POST /api/v1/sessions
@@ -129,7 +130,7 @@ func (h *SessionHandler) Create(c *gin.Context) {
 		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
 		return
 	}
-	sess, err := h.store.CreateSession(c.Request.Context(), req.AgentType, req.Cwd, uid)
+	sess, err := h.store.CreateSession(c.Request.Context(), req.AgentType, req.Cwd, uid, req.ModelValue)
 	if err != nil {
 		writeSessionError(c, err)
 		return

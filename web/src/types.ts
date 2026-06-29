@@ -14,6 +14,13 @@ export interface Agent {
   description: string;
 }
 
+// Agent 连接状态（侧边栏展示用）
+export interface AgentStatus {
+  agent_type: string;
+  status: 'connected' | 'connecting' | 'disconnected';
+  active_count: number;
+}
+
 // Agent 配置（设置页面管理的本地 ACP agent）
 export interface AgentConfig {
   id: number;

@@ -75,6 +75,12 @@ func main() {
 	agentRouter := agent.NewRouter(agentRegistry, acpSvc)
 	agentCfgH := handlers.NewAgentConfigHandler(agentCfgRepo, registrar)
 
+	// 启动健康检查与自动重连 goroutine（定期检查连接状态，断开自动重连）。
+	acpSvc.StartHealthCheck()
+	// 异步为所有已注册 agent 预建立共享 ACP 连接（每类 agent 一个常驻进程）。
+	// 每个 agent 独立 goroutine 连接，不阻塞服务启动；连接失败由健康检查自动重连。
+	acpSvc.PreconnectAllAsync()
+
 	// P7: 定时任务调度器
 	schedTaskRepo := repository.NewScheduledTaskRepository(db)
 	execRepo := repository.NewTaskExecutionRepository(db)
@@ -103,6 +109,7 @@ func main() {
 	<-quit
 	log.Println("服务正在关闭...")
 	schedulerSvc.Stop()
+	acpSvc.StopHealthCheck()
 }
 
 // loadDBAgentConfigs 加载数据库中启用的 agent 配置并注册到 registry 与 acp service。

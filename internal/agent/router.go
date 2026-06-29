@@ -26,19 +26,21 @@ func NewRouter(registry *Registry, service *acp.Service) *Router {
 }
 
 // CreateSession 创建会话：校验 agentType 后委托 service。
-func (r *Router) CreateSession(ctx context.Context, agentType, cwd string, userID uint) (*models.Session, error) {
-	return r.CreateSessionWithSource(ctx, agentType, cwd, userID, models.SessionSourceManual)
+// modelValue 非空时在会话创建后立即设置该模型。
+func (r *Router) CreateSession(ctx context.Context, agentType, cwd string, userID uint, modelValue string) (*models.Session, error) {
+	return r.CreateSessionWithSource(ctx, agentType, cwd, userID, models.SessionSourceManual, modelValue)
 }
 
 // CreateSessionWithSource 创建会话并指定来源（manual/scheduled）。
-func (r *Router) CreateSessionWithSource(ctx context.Context, agentType, cwd string, userID uint, source string) (*models.Session, error) {
+// modelValue 非空时在会话创建后立即设置该模型。
+func (r *Router) CreateSessionWithSource(ctx context.Context, agentType, cwd string, userID uint, source, modelValue string) (*models.Session, error) {
 	if _, err := r.registry.Get(agentType); err != nil {
 		return nil, err
 	}
 	if r.service == nil {
 		return nil, errors.New("service 未配置")
 	}
-	return r.service.CreateSessionWithSource(ctx, agentType, cwd, userID, source)
+	return r.service.CreateSessionWithSource(ctx, agentType, cwd, userID, source, modelValue)
 }
 
 // PromptWithExecution 发送 prompt 并为本次执行的消息标记 executionID，委托 service。
@@ -204,4 +206,12 @@ func (r *Router) UpdateTitle(dbSessionID uint, title string) error {
 		return errors.New("service 未配置")
 	}
 	return r.service.UpdateTitle(dbSessionID, title)
+}
+
+// ListAgentStatus 返回所有 agent 类型的连接状态，委托 service。
+func (r *Router) ListAgentStatus() []acp.AgentStatus {
+	if r.service == nil {
+		return nil
+	}
+	return r.service.ListAgentStatus()
 }

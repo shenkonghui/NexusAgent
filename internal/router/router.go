@@ -40,8 +40,9 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			protected.PUT("/me", authHandler.UpdateProfile)
 			protected.POST("/me/password", authHandler.ChangePassword)
 
-			agentH := handlers.NewAgentHandler(agentRouter, agentRouter, agentRouter)
+			agentH := handlers.NewAgentHandler(agentRouter, agentRouter, agentRouter, agentRouter)
 			protected.GET("/agents", agentH.List)
+			protected.GET("/agents/status", agentH.Status)
 			protected.GET("/agents/:type/models", agentH.Models)
 			protected.POST("/agents/:type/probe", agentH.Probe)
 

@@ -5,9 +5,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/coder/acp-go-sdk"
+	acpsdk "github.com/coder/acp-go-sdk"
 	"github.com/gin-gonic/gin"
 
+	acplocal "nexusagent/internal/acp"
 	"nexusagent/internal/agent"
 )
 
@@ -16,26 +17,32 @@ type AgentLister interface {
 	ListAgents() []*agent.AgentDescriptor
 }
 
+// AgentStatusLister 暴露 agent 连接状态查询能力。
+type AgentStatusLister interface {
+	ListAgentStatus() []acplocal.AgentStatus
+}
+
 // AgentModelProber 返回指定 agent 类型的可用模型 config option（从已有会话缓存获取）。
 type AgentModelProber interface {
-	CachedModelOptions(agentType string) []acp.SessionConfigOption
+	CachedModelOptions(agentType string) []acpsdk.SessionConfigOption
 }
 
 // AgentConfigProber 创建临时会话探测指定 agent 类型的全部 config options，随后删除该会话。
 type AgentConfigProber interface {
-	ProbeConfigOptions(ctx context.Context, agentType string, userID uint) ([]acp.SessionConfigOption, error)
+	ProbeConfigOptions(ctx context.Context, agentType string, userID uint) ([]acpsdk.SessionConfigOption, error)
 }
 
 // AgentHandler 处理 agent 列表相关请求。
 type AgentHandler struct {
-	lister    AgentLister
-	prober    AgentModelProber
-	cfgProber AgentConfigProber
+	lister       AgentLister
+	prober       AgentModelProber
+	cfgProber    AgentConfigProber
+	statusLister AgentStatusLister
 }
 
-// NewAgentHandler 创建 AgentHandler。prober / cfgProber 可为 nil。
-func NewAgentHandler(lister AgentLister, prober AgentModelProber, cfgProber AgentConfigProber) *AgentHandler {
-	return &AgentHandler{lister: lister, prober: prober, cfgProber: cfgProber}
+// NewAgentHandler 创建 AgentHandler。prober / cfgProber / statusLister 可为 nil。
+func NewAgentHandler(lister AgentLister, prober AgentModelProber, cfgProber AgentConfigProber, statusLister AgentStatusLister) *AgentHandler {
+	return &AgentHandler{lister: lister, prober: prober, cfgProber: cfgProber, statusLister: statusLister}
 }
 
 // agentItem 是对外暴露的 agent 描述（隐藏 Backend 等内部字段）。
@@ -57,6 +64,16 @@ func (h *AgentHandler) List(c *gin.Context) {
 		})
 	}
 	Success(c, http.StatusOK, gin.H{"agents": items})
+}
+
+// Status GET /api/v1/agents/status — 返回所有 agent 类型的 ACP 连接状态。
+func (h *AgentHandler) Status(c *gin.Context) {
+	if h.statusLister == nil {
+		Success(c, http.StatusOK, gin.H{"agents": []agentItem{}})
+		return
+	}
+	statuses := h.statusLister.ListAgentStatus()
+	Success(c, http.StatusOK, gin.H{"agents": statuses})
 }
 
 // modelOptionItem 是对外暴露的模型 config option 描述。

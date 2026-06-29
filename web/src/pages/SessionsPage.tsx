@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useRequireAuth } from '../hooks/useRequireAuth'
-import { listAgents } from '../api/agents'
+import { listAgents, probeAgentConfigs } from '../api/agents'
 import { listSessions, createSession, deleteSession, updateSessionTitle } from '../api/sessions'
-import type { Agent, Session } from '../types'
+import type { Agent, Session, ConfigOption } from '../types'
 import AgentSelector from '../components/AgentSelector'
 import DirectoryPicker from '../components/DirectoryPicker'
 import ErrorBanner from '../components/ErrorBanner'
@@ -31,12 +31,51 @@ export default function SessionsPage() {
   const [cwd, setCwd] = useState('')
   const [creating, setCreating] = useState(false)
   const [defaultAgent, setDefaultAgent] = useState('')
+  // 模型选择：选中 agent 后探测其 config options，提取 category=model 的 option
+  const [modelOptions, setModelOptions] = useState<ConfigOption | null>(null)
+  const [selectedModel, setSelectedModel] = useState('')
+  const [probing, setProbing] = useState(false)
 
   useEffect(() => {
     if (!user) return
     setDefaultAgent(localStorage.getItem(DEFAULT_AGENT_KEY) || '')
     loadData()
   }, [user])
+
+  // 选中 agent 变化时探测该 agent 的模型选项
+  useEffect(() => {
+    if (!selectedAgent) {
+      setModelOptions(null)
+      setSelectedModel('')
+      return
+    }
+    let alive = true
+    setProbing(true)
+    probeAgentConfigs(selectedAgent)
+      .then((r) => {
+        if (!alive) return
+        const opts = r.data.config_options || []
+        const modelOpt = opts.find((o) => o.category === 'model' && o.type === 'select' && o.options.length > 0)
+        if (modelOpt) {
+          setModelOptions(modelOpt)
+          setSelectedModel(modelOpt.current_value || modelOpt.options[0]?.value || '')
+        } else {
+          setModelOptions(null)
+          setSelectedModel('')
+        }
+      })
+      .catch(() => {
+        if (!alive) return
+        setModelOptions(null)
+        setSelectedModel('')
+      })
+      .finally(() => {
+        if (alive) setProbing(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, [selectedAgent])
 
   async function loadData() {
     setLoading(true)
@@ -71,7 +110,7 @@ export default function SessionsPage() {
     setCreating(true)
     setError('')
     try {
-      const resp = await createSession(selectedAgent, cwd)
+      const resp = await createSession(selectedAgent, cwd, selectedModel || undefined)
       navigate(`/sessions/${resp.data.id}`, { state: { initialPrompt: prompt } })
     } catch (err) {
       setError(err instanceof Error ? err.message : '创建会话失败')
@@ -137,6 +176,23 @@ export default function SessionsPage() {
                   value={selectedAgent}
                   onChange={setSelectedAgent}
                 />
+                {modelOptions && (
+                  <div className={styles.modelRow}>
+                    <label className={styles.modelLabel}>模型</label>
+                    <select
+                      className={styles.modelSelect}
+                      value={selectedModel}
+                      disabled={probing || creating}
+                      onChange={(e) => setSelectedModel(e.target.value)}
+                    >
+                      {modelOptions.options.map((v) => (
+                        <option key={v.value} value={v.value}>
+                          {v.name}{v.description ? ` — ${v.description}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 {defaultAgent && (
                   <p className={styles.defaultHint}>
                     默认 Agent：{defaultAgent}（可在 Agent 设置中修改）

@@ -77,7 +77,7 @@ func TestRouter_CreateSession_UnknownAgent(t *testing.T) {
 	r := NewRegistry()
 	router := NewRouter(r, nil)
 
-	if _, err := router.CreateSession(nil, "unknown", "/tmp", 1); err == nil {
+	if _, err := router.CreateSession(nil, "unknown", "/tmp", 1, ""); err == nil {
 		t.Error("期望未知 agent 类型返回错误")
 	}
 }

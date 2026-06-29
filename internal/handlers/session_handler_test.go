@@ -45,7 +45,7 @@ func newFakeSessionStore() *fakeSessionStore {
 	}
 }
 
-func (f *fakeSessionStore) CreateSession(_ context.Context, agentType, cwd string, userID uint) (*models.Session, error) {
+func (f *fakeSessionStore) CreateSession(_ context.Context, agentType, cwd string, userID uint, _ string) (*models.Session, error) {
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
@@ -487,7 +487,7 @@ type commandsFakeStore struct {
 	cmds     []acp.AvailableCommand
 }
 
-func (s *commandsFakeStore) CreateSession(context.Context, string, string, uint) (*models.Session, error) {
+func (s *commandsFakeStore) CreateSession(context.Context, string, string, uint, string) (*models.Session, error) {
 	return nil, nil
 }
 func (s *commandsFakeStore) ListSessions(uint) ([]models.Session, error) { return nil, nil }

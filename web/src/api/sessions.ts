@@ -1,11 +1,11 @@
 import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill } from '../types'
 import { apiFetch } from './client'
 
-// 创建会话
-export function createSession(agentType: string, cwd?: string): Promise<{ data: Session }> {
+// 创建会话（可选 model_value 指定初始模型）
+export function createSession(agentType: string, cwd?: string, modelValue?: string): Promise<{ data: Session }> {
   return apiFetch('/sessions', {
     method: 'POST',
-    body: JSON.stringify({ agent_type: agentType, cwd: cwd || '' }),
+    body: JSON.stringify({ agent_type: agentType, cwd: cwd || '', model_value: modelValue || '' }),
   })
 }
 

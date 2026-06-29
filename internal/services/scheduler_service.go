@@ -17,7 +17,7 @@ import (
 
 // SchedulerExecutor 是调度器执行定时任务所需的 agent 能力子集（*agent.Router 实现该接口）。
 type SchedulerExecutor interface {
-	CreateSessionWithSource(ctx context.Context, agentType, cwd string, userID uint, source string) (*models.Session, error)
+	CreateSessionWithSource(ctx context.Context, agentType, cwd string, userID uint, source, modelValue string) (*models.Session, error)
 	PromptWithExecution(ctx context.Context, sessionID, prompt string, executionID *uint) (<-chan models.Message, error)
 	ResumeSession(ctx context.Context, sessionID, cwdOverride string) (*models.Session, error)
 	GetSessionByDBID(id uint) (*models.Session, error)
@@ -305,7 +305,7 @@ func (s *SchedulerService) ensureSession(ctx context.Context, t *models.Schedule
 
 	if t.DBSessionID == 0 {
 		// 首次执行：创建 session
-		session, err = s.exec.CreateSessionWithSource(ctx, t.AgentType, t.Cwd, t.UserID, models.SessionSourceScheduled)
+		session, err = s.exec.CreateSessionWithSource(ctx, t.AgentType, t.Cwd, t.UserID, models.SessionSourceScheduled, t.ModelValue)
 		if err != nil {
 			return nil, 0, fmt.Errorf("创建会话: %w", err)
 		}
