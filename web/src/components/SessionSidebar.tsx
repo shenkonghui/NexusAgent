@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import i18n from '../i18n'
 import type { Session, ScheduledTask, AgentStatus } from '../types'
 import { listScheduledTasks } from '../api/scheduledTasks'
 import { listAgentStatus } from '../api/agents'
@@ -31,8 +32,10 @@ function loadCollapsed(): { manual: boolean; scheduled: boolean } {
 }
 
 export default function SessionSidebar({ sessions, currentId, onDelete, onRename, onCollapse }: SessionSidebarProps) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [showLangMenu, setShowLangMenu] = useState(false)
+  const langRef = useRef<HTMLDivElement>(null)
   const [editTitle, setEditTitle] = useState('')
   const location = useLocation()
   const navigate = useNavigate()
@@ -45,6 +48,15 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(collapsed)) } catch { /* ignore */ }
   }, [collapsed])
+
+  useEffect(() => {
+    if (!showLangMenu) return
+    function handleClick(e: MouseEvent) {
+      if (langRef.current && !langRef.current.contains(e.target as Node)) setShowLangMenu(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showLangMenu])
 
   useEffect(() => {
     let alive = true
@@ -233,9 +245,27 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
           <span className={styles.navIcon}>⏰</span>
           <span>{t('nav.scheduledTasks')}</span>
         </Link>
+        <div className={styles.langRow} ref={langRef}>
+          <button type="button" className={`${styles.navItem} ${styles.langBtn}`}
+            onClick={() => setShowLangMenu((v) => !v)}
+          >
+            <span className={styles.navIcon}>🌐</span>
+            <span>{i18n.language === 'zh' ? '中文' : 'English'}</span>
+          </button>
+          {showLangMenu && (
+            <div className={styles.langMenu}>
+              <button type="button" className={`${styles.langMenuItem} ${i18n.language === 'zh' ? styles.langMenuItemActive : ''}`}
+                onClick={() => { i18n.changeLanguage('zh'); localStorage.setItem('nexus-lang', 'zh'); window.location.reload() }}
+              >中文</button>
+              <button type="button" className={`${styles.langMenuItem} ${i18n.language === 'en' ? styles.langMenuItemActive : ''}`}
+                onClick={() => { i18n.changeLanguage('en'); localStorage.setItem('nexus-lang', 'en'); window.location.reload() }}
+              >English</button>
+            </div>
+          )}
+        </div>
         <Link to="/settings" className={`${styles.navItem} ${location.pathname === '/settings' ? styles.navItemActive : ''}`}>
-          <span className={styles.navIcon}>🤖</span>
-          <span>{t('nav.agentSettings')}</span>
+          <span className={styles.navIcon}>⚙️</span>
+          <span>{t('common.settings')}</span>
         </Link>
       </div>
     </div>

@@ -448,3 +448,51 @@
   background: var(--accent-subtle);
   color: var(--accent);
 }
+
+.langRow {
+  position: relative;
+}
+
+.langBtn {
+  width: 100%;
+  cursor: pointer;
+  border: none;
+  font: inherit;
+  background: transparent;
+}
+
+.langMenu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 -4px 12px rgba(0,0,0,0.15);
+  overflow: hidden;
+  z-index: 100;
+}
+
+.langMenuItem {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.langMenuItem:hover {
+  background: var(--bg-hover);
+}
+
+.langMenuItemActive {
+  color: var(--accent);
+  font-weight: 600;
+}
