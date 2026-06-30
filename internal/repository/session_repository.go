@@ -85,14 +85,11 @@ func (r *SessionRepository) UpdateSessionID(id uint, newSessionID string) error 
 		Update("session_id", newSessionID).Error
 }
 
-// UpdateWorkspace 更新会话的工作目录信息（重开时指定新 cwd 时调用）。
-func (r *SessionRepository) UpdateWorkspace(id uint, cwd, mode, tempDir string) error {
-	return r.db.Model(&models.Session{}).Where("id = ?", id).
-		Updates(map[string]interface{}{
-			"cwd":            cwd,
-			"workspace_mode": mode,
-			"temp_dir":       tempDir,
-		}).Error
+// FindByWorkspaceID 返回指定 workspace 下的所有 session。
+func (r *SessionRepository) FindByWorkspaceID(workspaceID uint) ([]models.Session, error) {
+	var sessions []models.Session
+	err := r.db.Where("workspace_id = ?", workspaceID).Order("created_at DESC").Find(&sessions).Error
+	return sessions, err
 }
 
 // Delete 按主键物理删除会话记录。
