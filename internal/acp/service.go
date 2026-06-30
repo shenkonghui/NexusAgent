@@ -48,8 +48,9 @@ const (
 //   - 进程退出后标记 disconnected，定时任务自动重连
 //   - 重连带指数退避，避免频繁重试
 type Service struct {
-	sessions *repository.SessionRepository
-	messages *repository.MessageRepository
+	sessions  *repository.SessionRepository
+	messages  *repository.MessageRepository
+	workspaces *repository.WorkspaceRepository
 	backends map[string]Backend
 	// pool 按 agentType 共享一条 Connection（一个 agent 进程承载多个 session）。
 	pool map[string]*Connection
@@ -76,6 +77,7 @@ func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig) *Service {
 	return &Service{
 		sessions:     repository.NewSessionRepository(db),
 		messages:     repository.NewMessageRepository(db),
+		workspaces:   repository.NewWorkspaceRepository(db),
 		backends:     make(map[string]Backend),
 		pool:         make(map[string]*Connection),
 		states:       make(map[string]string),
@@ -408,31 +410,57 @@ func (s *Service) checkAgent(agentType string, delays map[string]time.Duration) 
 }
 
 // CreateSession 创建新的 ACP 会话。
-// cwd 为空时根据配置自动创建临时工作区。
-// modelValue 非空时在会话创建后立即设置该模型（用于新建会话时选择模型）。
-func (s *Service) CreateSession(ctx context.Context, agentType, cwd string, userID uint, modelValue string) (*models.Session, error) {
-	return s.CreateSessionWithSource(ctx, agentType, cwd, userID, models.SessionSourceManual, modelValue)
+// workspaceID 非 0 时使用指定 workspace 的 cwd，否则自动创建默认 workspace。
+// modelValue 非空时在会话创建后立即设置该模型。
+func (s *Service) CreateSession(ctx context.Context, agentType string, workspaceID uint, userID uint, modelValue string) (*models.Session, error) {
+	return s.CreateSessionWithSource(ctx, agentType, workspaceID, userID, models.SessionSourceManual, modelValue)
 }
 
 // CreateSessionWithSource 创建会话并指定来源（manual/scheduled）。
-// 复用 agentType 对应的共享连接，在其上新建 ACP session。
+// workspaceID 非 0 时使用指定 workspace，否则查找或创建默认 temporary workspace。
 // modelValue 非空时在会话创建后立即设置该模型。
-func (s *Service) CreateSessionWithSource(ctx context.Context, agentType, cwd string, userID uint, source, modelValue string) (*models.Session, error) {
+func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string) (*models.Session, error) {
 	if _, err := s.GetBackend(agentType); err != nil {
 		return nil, err
 	}
 
 	var ws *Workspace
-	if cwd != "" {
-		ws = NewExternalWorkspace(cwd)
-	} else if s.wsConfig.DefaultMode == "temporary" {
+	var dbWS *models.Workspace
+	if workspaceID > 0 {
 		var err error
-		ws, err = NewTemporaryWorkspace(s.wsConfig.SessionDir, s.wsConfig.TempDirPrefix)
+		dbWS, err = s.workspaces.FindByID(workspaceID)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("工作区不存在: %w", err)
 		}
+		if dbWS.UserID != userID {
+			return nil, errors.New("无权访问该工作区")
+		}
+		ws = &Workspace{Mode: dbWS.Mode, Cwd: dbWS.Cwd, TempDir: dbWS.TempDir}
 	} else {
-		return nil, errors.New("external 模式必须提供 cwd")
+		var err error
+		dbWS, err = s.workspaces.FindDefaultByUserID(userID)
+		if err != nil {
+			tempWs, tErr := NewTemporaryWorkspace(s.wsConfig.SessionDir, s.wsConfig.TempDirPrefix)
+			if tErr != nil {
+				return nil, tErr
+			}
+			newWS := &models.Workspace{
+				UserID:  userID,
+				Name:    "默认工作区",
+				Cwd:     tempWs.Cwd,
+				Mode:    models.WorkspaceModeTemporary,
+				TempDir: tempWs.TempDir,
+			}
+			if cErr := s.workspaces.Create(newWS); cErr != nil {
+				_ = tempWs.Cleanup()
+				return nil, fmt.Errorf("创建默认工作区: %w", cErr)
+			}
+			dbWS = newWS
+			ws = tempWs
+		} else {
+			ws = &Workspace{Mode: dbWS.Mode, Cwd: dbWS.Cwd, TempDir: dbWS.TempDir}
+		}
+		workspaceID = dbWS.ID
 	}
 
 	conn, err := s.ensureConnection(ctx, agentType)
@@ -447,15 +475,15 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType, cwd st
 		return nil, fmt.Errorf("创建 ACP 会话: %w", err)
 	}
 
+	wid := dbWS.ID
 	session := &models.Session{
-		SessionID:     sessionID,
-		AgentType:     agentType,
-		Cwd:           ws.Cwd,
-		Status:        models.SessionStatusActive,
-		UserID:        userID,
-		WorkspaceMode: ws.Mode,
-		TempDir:       ws.TempDir,
-		Source:        source,
+		SessionID:   sessionID,
+		AgentType:   agentType,
+		Cwd:         ws.Cwd,
+		Status:      models.SessionStatusActive,
+		UserID:      userID,
+		WorkspaceID: &wid,
+		Source:      source,
 	}
 	if err := s.sessions.Create(session); err != nil {
 		_ = conn.CloseSessionByID(ctx, sessionID)
@@ -667,9 +695,6 @@ func (s *Service) cleanupProbeSession(ctx context.Context, sess *models.Session)
 			_ = conn.CloseSessionByID(ctx, sess.SessionID)
 		}
 	}
-	// 清理工作区
-	ws := &Workspace{Mode: sess.WorkspaceMode, TempDir: sess.TempDir}
-	_ = ws.Cleanup()
 	// 删除消息和会话记录
 	_ = s.messages.DeleteByDBSessionID(sess.ID)
 	_ = s.sessions.Delete(sess.ID)
@@ -830,7 +855,7 @@ func (s *Service) ProbeConfigOptions(ctx context.Context, agentType string, user
 	s.mu.RUnlock()
 
 	// 缓存未命中，创建临时会话探测
-	sess, err := s.CreateSessionWithSource(ctx, agentType, "", userID, models.SessionSourceManual, "")
+	sess, err := s.CreateSessionWithSource(ctx, agentType, uint(0), userID, models.SessionSourceManual, "")
 	if err != nil {
 		return nil, fmt.Errorf("创建探测会话: %w", err)
 	}
@@ -886,7 +911,13 @@ func (s *Service) ListSkills(sessionID string) ([]Skill, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ScanSkills(session.Cwd), nil
+	cwd := session.Cwd
+	if session.WorkspaceID != nil {
+		if ws, wsErr := s.workspaces.FindByID(*session.WorkspaceID); wsErr == nil {
+			cwd = ws.Cwd
+		}
+	}
+	return ScanSkills(cwd), nil
 }
 
 // SetConfigOption 设置会话的 config option 值（如切换模型）。
@@ -912,8 +943,7 @@ func (s *Service) GetSessionByDBID(id uint) (*models.Session, error) {
 
 // ResumeSession 恢复或重开会话：在共享连接上新建 ACP session、注入历史上下文、更新 session_id。
 // active 且连接存在的会话直接返回；error 与 closed 状态均会尝试恢复。
-// cwdOverride 非空时使用该目录作为新工作区（用于已关闭会话的临时目录被清理的场景）。
-func (s *Service) ResumeSession(ctx context.Context, sessionID, cwdOverride string) (*models.Session, error) {
+func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.Session, error) {
 	session, err := s.GetSession(sessionID)
 	if err != nil {
 		return nil, err
@@ -926,16 +956,18 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID, cwdOverride stri
 		}
 	}
 
-	// 确定工作目录：优先使用覆盖值，否则复用原 cwd
+	// 从 workspace 获取 cwd
 	cwd := session.Cwd
-	if cwdOverride != "" {
-		cwd = cwdOverride
+	if session.WorkspaceID != nil {
+		if ws, wsErr := s.workspaces.FindByID(*session.WorkspaceID); wsErr == nil {
+			cwd = ws.Cwd
+		}
 	}
 	if cwd == "" {
-		return nil, errors.New("恢复会话需要工作目录，请提供 cwd")
+		return nil, errors.New("恢复会话需要工作目录，请提供有效的 workspace")
 	}
 	if !dirExists(cwd) {
-		return nil, fmt.Errorf("工作目录不存在: %s，请提供有效的 cwd", cwd)
+		return nil, fmt.Errorf("工作目录不存在: %s", cwd)
 	}
 
 	// 复用共享连接（不存在则自动建立）
@@ -947,13 +979,6 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID, cwdOverride stri
 	newSessionID, configOptions, modes, err := conn.NewSession(ctx, cwd)
 	if err != nil {
 		return nil, fmt.Errorf("恢复会话-创建 ACP 会话: %w", err)
-	}
-
-	// 若提供了 cwd 覆盖，更新会话工作区为 persistent 模式
-	if cwdOverride != "" && cwdOverride != session.Cwd {
-		// TODO(workspace): 后续迁移到 Workspace 模型后移除
-		session.Cwd = cwdOverride
-		session.TempDir = ""
 	}
 
 	// 查询历史消息并注入上下文
@@ -1150,4 +1175,57 @@ func (s *Service) applyModelValue(ctx context.Context, sessionID string, opts []
 // logWarn 统一警告日志输出。
 func (s *Service) logWarn(msg, agent string) {
 	slog.Warn(msg, "agent", agent)
+}
+
+// Workspace delegation methods
+
+func (s *Service) GetWorkspaceCwd(workspaceID uint) (string, error) {
+	ws, err := s.workspaces.FindByID(workspaceID)
+	if err != nil {
+		return "", err
+	}
+	return ws.Cwd, nil
+}
+
+func (s *Service) CreateWorkspace(ws *models.Workspace) error {
+	return s.workspaces.Create(ws)
+}
+
+func (s *Service) FindWorkspaceByID(id uint) (*models.Workspace, error) {
+	return s.workspaces.FindByID(id)
+}
+
+func (s *Service) FindWorkspacesByUserID(userID uint) ([]models.Workspace, error) {
+	return s.workspaces.FindByUserID(userID)
+}
+
+func (s *Service) FindWorkspaceByUserIDAndCwd(userID uint, cwd string) (*models.Workspace, error) {
+	return s.workspaces.FindByUserIDAndCwd(userID, cwd)
+}
+
+func (s *Service) FindDefaultWorkspaceByUserID(userID uint) (*models.Workspace, error) {
+	return s.workspaces.FindDefaultByUserID(userID)
+}
+
+func (s *Service) UpdateWorkspace(id uint, updates map[string]interface{}) error {
+	return s.workspaces.Update(id, updates)
+}
+
+func (s *Service) DeleteWorkspace(id uint) error {
+	return s.workspaces.Delete(id)
+}
+
+func (s *Service) WorkspaceSessionCount(workspaceID uint) (int64, error) {
+	return s.workspaces.SessionCount(workspaceID)
+}
+
+func (s *Service) FindSessionsByWorkspaceID(workspaceID uint) ([]models.Session, error) {
+	return s.sessions.FindByWorkspaceID(workspaceID)
+}
+
+func (s *Service) DeleteSessionWithMessages(session *models.Session) error {
+	if err := s.messages.DeleteByDBSessionID(session.ID); err != nil {
+		return err
+	}
+	return s.sessions.Delete(session.ID)
 }

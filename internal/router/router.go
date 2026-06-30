@@ -71,6 +71,15 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			protected.GET("/sessions/:id/config-options", sessionH.ConfigOptions)
 			protected.POST("/sessions/:id/config-options", sessionH.SetConfigOption)
 
+			// Workspace 路由
+			workspaceH := handlers.NewWorkspaceHandler(agentRouter)
+			protected.POST("/workspaces", workspaceH.Create)
+			protected.GET("/workspaces", workspaceH.List)
+			protected.GET("/workspaces/:id", workspaceH.Get)
+			protected.PUT("/workspaces/:id", workspaceH.Update)
+			protected.DELETE("/workspaces/:id", workspaceH.Delete)
+			protected.POST("/workspaces/:id/save", workspaceH.Save)
+
 			// 会话工作目录文件浏览与编辑（路径限制在 session cwd 内）
 			sessionFileH := handlers.NewSessionFileHandler(agentRouter)
 			protected.GET("/sessions/:id/files", sessionFileH.ListFiles)

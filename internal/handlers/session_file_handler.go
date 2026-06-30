@@ -41,13 +41,19 @@ func (h *SessionFileHandler) resolveSessionPath(c *gin.Context) (*models.Session
 	if !ok {
 		return nil, "", false
 	}
-	if sess.Cwd == "" {
+	cwd := sess.Cwd
+	if sess.WorkspaceID != nil {
+		if ws, err := h.store.GetWorkspaceCwd(*sess.WorkspaceID); err == nil {
+			cwd = ws
+		}
+	}
+	if cwd == "" {
 		Fail(c, http.StatusBadRequest, "NO_CWD", "该会话没有工作目录")
 		return nil, "", false
 	}
 
 	relPath := strings.TrimSpace(c.Query("path"))
-	absPath, err := safeJoin(sess.Cwd, relPath)
+	absPath, err := safeJoin(cwd, relPath)
 	if err != nil {
 		Fail(c, http.StatusBadRequest, "INVALID_PATH", err.Error())
 		return nil, "", false

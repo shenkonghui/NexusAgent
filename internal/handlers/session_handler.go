@@ -28,13 +28,13 @@ type commandItem struct {
 
 // SessionStore 暴露会话相关业务能力（*agent.Router 实现该接口）。
 type SessionStore interface {
-	CreateSession(ctx context.Context, agentType, cwd string, userID uint, modelValue string) (*models.Session, error)
+	CreateSession(ctx context.Context, agentType string, workspaceID uint, userID uint, modelValue string) (*models.Session, error)
 	ListSessions(userID uint) ([]models.Session, error)
 	ListSessionsBySource(userID uint, source string) ([]models.Session, error)
 	GetSessionByDBID(id uint) (*models.Session, error)
 	DeleteSession(ctx context.Context, sessionID string) error
 	CancelSession(ctx context.Context, sessionID string) error
-	ResumeSession(ctx context.Context, sessionID, cwdOverride string) (*models.Session, error)
+	ResumeSession(ctx context.Context, sessionID string) (*models.Session, error)
 	ListMessages(sessionID string) ([]models.Message, error)
 	ListCommands(sessionID string) ([]acp.AvailableCommand, error)
 	ListConfigOptions(sessionID string) ([]acp.SessionConfigOption, error)
@@ -43,6 +43,7 @@ type SessionStore interface {
 	SetConfigOption(ctx context.Context, sessionID, configID, value string) error
 	UpdateTitle(dbSessionID uint, title string) error
 	Prompt(ctx context.Context, sessionID, prompt string) (<-chan models.Message, error)
+	GetWorkspaceCwd(workspaceID uint) (string, error)
 }
 
 // SessionHandler 处理会话相关请求。
@@ -100,21 +101,15 @@ func writeSessionError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, agent.ErrAgentNotFound):
 		Fail(c, http.StatusBadRequest, "AGENT_NOT_FOUND", "未知的 agent 类型")
-	case strings.Contains(err.Error(), "必须提供 cwd"):
-		Fail(c, http.StatusBadRequest, "CWD_REQUIRED", "external 模式必须提供工作目录")
-	case strings.Contains(err.Error(), "工作目录不存在"):
-		Fail(c, http.StatusBadRequest, "CWD_NOT_FOUND", err.Error())
-	case strings.Contains(err.Error(), "恢复会话需要工作目录"):
-		Fail(c, http.StatusBadRequest, "CWD_REQUIRED", err.Error())
 	default:
 		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
 	}
 }
 
 type createSessionRequest struct {
-	AgentType  string `json:"agent_type" binding:"required"`
-	Cwd        string `json:"cwd"`
-	ModelValue string `json:"model_value"`
+	AgentType   string `json:"agent_type" binding:"required"`
+	WorkspaceID uint   `json:"workspace_id"`
+	ModelValue  string `json:"model_value"`
 }
 
 // Create POST /api/v1/sessions
@@ -129,7 +124,7 @@ func (h *SessionHandler) Create(c *gin.Context) {
 		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
 		return
 	}
-	sess, err := h.store.CreateSession(c.Request.Context(), req.AgentType, req.Cwd, uid, req.ModelValue)
+	sess, err := h.store.CreateSession(c.Request.Context(), req.AgentType, req.WorkspaceID, uid, req.ModelValue)
 	if err != nil {
 		writeSessionError(c, err)
 		return
@@ -241,21 +236,14 @@ func (h *SessionHandler) Cancel(c *gin.Context) {
 	Success(c, http.StatusOK, struct{}{})
 }
 
-type resumeRequest struct {
-	Cwd string `json:"cwd"`
-}
-
 // Resume POST /api/v1/sessions/:id/resume
-// 恢复 error 状态会话或重开 closed 状态会话。可选 cwd 用于指定新工作目录。
+// 恢复 error 状态会话或重开 closed 状态会话。
 func (h *SessionHandler) Resume(c *gin.Context) {
 	sess, ok := h.loadOwnedSession(c)
 	if !ok {
 		return
 	}
-	var req resumeRequest
-	// body 可选，解析失败时使用空 cwd
-	_ = c.ShouldBindJSON(&req)
-	updated, err := h.store.ResumeSession(c.Request.Context(), sess.SessionID, strings.TrimSpace(req.Cwd))
+	updated, err := h.store.ResumeSession(c.Request.Context(), sess.SessionID)
 	if err != nil {
 		writeSessionError(c, err)
 		return

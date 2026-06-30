@@ -66,13 +66,20 @@ func (h *TerminalHandler) HandleTerminal(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "SESSION_NOT_FOUND", "message": "会话不存在"}})
 		return
 	}
-	if sess.Cwd == "" {
+	// 获取 cwd，优先从 workspace 获取
+	cwd := sess.Cwd
+	if sess.WorkspaceID != nil {
+		if ws, err := h.store.GetWorkspaceCwd(*sess.WorkspaceID); err == nil {
+			cwd = ws
+		}
+	}
+	if cwd == "" {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "NO_CWD", "message": "该会话没有工作目录"}})
 		return
 	}
 
 	// 验证 cwd 存在且是目录
-	cwdAbs, err := filepath.Abs(sess.Cwd)
+	cwdAbs, err := filepath.Abs(cwd)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "INVALID_CWD", "message": "工作目录路径无效"}})
 		return

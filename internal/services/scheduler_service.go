@@ -17,14 +17,16 @@ import (
 
 // SchedulerExecutor 是调度器执行定时任务所需的 agent 能力子集（*agent.Router 实现该接口）。
 type SchedulerExecutor interface {
-	CreateSessionWithSource(ctx context.Context, agentType, cwd string, userID uint, source, modelValue string) (*models.Session, error)
+	CreateSessionWithSource(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string) (*models.Session, error)
 	PromptWithExecution(ctx context.Context, sessionID, prompt string, executionID *uint) (<-chan models.Message, error)
-	ResumeSession(ctx context.Context, sessionID, cwdOverride string) (*models.Session, error)
+	ResumeSession(ctx context.Context, sessionID string) (*models.Session, error)
 	GetSessionByDBID(id uint) (*models.Session, error)
 	DeleteSession(ctx context.Context, sessionID string) error
 	ListExecutions(sessionID string) ([]repository.ExecutionAggregate, error)
 	ListConfigOptions(sessionID string) ([]acpsdk.SessionConfigOption, error)
 	SetConfigOption(ctx context.Context, sessionID, configID, value string) error
+	FindWorkspaceByUserIDAndCwd(userID uint, cwd string) (*models.Workspace, error)
+	CreateWorkspace(ws *models.Workspace) error
 }
 
 // SchedulerService 是进程内 cron 调度器，管理定时任务的调度与执行。
@@ -305,7 +307,25 @@ func (s *SchedulerService) ensureSession(ctx context.Context, t *models.Schedule
 
 	if t.DBSessionID == 0 {
 		// 首次执行：创建 session
-		session, err = s.exec.CreateSessionWithSource(ctx, t.AgentType, t.Cwd, t.UserID, models.SessionSourceScheduled, t.ModelValue)
+		// 从 scheduled task 的 cwd 创建或查找 workspace
+		ws, wsErr := s.exec.FindWorkspaceByUserIDAndCwd(t.UserID, t.Cwd)
+		var wsID uint
+		if wsErr != nil {
+			// 创建新 workspace
+			newWS := &models.Workspace{
+				UserID: t.UserID,
+				Name:   "scheduled-" + t.Name,
+				Cwd:    t.Cwd,
+				Mode:   models.WorkspaceModePersistent,
+			}
+			if cErr := s.exec.CreateWorkspace(newWS); cErr != nil {
+				return nil, 0, fmt.Errorf("创建工作区: %w", cErr)
+			}
+			wsID = newWS.ID
+		} else {
+			wsID = ws.ID
+		}
+		session, err = s.exec.CreateSessionWithSource(ctx, t.AgentType, wsID, t.UserID, models.SessionSourceScheduled, t.ModelValue)
 		if err != nil {
 			return nil, 0, fmt.Errorf("创建会话: %w", err)
 		}
@@ -320,7 +340,7 @@ func (s *SchedulerService) ensureSession(ctx context.Context, t *models.Schedule
 		// session 已关闭或出错则恢复
 		if session.Status != models.SessionStatusActive {
 			oldSessionID := session.SessionID
-			session, err = s.exec.ResumeSession(ctx, session.SessionID, t.Cwd)
+			session, err = s.exec.ResumeSession(ctx, session.SessionID)
 			if err != nil {
 				return nil, 0, fmt.Errorf("恢复会话: %w", err)
 			}

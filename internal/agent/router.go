@@ -27,108 +27,28 @@ func NewRouter(registry *Registry, service *acp.Service) *Router {
 
 // CreateSession 创建会话：校验 agentType 后委托 service。
 // modelValue 非空时在会话创建后立即设置该模型。
-func (r *Router) CreateSession(ctx context.Context, agentType, cwd string, userID uint, modelValue string) (*models.Session, error) {
-	return r.CreateSessionWithSource(ctx, agentType, cwd, userID, models.SessionSourceManual, modelValue)
+func (r *Router) CreateSession(ctx context.Context, agentType string, workspaceID uint, userID uint, modelValue string) (*models.Session, error) {
+	return r.CreateSessionWithSource(ctx, agentType, workspaceID, userID, models.SessionSourceManual, modelValue)
 }
 
 // CreateSessionWithSource 创建会话并指定来源（manual/scheduled）。
 // modelValue 非空时在会话创建后立即设置该模型。
-func (r *Router) CreateSessionWithSource(ctx context.Context, agentType, cwd string, userID uint, source, modelValue string) (*models.Session, error) {
+func (r *Router) CreateSessionWithSource(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string) (*models.Session, error) {
 	if _, err := r.registry.Get(agentType); err != nil {
 		return nil, err
 	}
 	if r.service == nil {
 		return nil, errors.New("service 未配置")
 	}
-	return r.service.CreateSessionWithSource(ctx, agentType, cwd, userID, source, modelValue)
+	return r.service.CreateSessionWithSource(ctx, agentType, workspaceID, userID, source, modelValue)
 }
 
-// PromptWithExecution 发送 prompt 并为本次执行的消息标记 executionID，委托 service。
-func (r *Router) PromptWithExecution(ctx context.Context, sessionID, prompt string, executionID *uint) (<-chan models.Message, error) {
+// ResumeSession 恢复或重开会话，委托 service。
+func (r *Router) ResumeSession(ctx context.Context, sessionID string) (*models.Session, error) {
 	if r.service == nil {
 		return nil, errors.New("service 未配置")
 	}
-	return r.service.PromptWithExecution(ctx, sessionID, prompt, executionID)
-}
-
-// ListSessionsBySource 列出指定用户指定来源的会话，委托 service。
-func (r *Router) ListSessionsBySource(userID uint, source string) ([]models.Session, error) {
-	if r.service == nil {
-		return nil, errors.New("service 未配置")
-	}
-	return r.service.ListSessionsBySource(userID, source)
-}
-
-// ListExecutions 返回指定会话的定时执行块聚合，委托 service。
-func (r *Router) ListExecutions(sessionID string) ([]repository.ExecutionAggregate, error) {
-	if r.service == nil {
-		return nil, errors.New("service 未配置")
-	}
-	return r.service.ListExecutions(sessionID)
-}
-
-// NextExecutionID 返回指定会话下一个可用的 execution_id，委托 service。
-func (r *Router) NextExecutionID(sessionID string) (uint, error) {
-	if r.service == nil {
-		return 0, errors.New("service 未配置")
-	}
-	return r.service.NextExecutionID(sessionID)
-}
-
-// Prompt 发送 prompt，委托 service。返回流式 Message channel。
-func (r *Router) Prompt(ctx context.Context, sessionID, prompt string) (<-chan models.Message, error) {
-	if r.service == nil {
-		return nil, errors.New("service 未配置")
-	}
-	return r.service.Prompt(ctx, sessionID, prompt)
-}
-
-// CancelSession 取消会话，委托 service。
-func (r *Router) CancelSession(ctx context.Context, sessionID string) error {
-	if r.service == nil {
-		return errors.New("service 未配置")
-	}
-	return r.service.CancelSession(ctx, sessionID)
-}
-
-// DeleteSession 彻底删除会话，委托 service。
-func (r *Router) DeleteSession(ctx context.Context, sessionID string) error {
-	if r.service == nil {
-		return errors.New("service 未配置")
-	}
-	return r.service.DeleteSession(ctx, sessionID)
-}
-
-// ListSessions 列出用户会话，委托 service。
-func (r *Router) ListSessions(userID uint) ([]models.Session, error) {
-	if r.service == nil {
-		return nil, errors.New("service 未配置")
-	}
-	return r.service.ListSessions(userID)
-}
-
-// GetSessionByDBID 按数据库主键查询会话，委托 service。
-func (r *Router) GetSessionByDBID(id uint) (*models.Session, error) {
-	if r.service == nil {
-		return nil, errors.New("service 未配置")
-	}
-	return r.service.GetSessionByDBID(id)
-}
-
-// ListMessages 查询会话消息历史，委托 service。
-func (r *Router) ListMessages(sessionID string) ([]models.Message, error) {
-	if r.service == nil {
-		return nil, errors.New("service 未配置")
-	}
-	return r.service.ListMessages(sessionID)
-}
-
-// ResumeSession 恢复或重开会话，委托 service。cwdOverride 非空时使用该目录。
-func (r *Router) ResumeSession(ctx context.Context, sessionID, cwdOverride string) (*models.Session, error) {
-	if r.service == nil {
-		return nil, errors.New("service 未配置")
-	}
-	return r.service.ResumeSession(ctx, sessionID, cwdOverride)
+	return r.service.ResumeSession(ctx, sessionID)
 }
 
 // ListAgents 返回所有已注册的 agent。
@@ -206,4 +126,155 @@ func (r *Router) ListAgentStatus() []acp.AgentStatus {
 		return nil
 	}
 	return r.service.ListAgentStatus()
+}
+
+// ====== SessionStore delegation methods ======
+
+func (r *Router) Prompt(ctx context.Context, sessionID, prompt string) (<-chan models.Message, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.Prompt(ctx, sessionID, prompt)
+}
+
+func (r *Router) PromptWithExecution(ctx context.Context, sessionID, prompt string, executionID *uint) (<-chan models.Message, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.PromptWithExecution(ctx, sessionID, prompt, executionID)
+}
+
+func (r *Router) ListSessionsBySource(userID uint, source string) ([]models.Session, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.ListSessionsBySource(userID, source)
+}
+
+func (r *Router) ListExecutions(sessionID string) ([]repository.ExecutionAggregate, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.ListExecutions(sessionID)
+}
+
+func (r *Router) NextExecutionID(sessionID string) (uint, error) {
+	if r.service == nil {
+		return 0, errors.New("service 未配置")
+	}
+	return r.service.NextExecutionID(sessionID)
+}
+
+func (r *Router) CancelSession(ctx context.Context, sessionID string) error {
+	if r.service == nil {
+		return errors.New("service 未配置")
+	}
+	return r.service.CancelSession(ctx, sessionID)
+}
+
+func (r *Router) DeleteSession(ctx context.Context, sessionID string) error {
+	if r.service == nil {
+		return errors.New("service 未配置")
+	}
+	return r.service.DeleteSession(ctx, sessionID)
+}
+
+func (r *Router) ListSessions(userID uint) ([]models.Session, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.ListSessions(userID)
+}
+
+func (r *Router) GetSessionByDBID(id uint) (*models.Session, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.GetSessionByDBID(id)
+}
+
+func (r *Router) ListMessages(sessionID string) ([]models.Message, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.ListMessages(sessionID)
+}
+
+func (r *Router) GetWorkspaceCwd(workspaceID uint) (string, error) {
+	if r.service == nil {
+		return "", errors.New("service 未配置")
+	}
+	return r.service.GetWorkspaceCwd(workspaceID)
+}
+
+// ====== WorkspaceStore delegation methods ======
+
+func (r *Router) CreateWorkspace(ws *models.Workspace) error {
+	if r.service == nil {
+		return errors.New("service 未配置")
+	}
+	return r.service.CreateWorkspace(ws)
+}
+
+func (r *Router) FindWorkspaceByID(id uint) (*models.Workspace, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.FindWorkspaceByID(id)
+}
+
+func (r *Router) FindWorkspacesByUserID(userID uint) ([]models.Workspace, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.FindWorkspacesByUserID(userID)
+}
+
+func (r *Router) FindWorkspaceByUserIDAndCwd(userID uint, cwd string) (*models.Workspace, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.FindWorkspaceByUserIDAndCwd(userID, cwd)
+}
+
+func (r *Router) FindDefaultWorkspaceByUserID(userID uint) (*models.Workspace, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.FindDefaultWorkspaceByUserID(userID)
+}
+
+func (r *Router) UpdateWorkspace(id uint, updates map[string]interface{}) error {
+	if r.service == nil {
+		return errors.New("service 未配置")
+	}
+	return r.service.UpdateWorkspace(id, updates)
+}
+
+func (r *Router) DeleteWorkspace(id uint) error {
+	if r.service == nil {
+		return errors.New("service 未配置")
+	}
+	return r.service.DeleteWorkspace(id)
+}
+
+func (r *Router) WorkspaceSessionCount(workspaceID uint) (int64, error) {
+	if r.service == nil {
+		return 0, errors.New("service 未配置")
+	}
+	return r.service.WorkspaceSessionCount(workspaceID)
+}
+
+func (r *Router) FindSessionsByWorkspaceID(workspaceID uint) ([]models.Session, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.FindSessionsByWorkspaceID(workspaceID)
+}
+
+func (r *Router) DeleteSessionWithMessages(session *models.Session) error {
+	if r.service == nil {
+		return errors.New("service 未配置")
+	}
+	return r.service.DeleteSessionWithMessages(session)
 }
