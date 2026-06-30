@@ -188,7 +188,7 @@ func TestService_ResumeSession_Closed_NoBackend(t *testing.T) {
 	})
 
 	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
-	_, err := svc.ResumeSession(context.Background(), "closed-resume-1", "")
+	_, err := svc.ResumeSession(context.Background(), "closed-resume-1")
 	if err == nil {
 		t.Error("期望后端未注册时重开返回错误")
 	}
@@ -203,7 +203,7 @@ func TestService_ResumeSession_CwdNotExists(t *testing.T) {
 	})
 
 	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
-	_, err := svc.ResumeSession(context.Background(), "closed-resume-2", "")
+	_, err := svc.ResumeSession(context.Background(), "closed-resume-2")
 	if err == nil {
 		t.Error("期望工作目录不存在时返回错误")
 	}
@@ -211,7 +211,7 @@ func TestService_ResumeSession_CwdNotExists(t *testing.T) {
 
 func TestService_ResumeSession_SessionNotFound(t *testing.T) {
 	svc := newTestService(t)
-	if _, err := svc.ResumeSession(context.Background(), "nonexistent", ""); err == nil {
+	if _, err := svc.ResumeSession(context.Background(), "nonexistent"); err == nil {
 		t.Error("期望不存在的会话恢复返回错误")
 	}
 }

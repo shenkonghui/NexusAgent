@@ -77,7 +77,7 @@ func TestRouter_CreateSession_UnknownAgent(t *testing.T) {
 	r := NewRegistry()
 	router := NewRouter(r, nil)
 
-	if _, err := router.CreateSession(nil, "unknown", "/tmp", 1, ""); err == nil {
+	if _, err := router.CreateSession(nil, "unknown", 1, 1, ""); err == nil {
 		t.Error("期望未知 agent 类型返回错误")
 	}
 }
@@ -92,7 +92,7 @@ func TestRouter_NewMethods_NilService(t *testing.T) {
 	if _, err := router.ListMessages("x"); err == nil {
 		t.Error("期望 ListMessages 在 service 为 nil 时返回错误")
 	}
-	if _, err := router.ResumeSession(nil, "x", ""); err == nil {
+	if _, err := router.ResumeSession(nil, "x"); err == nil {
 		t.Error("期望 ResumeSession 在 service 为 nil 时返回错误")
 	}
 }

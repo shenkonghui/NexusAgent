@@ -8,8 +8,8 @@ import (
 
 func TestNewExternalWorkspace(t *testing.T) {
 	w := NewExternalWorkspace("/some/path")
-	if w.Mode != "external" {
-		t.Errorf("Mode = %q, 期望 external", w.Mode)
+	if w.Mode != "persistent" {
+		t.Errorf("Mode = %q, 期望 persistent", w.Mode)
 	}
 	if w.Cwd != "/some/path" {
 		t.Errorf("Cwd = %q, 期望 /some/path", w.Cwd)
@@ -77,6 +77,6 @@ func TestExternalWorkspace_Cleanup_NoDelete(t *testing.T) {
 		t.Fatalf("Cleanup 错误: %v", err)
 	}
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		t.Error("external 模式 Cleanup 不应删除目录")
+		t.Error("persistent 模式 Cleanup 不应删除目录")
 	}
 }

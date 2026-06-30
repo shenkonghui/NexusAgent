@@ -44,18 +44,19 @@ func newFakeSessionStore() *fakeSessionStore {
 	}
 }
 
-func (f *fakeSessionStore) CreateSession(_ context.Context, agentType, cwd string, userID uint, _ string) (*models.Session, error) {
+func (f *fakeSessionStore) CreateSession(_ context.Context, agentType string, workspaceID uint, userID uint, _ string) (*models.Session, error) {
 	if f.createErr != nil {
 		return nil, f.createErr
 	}
 	f.nextID++
+	wid := workspaceID
 	s := &models.Session{
-		ID:        f.nextID,
-		SessionID: "acp-" + strconv.Itoa(int(f.nextID)),
-		AgentType: agentType,
-		Cwd:       cwd,
-		Status:    models.SessionStatusActive,
-		UserID:    userID,
+		ID:          f.nextID,
+		SessionID:   "acp-" + strconv.Itoa(int(f.nextID)),
+		AgentType:   agentType,
+		Status:      models.SessionStatusActive,
+		UserID:      userID,
+		WorkspaceID: &wid,
 	}
 	f.sessions[s.ID] = s
 	return s, nil
@@ -98,7 +99,7 @@ func (f *fakeSessionStore) GetSessionByDBID(id uint) (*models.Session, error) {
 func (f *fakeSessionStore) DeleteSession(_ context.Context, _ string) error { return f.deleteErr }
 func (f *fakeSessionStore) CancelSession(_ context.Context, _ string) error { return f.cancelErr }
 
-func (f *fakeSessionStore) ResumeSession(_ context.Context, sessionID, _ string) (*models.Session, error) {
+func (f *fakeSessionStore) ResumeSession(_ context.Context, sessionID string) (*models.Session, error) {
 	if f.resumeErr != nil {
 		return nil, f.resumeErr
 	}
@@ -150,6 +151,15 @@ func (f *fakeSessionStore) Prompt(_ context.Context, _, _ string) (<-chan models
 		return nil, f.promptErr
 	}
 	return f.promptCh, nil
+}
+
+func (f *fakeSessionStore) GetWorkspaceCwd(workspaceID uint) (string, error) {
+	for _, s := range f.sessions {
+		if s.WorkspaceID != nil && *s.WorkspaceID == workspaceID && s.Cwd != "" {
+			return s.Cwd, nil
+		}
+	}
+	return "/tmp", nil
 }
 
 // closeNotifyRecorder 包装 httptest.ResponseRecorder，补充 CloseNotifier 接口以兼容 Gin 的 c.Stream。
@@ -474,7 +484,7 @@ type commandsFakeStore struct {
 	cmds     []acp.AvailableCommand
 }
 
-func (s *commandsFakeStore) CreateSession(context.Context, string, string, uint, string) (*models.Session, error) {
+func (s *commandsFakeStore) CreateSession(context.Context, string, uint, uint, string) (*models.Session, error) {
 	return nil, nil
 }
 func (s *commandsFakeStore) ListSessions(uint) ([]models.Session, error) { return nil, nil }
@@ -489,7 +499,7 @@ func (s *commandsFakeStore) GetSessionByDBID(id uint) (*models.Session, error) {
 }
 func (s *commandsFakeStore) DeleteSession(context.Context, string) error { return nil }
 func (s *commandsFakeStore) CancelSession(context.Context, string) error { return nil }
-func (s *commandsFakeStore) ResumeSession(context.Context, string, string) (*models.Session, error) {
+func (s *commandsFakeStore) ResumeSession(context.Context, string) (*models.Session, error) {
 	return nil, nil
 }
 func (s *commandsFakeStore) ListMessages(string) ([]models.Message, error) { return nil, nil }
@@ -516,6 +526,7 @@ func (s *commandsFakeStore) UpdateTitle(_ uint, _ string) error { return nil }
 func (s *commandsFakeStore) Prompt(context.Context, string, string) (<-chan models.Message, error) {
 	return nil, nil
 }
+func (s *commandsFakeStore) GetWorkspaceCwd(uint) (string, error) { return "/tmp", nil }
 
 func TestSessionHandler_Prompt_Empty(t *testing.T) {
 	store := newFakeSessionStore()

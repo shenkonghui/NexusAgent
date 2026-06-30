@@ -35,7 +35,10 @@ func (r *WorkspaceRepository) FindByUserID(userID uint) ([]models.Workspace, err
 func (r *WorkspaceRepository) FindByUserIDAndCwd(userID uint, cwd string) (*models.Workspace, error) {
 	var ws models.Workspace
 	err := r.db.Where("user_id = ? AND cwd = ? AND mode = ?", userID, cwd, models.WorkspaceModePersistent).First(&ws).Error
-	return &ws, err
+	if err != nil {
+		return nil, err
+	}
+	return &ws, nil
 }
 
 func (r *WorkspaceRepository) Update(id uint, updates map[string]interface{}) error {
