@@ -3,7 +3,9 @@ package acp
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	"nexusagent/internal/models"
@@ -61,6 +63,48 @@ func (b *ConfigBackend) Timeout() time.Duration {
 		return 300 * time.Second
 	}
 	return d
+}
+
+// BinaryBackend 是二进制分发 agent 的后端，首次调用 Command() 时自动下载解压。
+// 嵌入 ConfigBackend，仅覆盖 Command() 方法的返回值。
+type BinaryBackend struct {
+	*ConfigBackend
+	info     BinaryInstallInfo
+	once     sync.Once
+	cmdPath  string
+	cmdErr   error
+}
+
+// NewBinaryBackend 根据已有的 AgentConfig 和 BinaryInstallInfo 创建延迟下载的后端。
+func NewBinaryBackend(cfg models.AgentConfig, info BinaryInstallInfo) *BinaryBackend {
+	return &BinaryBackend{
+		ConfigBackend: NewConfigBackend(cfg),
+		info:          info,
+	}
+}
+
+// Command 返回二进制文件的完整路径，首次调用时触发下载解压。
+func (b *BinaryBackend) Command() string {
+	b.once.Do(func() {
+		slog.Info("开始安装 binary agent", "agent", b.cfg.Type, "url", b.info.ArchiveURL)
+		b.cmdPath, b.cmdErr = ensureBinaryInstalled(b.cfg.Type, b.info.Version, b.info.ArchiveURL, b.info.BinaryCmd)
+		if b.cmdErr != nil {
+			slog.Error("安装 binary agent 失败", "agent", b.cfg.Type, "err", b.cmdErr)
+		}
+	})
+	if b.cmdErr != nil {
+		return ""
+	}
+	return b.cmdPath
+}
+
+// NewBackendFromAgentConfig 根据 AgentConfig 创建合适的后端。
+// 若该 agent 在 BinaryRegistry 中注册，则创建 BinaryBackend（延迟下载），否则创建普通 ConfigBackend。
+func NewBackendFromAgentConfig(cfg models.AgentConfig) Backend {
+	if info, ok := BinaryRegistry[cfg.Type]; ok {
+		return NewBinaryBackend(cfg, info)
+	}
+	return NewConfigBackend(cfg)
 }
 
 // ConfigBackendFromParams 根据手工参数构造后端，供测试与动态注册使用。

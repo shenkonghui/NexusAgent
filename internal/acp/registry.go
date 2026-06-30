@@ -24,6 +24,17 @@ type RegistryAgent struct {
 	Distribution Distribution `json:"distribution"`
 }
 
+// BinaryInstallInfo 记录二进制分发 agent 的安装信息，供延迟下载使用。
+type BinaryInstallInfo struct {
+	ArchiveURL string // 下载 URL
+	Version    string // agent 版本
+	BinaryCmd  string // 二进制相对路径（如 "./crow-cli"）
+}
+
+// BinaryRegistry 存储所有 binary 分发 agent 的安装信息（agentID → info）。
+// 在 RegistryToAgentConfigs 中填充，在创建 Backend 时读取。
+var BinaryRegistry = make(map[string]BinaryInstallInfo)
+
 // NpxDist 描述 npx 分发的子结构。
 type NpxDist struct {
 	Package string            `json:"package"`
@@ -55,9 +66,10 @@ type Distribution struct {
 	Env     map[string]string // npx/uvx 的环境变量
 
 	// binary 分发字段
-	BinaryCmd  string            // 二进制命令
-	BinaryArgs []string          // 二进制参数
-	BinaryEnv  map[string]string // 二进制环境变量
+	BinaryCmd     string            // 二进制命令（相对路径，如 "./crow-cli"）
+	BinaryArgs    []string          // 二进制参数
+	BinaryEnv     map[string]string // 二进制环境变量
+	BinaryArchive string            // 二进制下载 URL
 }
 
 // UnmarshalJSON 实现 Distribution 的自定义 JSON 解析，适配嵌套格式。
@@ -104,6 +116,7 @@ func (d *Distribution) UnmarshalJSON(data []byte) error {
 		d.BinaryCmd = entry.Cmd
 		d.BinaryArgs = entry.Args
 		d.BinaryEnv = entry.Env
+		d.BinaryArchive = entry.Archive
 		return nil
 	}
 
@@ -221,17 +234,24 @@ func (ra *RegistryAgent) ToAgentConfig() (models.AgentConfig, error) {
 func (ra *RegistryAgent) buildCommand() (string, []string, error) {
 	switch ra.Distribution.Type {
 	case "npx":
-		// 格式: npx -y <package> [args...]
-		args := []string{"-y", ra.Distribution.Package}
+		// 格式: npm exec --include=optional --yes <package> [args...]
+		// --include=optional 确保安装 native binary 等可选依赖（npm 11.x 默认跳过）
+		args := []string{"exec", "--include=optional", "--yes", ra.Distribution.Package}
 		args = append(args, ra.Distribution.Args...)
-		return "npx", args, nil
+		return "npm", args, nil
 	case "uvx":
 		// 格式: uvx <package> [args...]
 		args := []string{ra.Distribution.Package}
 		args = append(args, ra.Distribution.Args...)
 		return "uvx", args, nil
 	case "binary":
-		// 格式: <cmd> [args...]
+		// 不在此处下载——仅注册到 BinaryRegistry，待用户启用后由 BinaryBackend 延迟下载
+		BinaryRegistry[ra.ID] = BinaryInstallInfo{
+			ArchiveURL: ra.Distribution.BinaryArchive,
+			Version:    ra.Version,
+			BinaryCmd:  ra.Distribution.BinaryCmd,
+		}
+		// 返回相对路径作为占位 command，后续 BinaryBackend 会替换为完整路径
 		return ra.Distribution.BinaryCmd, ra.Distribution.BinaryArgs, nil
 	default:
 		return "", nil, fmt.Errorf("不支持的 distribution type: %s", ra.Distribution.Type)

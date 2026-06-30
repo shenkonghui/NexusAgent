@@ -26,7 +26,6 @@ type fakeSessionStore struct {
 	messages     map[string][]models.Message
 	createErr    error
 	listErr      error
-	closeErr     error
 	deleteErr    error
 	cancelErr    error
 	resumeErr    error
@@ -96,7 +95,6 @@ func (f *fakeSessionStore) GetSessionByDBID(id uint) (*models.Session, error) {
 	return s, nil
 }
 
-func (f *fakeSessionStore) CloseSession(_ context.Context, _ string) error  { return f.closeErr }
 func (f *fakeSessionStore) DeleteSession(_ context.Context, _ string) error { return f.deleteErr }
 func (f *fakeSessionStore) CancelSession(_ context.Context, _ string) error { return f.cancelErr }
 
@@ -202,8 +200,7 @@ func newSessionTestRouter(store SessionStore, userID uint) *gin.Engine {
 	v1.POST("/sessions", h.Create)
 	v1.GET("/sessions", h.List)
 	v1.GET("/sessions/:id", h.Get)
-	v1.DELETE("/sessions/:id", h.Close)
-	v1.POST("/sessions/:id/delete", h.Delete)
+	v1.DELETE("/sessions/:id", h.Delete)
 	v1.POST("/sessions/:id/prompt", h.Prompt)
 	v1.POST("/sessions/:id/cancel", h.Cancel)
 	v1.POST("/sessions/:id/resume", h.Resume)
@@ -317,7 +314,7 @@ func TestSessionHandler_Get_InvalidID(t *testing.T) {
 	}
 }
 
-func TestSessionHandler_Close_Success(t *testing.T) {
+func TestSessionHandler_Delete_Success(t *testing.T) {
 	store := newFakeSessionStore()
 	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusActive}
 	r := newSessionTestRouter(store, 100)
@@ -327,21 +324,11 @@ func TestSessionHandler_Close_Success(t *testing.T) {
 	}
 }
 
-func TestSessionHandler_Delete_Success(t *testing.T) {
-	store := newFakeSessionStore()
-	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusClosed}
-	r := newSessionTestRouter(store, 100)
-	w := doJSON(t, r, "POST", "/api/v1/sessions/1/delete", nil)
-	if w.Code != http.StatusOK {
-		t.Fatalf("状态码 = %d, 期望 200, body=%s", w.Code, w.Body.String())
-	}
-}
-
 func TestSessionHandler_Delete_NotOwner(t *testing.T) {
 	store := newFakeSessionStore()
-	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 200, Status: models.SessionStatusClosed}
+	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 200, Status: models.SessionStatusActive}
 	r := newSessionTestRouter(store, 100)
-	w := doJSON(t, r, "POST", "/api/v1/sessions/1/delete", nil)
+	w := doJSON(t, r, "DELETE", "/api/v1/sessions/1", nil)
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("状态码 = %d, 期望 404（不属于当前用户）", w.Code)
 	}
@@ -352,7 +339,7 @@ func TestSessionHandler_Delete_Error(t *testing.T) {
 	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusActive}
 	store.deleteErr = errors.New("boom")
 	r := newSessionTestRouter(store, 100)
-	w := doJSON(t, r, "POST", "/api/v1/sessions/1/delete", nil)
+	w := doJSON(t, r, "DELETE", "/api/v1/sessions/1", nil)
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("状态码 = %d, 期望 500", w.Code)
 	}
@@ -500,7 +487,6 @@ func (s *commandsFakeStore) GetSessionByDBID(id uint) (*models.Session, error) {
 	}
 	return nil, errors.New("会话不存在")
 }
-func (s *commandsFakeStore) CloseSession(context.Context, string) error  { return nil }
 func (s *commandsFakeStore) DeleteSession(context.Context, string) error { return nil }
 func (s *commandsFakeStore) CancelSession(context.Context, string) error { return nil }
 func (s *commandsFakeStore) ResumeSession(context.Context, string, string) (*models.Session, error) {

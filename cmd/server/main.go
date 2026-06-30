@@ -75,31 +75,16 @@ func main() {
 	// P1: ACP 服务
 	acpSvc := acp.NewService(db, cfg.Agents.Workspace)
 	acpSvc.RecoverActiveSessions()
-	if cfg.Agents.ClaudeCode.Enabled {
-		acpSvc.RegisterBackend(acp.NewClaudeCodeBackend(cfg.Agents.ClaudeCode))
-	}
 
 	// P2: Agent 注册表与路由
 	agentRegistry := agent.NewRegistry()
 	agentCfgRepo := repository.NewAgentConfigRepository(db)
 	registrar := agent.NewRegistrar(agentRegistry, acpSvc)
 
-	// 1. config.yaml 内置的 Claude Code
-	if cfg.Agents.ClaudeCode.Enabled {
-		backend := acp.NewClaudeCodeBackend(cfg.Agents.ClaudeCode)
-		acpSvc.RegisterBackend(backend)
-		_ = agentRegistry.Register(&agent.AgentDescriptor{
-			Type:        "claude-code",
-			DisplayName: "Claude Code",
-			Description: "Anthropic Claude Code 编码 agent",
-			Backend:     backend,
-		})
-	}
+	// 1. 从 ACP registry JSON 加载所有 agent（同步到 DB，默认禁用）
+	loadRegistryAgents(agentCfgRepo)
 
-	// 2. 从 ACP registry JSON 加载所有 agent（同步到 DB 并注册）
-	loadRegistryAgents(agentRegistry, acpSvc, agentCfgRepo)
-
-	// 3. 从数据库加载用户自定义的 agent 配置
+	// 2. 从数据库加载用户启用的 agent 配置
 	loadDBAgentConfigs(agentCfgRepo, registrar)
 
 	agentRouter := agent.NewRouter(agentRegistry, acpSvc)
@@ -172,7 +157,7 @@ func openDefaultBrowser(url string) {
 }
 
 // loadRegistryAgents 从内嵌的 registry.json 加载所有 agent，写入数据库并注册到内存。
-func loadRegistryAgents(agentRegistry *agent.Registry, acpSvc *acp.Service, repo *repository.AgentConfigRepository) {
+func loadRegistryAgents(repo *repository.AgentConfigRepository) {
 	agents, err := acp.FetchEmbeddedRegistry()
 	if err != nil {
 		log.Printf("加载内嵌 registry 失败: %v", err)
@@ -182,11 +167,9 @@ func loadRegistryAgents(agentRegistry *agent.Registry, acpSvc *acp.Service, repo
 
 	configs := acp.RegistryToAgentConfigs(agents)
 	for _, cfg := range configs {
-		// 写入数据库（存在则更新 command/args 保持与 registry 同步，不存在则创建并默认禁用）
+		// 写入数据库（只更新 display_name/description，不覆盖用户修改的 command/args/enabled）
 		existing, _ := repo.FindByType(cfg.Type)
 		if existing != nil {
-			existing.Command = cfg.Command
-			existing.Args = cfg.Args
 			existing.DisplayName = cfg.DisplayName
 			existing.Description = cfg.Description
 			if err := repo.Update(existing); err != nil {
@@ -214,7 +197,8 @@ func loadDBAgentConfigs(repo *repository.AgentConfigRepository, registrar *agent
 	}
 	for i := range list {
 		cfg := list[i]
-		backend := acp.NewConfigBackend(cfg)
+		// 根据 agent 类型自动选择 ConfigBackend 或 BinaryBackend（后者延迟下载）
+		backend := acp.NewBackendFromAgentConfig(cfg)
 		registrar.ReplaceBackend(backend)
 		_ = registrar.RegisterAgent(&agent.AgentDescriptor{
 			Type:        cfg.Type,

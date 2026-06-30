@@ -32,7 +32,6 @@ type SessionStore interface {
 	ListSessions(userID uint) ([]models.Session, error)
 	ListSessionsBySource(userID uint, source string) ([]models.Session, error)
 	GetSessionByDBID(id uint) (*models.Session, error)
-	CloseSession(ctx context.Context, sessionID string) error
 	DeleteSession(ctx context.Context, sessionID string) error
 	CancelSession(ctx context.Context, sessionID string) error
 	ResumeSession(ctx context.Context, sessionID, cwdOverride string) (*models.Session, error)
@@ -198,20 +197,7 @@ func (h *SessionHandler) UpdateTitle(c *gin.Context) {
 	Success(c, http.StatusOK, sess)
 }
 
-// Close DELETE /api/v1/sessions/:id
-func (h *SessionHandler) Close(c *gin.Context) {
-	sess, ok := h.loadOwnedSession(c)
-	if !ok {
-		return
-	}
-	if err := h.store.CloseSession(c.Request.Context(), sess.SessionID); err != nil {
-		writeSessionError(c, err)
-		return
-	}
-	Success(c, http.StatusOK, struct{}{})
-}
-
-// Delete POST /api/v1/sessions/:id/delete — 彻底删除会话及其消息。
+// Delete DELETE /api/v1/sessions/:id — 彻底删除会话及其消息。
 func (h *SessionHandler) Delete(c *gin.Context) {
 	sess, ok := h.loadOwnedSession(c)
 	if !ok {

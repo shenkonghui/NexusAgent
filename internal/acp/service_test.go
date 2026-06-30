@@ -73,12 +73,7 @@ func TestService_GetSession_NotFound(t *testing.T) {
 	}
 }
 
-func TestService_CloseSession_NotFound(t *testing.T) {
-	svc := newTestService(t)
-	if err := svc.CloseSession(context.Background(), "missing"); err == nil {
-		t.Error("期望关闭不存在的会话返回错误")
-	}
-}
+
 
 func TestService_RecoverActiveSessions(t *testing.T) {
 	db := setupACPTestDB(t)

@@ -28,14 +28,9 @@ export function updateSessionTitle(id: number, title: string): Promise<{ data: S
   })
 }
 
-// 关闭会话
-export function closeSession(id: number): Promise<void> {
-  return apiFetch(`/sessions/${id}`, { method: 'DELETE' })
-}
-
 // 彻底删除会话及其消息
 export function deleteSession(id: number): Promise<void> {
-  return apiFetch(`/sessions/${id}/delete`, { method: 'POST' })
+  return apiFetch(`/sessions/${id}`, { method: 'DELETE' })
 }
 
 // 取消会话当前 prompt

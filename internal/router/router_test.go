@@ -54,7 +54,6 @@ func TestSetup_RegistersP5Routes(t *testing.T) {
 		"GET /api/v1/sessions",
 		"GET /api/v1/sessions/:id",
 		"DELETE /api/v1/sessions/:id",
-		"POST /api/v1/sessions/:id/delete",
 		"POST /api/v1/sessions/:id/prompt",
 		"POST /api/v1/sessions/:id/cancel",
 		"POST /api/v1/sessions/:id/resume",

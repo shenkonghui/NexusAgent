@@ -524,7 +524,18 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 
 	conn, ok := s.connForSession(sessionID)
 	if !ok {
-		return nil, ErrSessionNotActive
+		// 共享连接已断开但会话 DB 状态仍为 active：尝试自动恢复连接
+		slog.Warn("会话连接丢失，尝试自动恢复", "session", sessionID, "agent", session.AgentType)
+		if recConn, recErr := s.ensureConnection(ctx, session.AgentType); recErr == nil {
+			// 恢复会话路由
+			s.mu.Lock()
+			s.sessionAgent[sessionID] = session.AgentType
+			s.mu.Unlock()
+			conn = recConn
+		} else {
+			slog.Error("自动恢复会话连接失败", "session", sessionID, "err", recErr)
+			return nil, ErrSessionNotActive
+		}
 	}
 
 	updates, err := conn.Prompt(ctx, sessionID, prompt)
@@ -584,36 +595,6 @@ func (s *Service) CancelSession(ctx context.Context, sessionID string) error {
 		return ErrSessionNotFound
 	}
 	return conn.Cancel(ctx, sessionID)
-}
-
-// CloseSession 关闭会话，释放该 session 在 agent 侧的资源。
-// 当该 agentType 下不再有活跃 session 时，停止 agent 进程以释放资源。
-func (s *Service) CloseSession(ctx context.Context, sessionID string) error {
-	session, err := s.GetSession(sessionID)
-	if err != nil {
-		return err
-	}
-
-	agentType, hadConn := s.detachSession(sessionID)
-	if hadConn {
-		conn, connOK := s.pool[agentType]
-		if connOK {
-			_ = conn.CloseSessionByID(ctx, sessionID)
-			// 若该 agentType 已无活跃 session，停止进程
-			if !s.hasActiveSession(agentType) {
-				s.mu.Lock()
-				delete(s.pool, agentType)
-				s.mu.Unlock()
-				_ = conn.Close()
-			}
-		}
-	}
-
-	ws := &Workspace{Mode: session.WorkspaceMode, TempDir: session.TempDir}
-	_ = ws.Cleanup()
-
-	now := time.Now()
-	return s.sessions.UpdateStatus(session.ID, models.SessionStatusClosed, &now)
 }
 
 // detachSession 从路由表与缓存中移除 session，返回 agentType 与是否存在连接。

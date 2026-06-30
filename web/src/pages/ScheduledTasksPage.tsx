@@ -169,7 +169,7 @@ export default function ScheduledTasksPage() {
       <div className={styles.sidebarWrap}><SessionSidebar sessions={sessions} /></div>
       <div className={styles.main}>
         <div className={styles.header}>
-          <h1 className={styles.title}>{t('scheduledTask.title')}</h1>
+          <h1 className={styles.title}>📅 {t('scheduledTask.title')}</h1>
           <UserMenu />
         </div>
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}

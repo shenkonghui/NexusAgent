@@ -86,19 +86,17 @@
   "session": {
     "title": "Session",
     "active": "Active",
-    "closed": "Closed",
     "newSession": "New Session",
     "history": "History",
     "deleteConfirm": "Are you sure you want to delete this session? This action cannot be undone.",
     "deleteSuccess": "Session deleted",
-    "closeSuccess": "Session closed",
     "noSessions": "No sessions",
     "promptPlaceholder": "Type your prompt, / for commands, @ for files. Enter to send, Shift+Enter for new line",
     "sending": "Sending...",
     "cancelPrompt": "Cancel",
-    "resume": "Reopen",
-    "reconnect": "Reconnect",
-    "resumePrompt": "Enter working directory to reopen (leave empty to reuse previous)",
+    "resume": "Recover",
+    "reconnect": "Recover",
+    "resumePrompt": "Recover session (select working directory, leave empty to reuse)",
     "reconnecting": "Reconnecting...",
     "waitingAgent": "Waiting for Agent response...",
     "errorSend": "Failed to send",
@@ -111,8 +109,8 @@
     "defaultAgent": "Default Agent",
     "quickSendPlaceholder": "What do you want to do? Enter to send, Shift+Enter for new line",
     "advancedOptions": "Advanced Options",
-    "closedHint": "Session closed, click Reopen to continue",
-    "errorHint": "Session has an error, please reconnect"
+    "closedHint": "Session needs recovery",
+    "errorHint": "Session error, needs recovery"
   },
   "settings": {
     "title": "Agent Settings",

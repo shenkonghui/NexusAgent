@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useRequireAuth } from '../hooks/useRequireAuth'
-import { getSession, listMessages, cancelSession, listSessions, listCommands, listModes, listSkills, listConfigOptions, setConfigOption, deleteSession, updateSessionTitle, createSession } from '../api/sessions'
+import { getSession, listMessages, cancelSession, listSessions, listCommands, listModes, listSkills, listConfigOptions, setConfigOption, deleteSession, updateSessionTitle, createSession, resumeSession } from '../api/sessions'
 import { listScheduledTasks, listExecutions } from '../api/scheduledTasks'
 import { listAgents, probeAgentConfigs } from '../api/agents'
 import { streamPrompt, isTimeoutError } from '../api/sse'
@@ -45,7 +45,7 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [sending, setSending] = useState(false)
-  const [showWorkspace, setShowWorkspace] = useState(true)
+  const [showWorkspace, setShowWorkspace] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [lastFailedPrompt, setLastFailedPrompt] = useState('')
   const [retryable, setRetryable] = useState(false)
@@ -60,6 +60,9 @@ export default function ChatPage() {
   const [agentCwd, setAgentCwd] = useState('')
   const [showDirPicker, setShowDirPicker] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [resuming, setResuming] = useState(false)
+  const [showResumePicker, setShowResumePicker] = useState(false)
+  const [resumeCwd, setResumeCwd] = useState('')
 
   const changesCount = useMemo(() => {
     const paths = new Set<string>()
@@ -150,13 +153,14 @@ export default function ChatPage() {
   }, [user, hasSession, loadData, loadHomeData])
 
   useEffect(() => {
+    if (loading) return // 等待 loadData 完成后再处理首次 prompt，避免竞态
     if (!session || session.status !== 'active') return
     const pending = initialPromptRef.current
     if (!pending) return
     initialPromptRef.current = ''
     if (location.state) navigate(location.pathname, { replace: true, state: null })
     handleSend(pending)
-  }, [session])
+  }, [session, loading])
 
   async function loadExecutions(dbSessionId: number) {
     try {
@@ -196,6 +200,17 @@ export default function ChatPage() {
   async function handleRetry() { if (!lastFailedPrompt) return; setError(''); setRetryable(false); await handleSend(lastFailedPrompt) }
 
   async function handleCancel() { try { await cancelSession(sessionId); setSending(false) } catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) } }
+
+  // 恢复异常状态的会话（error 或 closed）
+  async function handleResume(cwd?: string) {
+    setResuming(true); setError('')
+    try {
+      await resumeSession(sessionId, cwd)
+      await loadData()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.failed'))
+    } finally { setResuming(false) }
+  }
 
   async function handleSetConfigOption(configId: string, value: string) {
     setError('')
@@ -404,16 +419,28 @@ export default function ChatPage() {
           sessionId={sessionId} cwd={session?.cwd}
         />
 
-        <PromptInput onSend={handleSend} onCancel={handleCancel}
-          sending={sending} disabled={session?.status !== 'active'}
-          commands={commands} modes={modes} skills={skills} cwd={session?.cwd}
-          placeholder={session?.status === 'closed'
-            ? t('session.closedHint')
-            : session?.status === 'error'
-              ? t('session.errorHint')
-              : t('session.promptPlaceholder')
-          }
-        />
+        {session?.status === 'active' ? (
+          <PromptInput onSend={handleSend} onCancel={handleCancel}
+            sending={sending} disabled={false}
+            commands={commands} modes={modes} skills={skills} cwd={session?.cwd}
+            placeholder={t('session.promptPlaceholder')}
+          />
+        ) : (
+          <div className={styles.recoverBar}>
+            <span className={styles.recoverText}>
+              {session?.status === 'error' ? t('session.errorHint') : t('session.closedHint')}
+            </span>
+            <button type="button" className={styles.recoverBtn}
+              onClick={() => handleResume(resumeCwd || undefined)}
+              disabled={resuming}
+            >{resuming ? t('common.loading') : t('session.resume')}</button>
+            <button type="button" className={styles.recoverDirBtn}
+              onClick={() => setShowResumePicker(true)}
+              disabled={resuming}
+              title={t('session.resumePrompt')}
+            >{resumeCwd ? resumeCwd : t('session.resumePrompt')}</button>
+          </div>
+        )}
       </div>
 
       {showWorkspace && session && (
@@ -423,6 +450,13 @@ export default function ChatPage() {
             onClose={() => setShowWorkspace(false)}
           />
         </div>
+      )}
+
+      {showResumePicker && (
+        <DirectoryPicker initialPath={resumeCwd || session?.cwd || ''}
+          onSelect={(path) => { setResumeCwd(path); setShowResumePicker(false) }}
+          onClose={() => setShowResumePicker(false)}
+        />
       )}
     </div>
   )

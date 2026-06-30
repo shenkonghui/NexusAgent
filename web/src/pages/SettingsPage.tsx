@@ -163,14 +163,19 @@ export default function SettingsPage() {
                       {cfg.description && <div className={styles.configDesc}>{cfg.description}</div>}
                     </div>
                     {cfg.enabled ? (
-                      <span className={styles.enabledTag}>{t('settings.enabled')}</span>
+                      <button type="button" className={styles.disableBtn}
+                        onClick={async () => {
+                          try { await updateAgentConfig(cfg.id, { ...cfg, enabled: false }); await loadData() }
+                          catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) }
+                        }}
+                      >{t('settings.disable')}</button>
                     ) : (
                       <button type="button" className={styles.enableBtn}
                         onClick={async () => {
                           try { await updateAgentConfig(cfg.id, { ...cfg, enabled: true }); await loadData() }
                           catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) }
                         }}
-                      >Enable</button>
+                      >{t('settings.enable')}</button>
                     )}
                     <button type="button" className={styles.editIconBtn} title={t('common.edit')}
                       onClick={() => startEdit(cfg)}

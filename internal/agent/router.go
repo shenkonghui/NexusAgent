@@ -91,14 +91,6 @@ func (r *Router) CancelSession(ctx context.Context, sessionID string) error {
 	return r.service.CancelSession(ctx, sessionID)
 }
 
-// CloseSession 关闭会话，委托 service。
-func (r *Router) CloseSession(ctx context.Context, sessionID string) error {
-	if r.service == nil {
-		return errors.New("service 未配置")
-	}
-	return r.service.CloseSession(ctx, sessionID)
-}
-
 // DeleteSession 彻底删除会话，委托 service。
 func (r *Router) DeleteSession(ctx context.Context, sessionID string) error {
 	if r.service == nil {

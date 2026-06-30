@@ -182,7 +182,7 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
         <div className={styles.group}>
           <button type="button" className={styles.groupHeader} onClick={() => toggleGroup('manual')}>
             <span className={styles.groupArrow}>{collapsed.manual ? '▶' : '▼'}</span>
-            <span className={styles.groupTitle}>{t('session.title')}</span>
+            <span className={styles.groupTitle}>📝 {t('session.title')}</span>
             <span className={styles.groupCount}>{manualSessions.length}</span>
             <span
               className={styles.addBtn} role="button" tabIndex={0}
@@ -252,7 +252,7 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
         <div className={styles.group}>
           <button type="button" className={styles.groupHeader} onClick={() => toggleGroup('scheduled')}>
             <span className={styles.groupArrow}>{collapsed.scheduled ? '▶' : '▼'}</span>
-            <span className={styles.groupTitle}>{t('nav.scheduledTasks')}</span>
+            <span className={styles.groupTitle}>📅 {t('nav.scheduledTasks')}</span>
             <span className={styles.groupCount}>{tasks.length}</span>
           </button>
           {!collapsed.scheduled && (

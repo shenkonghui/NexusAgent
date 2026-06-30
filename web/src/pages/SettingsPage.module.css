@@ -359,6 +359,24 @@
   border-color: var(--success);
 }
 
+.disableBtn {
+  padding: 4px 12px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.disableBtn:hover {
+  background: var(--danger);
+  color: var(--text-on-accent);
+}
+
 .editIconBtn {
   display: flex;
   align-items: center;

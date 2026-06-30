@@ -20,11 +20,3 @@ agents:
     # temporary 模式会话工作区的存放根目录，默认 ~/.nextAgent/session。
     # 由程序在删除会话时清理，不依赖操作系统清理临时目录。
     # session_dir: ~/.nextAgent/session
-  claude_code:
-    enabled: true
-    command: npx
-    args:
-      - "-y"
-      - "@zed-industries/claude-code-acp@latest"
-    api_key_env: ANTHROPIC_API_KEY
-    timeout: 300s
