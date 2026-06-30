@@ -11,11 +11,26 @@ import (
 )
 
 type AuthHandler struct {
-	svc *services.AuthService
+	svc       *services.AuthService
+	autoLogin bool
 }
 
-func NewAuthHandler(svc *services.AuthService) *AuthHandler {
-	return &AuthHandler{svc: svc}
+func NewAuthHandler(svc *services.AuthService, autoLogin bool) *AuthHandler {
+	return &AuthHandler{svc: svc, autoLogin: autoLogin}
+}
+
+// AutoLogin GET /api/v1/auth/auto-login — 若启用免登录则自动签发 admin token。
+func (h *AuthHandler) AutoLogin(c *gin.Context) {
+	if !h.autoLogin {
+		Fail(c, http.StatusForbidden, "AUTO_LOGIN_DISABLED", "自动登录未启用")
+		return
+	}
+	result, err := h.svc.Login("admin", "123456", c.Request.UserAgent(), c.ClientIP())
+	if err != nil {
+		h.writeAuthError(c, err)
+		return
+	}
+	Success(c, http.StatusOK, result)
 }
 
 type registerRequest struct {

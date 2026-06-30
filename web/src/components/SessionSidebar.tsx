@@ -15,20 +15,27 @@ interface SessionSidebarProps {
   onCollapse?: () => void
 }
 
-const statusColors: Record<string, string> = {
-  active: styles.statusActive,
-  closed: styles.statusClosed,
-  error: styles.statusError,
-}
-
 const STORAGE_KEY = 'nexus.sidebar.collapsed'
+const FAVS_KEY = 'nexus.favorites'
 
-function loadCollapsed(): { manual: boolean; scheduled: boolean } {
+function loadCollapsed(): { favorites: boolean; manual: boolean; scheduled: boolean } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) return JSON.parse(raw)
   } catch { /* ignore */ }
-  return { manual: false, scheduled: false }
+  return { favorites: false, manual: false, scheduled: false }
+}
+
+function loadFavorites(): number[] {
+  try {
+    const raw = localStorage.getItem(FAVS_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* ignore */ }
+  return []
+}
+
+function saveFavorites(ids: number[]) {
+  try { localStorage.setItem(FAVS_KEY, JSON.stringify(ids)) } catch { /* ignore */ }
 }
 
 export default function SessionSidebar({ sessions, currentId, onDelete, onRename, onCollapse }: SessionSidebarProps) {
@@ -42,6 +49,7 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
   const isHome = location.pathname === '/' || location.pathname.startsWith('/sessions')
 
   const [collapsed, setCollapsed] = useState(loadCollapsed)
+  const [favorites, setFavorites] = useState<number[]>(loadFavorites)
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
   const [agentStatuses, setAgentStatuses] = useState<AgentStatus[]>([])
 
@@ -83,14 +91,17 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
     .filter((t) => t.last_run_at)
     .sort((a, b) => (a.last_run_at! < b.last_run_at! ? 1 : -1))[0]
 
-  const statusLabels: Record<string, string> = {
-    active: t('session.active'),
-    closed: t('session.closed'),
-    error: t('status.error'),
+  function toggleGroup(group: 'favorites' | 'manual' | 'scheduled') {
+    setCollapsed((prev) => ({ ...prev, [group]: !prev[group] }))
   }
 
-  function toggleGroup(group: 'manual' | 'scheduled') {
-    setCollapsed((prev) => ({ ...prev, [group]: !prev[group] }))
+  function toggleFavorite(id: number, e: React.MouseEvent) {
+    e.preventDefault(); e.stopPropagation()
+    setFavorites((prev) => {
+      const next = prev.includes(id) ? prev.filter((fid) => fid !== id) : [...prev, id]
+      saveFavorites(next)
+      return next
+    })
   }
 
   const locale = i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US'
@@ -130,6 +141,44 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
       )}
 
       <div className={styles.groups}>
+        {/* 收藏任务 */}
+        <div className={styles.group}>
+          <button type="button" className={styles.groupHeader} onClick={() => toggleGroup('favorites')}>
+            <span className={styles.groupArrow}>{collapsed.favorites ? '▶' : '▼'}</span>
+            <span className={styles.groupTitle}>⭐ {t('session.favGroup')}</span>
+            <span className={styles.groupCount}>{favorites.length}</span>
+          </button>
+          {!collapsed.favorites && (
+            <div className={styles.groupList}>
+              {favorites.length === 0 ? (
+                <p className={styles.empty}>{t('session.noFavorites')}</p>
+              ) : (
+                favorites.map((fid) => {
+                  const session = sessions.find((s) => s.id === fid)
+                  if (!session) return null
+                  return (
+                    <div key={session.id} className={`${styles.item} ${currentId === session.id ? styles.itemActive : ''}`}>
+                      <Link to={`/sessions/${session.id}`} className={styles.itemLink}>
+                        <div className={styles.itemHeader}>
+                          <span className={styles.agentType}>{session.title || session.agent_type}</span>
+                        </div>
+                        {session.last_prompt && <p className={styles.lastPrompt}>{session.last_prompt}</p>}
+                        <span className={styles.time}>{new Date(session.created_at).toLocaleString(locale)}</span>
+                      </Link>
+                      <div className={styles.itemActions}>
+                        <button type="button" className={styles.favBtnActive}
+                          title={t('session.favorited')}
+                          onClick={(e) => toggleFavorite(session.id, e)}
+                        >★</button>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          )}
+        </div>
+
         <div className={styles.group}>
           <button type="button" className={styles.groupHeader} onClick={() => toggleGroup('manual')}>
             <span className={styles.groupArrow}>{collapsed.manual ? '▶' : '▼'}</span>
@@ -166,14 +215,15 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
                         <Link to={`/sessions/${session.id}`} className={styles.itemLink}>
                           <div className={styles.itemHeader}>
                             <span className={styles.agentType}>{session.title || session.agent_type}</span>
-                            <span className={`${styles.status} ${statusColors[session.status] || ''}`}>
-                              {statusLabels[session.status] || session.status}
-                            </span>
                           </div>
                           {session.last_prompt && <p className={styles.lastPrompt}>{session.last_prompt}</p>}
                           <span className={styles.time}>{new Date(session.created_at).toLocaleString(locale)}</span>
                         </Link>
                         <div className={styles.itemActions}>
+                          <button type="button" className={favorites.includes(session.id) ? styles.favBtnActive : styles.favBtn}
+                            title={favorites.includes(session.id) ? t('session.favorited') : t('session.unfavorited')}
+                            onClick={(e) => toggleFavorite(session.id, e)}
+                          >{favorites.includes(session.id) ? '★' : '☆'}</button>
                           {onRename && (
                             <button type="button" className={styles.renameBtn}
                               title={t('common.rename')} aria-label={t('common.rename')}

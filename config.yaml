@@ -1,8 +1,6 @@
 server:
   port: 8080
   mode: debug
-  # 前端构建产物目录，release 模式下由后端服务静态文件实现单端口部署。
-  # debug 模式下前端走 vite dev server (3000)，此项不生效。
   web_dist: ./web/dist
 database:
   path: ./data/nexus.db
@@ -10,6 +8,9 @@ jwt:
   secret: "nexusagent-dev-secret-key-32+bytes!"
   access_ttl: 15m
   refresh_ttl: 168h
+auth:
+  # 开启后无需登录，自动使用内置 admin 用户
+  auto_login: true
 password:
   bcrypt_cost: 12
 agents:

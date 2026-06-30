@@ -164,10 +164,11 @@ func TestAgentConfigHandler_Update_NotFound(t *testing.T) {
 
 // newAgentConfig 构造一个启用的 AgentConfig 模型用于测试。
 func newAgentConfig(typ, name, command string) *models.AgentConfig {
+	enabled := true
 	return &models.AgentConfig{
 		Type:        typ,
 		DisplayName: name,
 		Command:     command,
-		Enabled:     true,
+		Enabled:     &enabled,
 	}
 }

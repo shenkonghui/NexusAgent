@@ -17,7 +17,6 @@ import (
 	"nexusagent/internal/config"
 	"nexusagent/internal/database"
 	"nexusagent/internal/handlers"
-	"nexusagent/internal/models"
 	"nexusagent/internal/repository"
 	"nexusagent/internal/router"
 	"nexusagent/internal/services"
@@ -71,6 +70,7 @@ func main() {
 
 	jwtSvc := services.NewJWTService(cfg.JWT.Secret, cfg.JWT.AccessTTL, cfg.JWT.RefreshTTL)
 	authSvc := services.NewAuthService(db, jwtSvc, cfg.Password.BcryptCost)
+	authSvc.SeedAdminUser()
 
 	// P1: ACP 服务
 	acpSvc := acp.NewService(db, cfg.Agents.Workspace)
@@ -81,19 +81,25 @@ func main() {
 
 	// P2: Agent 注册表与路由
 	agentRegistry := agent.NewRegistry()
+	agentCfgRepo := repository.NewAgentConfigRepository(db)
+	registrar := agent.NewRegistrar(agentRegistry, acpSvc)
+
+	// 1. config.yaml 内置的 Claude Code
 	if cfg.Agents.ClaudeCode.Enabled {
+		backend := acp.NewClaudeCodeBackend(cfg.Agents.ClaudeCode)
+		acpSvc.RegisterBackend(backend)
 		_ = agentRegistry.Register(&agent.AgentDescriptor{
 			Type:        "claude-code",
 			DisplayName: "Claude Code",
 			Description: "Anthropic Claude Code 编码 agent",
-			Backend:     acp.NewClaudeCodeBackend(cfg.Agents.ClaudeCode),
+			Backend:     backend,
 		})
 	}
 
-	// 从数据库加载用户通过设置页面添加的 agent 配置并注册
-	agentCfgRepo := repository.NewAgentConfigRepository(db)
-	registrar := agent.NewRegistrar(agentRegistry, acpSvc)
-	seedDefaultAgentConfigs(agentCfgRepo)
+	// 2. 从 ACP registry JSON 加载所有 agent（同步到 DB 并注册）
+	loadRegistryAgents(agentRegistry, acpSvc, agentCfgRepo)
+
+	// 3. 从数据库加载用户自定义的 agent 配置
 	loadDBAgentConfigs(agentCfgRepo, registrar)
 
 	agentRouter := agent.NewRouter(agentRegistry, acpSvc)
@@ -114,7 +120,7 @@ func main() {
 	}
 	schedTaskH := handlers.NewScheduledTaskHandler(schedTaskRepo, execRepo, schedulerSvc, agentRouter)
 
-	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, cfg.Server.Mode, cfg.Server.WebDist)
+	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
 
 	go func() {
 		addr := fmt.Sprintf(":%d", cfg.Server.Port)
@@ -165,6 +171,40 @@ func openDefaultBrowser(url string) {
 	_ = cmd.Start()
 }
 
+// loadRegistryAgents 从内嵌的 registry.json 加载所有 agent，写入数据库并注册到内存。
+func loadRegistryAgents(agentRegistry *agent.Registry, acpSvc *acp.Service, repo *repository.AgentConfigRepository) {
+	agents, err := acp.FetchEmbeddedRegistry()
+	if err != nil {
+		log.Printf("加载内嵌 registry 失败: %v", err)
+		return
+	}
+	log.Printf("加载到 %d 个 agent", len(agents))
+
+	configs := acp.RegistryToAgentConfigs(agents)
+	for _, cfg := range configs {
+		// 写入数据库（存在则更新 command/args 保持与 registry 同步，不存在则创建并默认禁用）
+		existing, _ := repo.FindByType(cfg.Type)
+		if existing != nil {
+			existing.Command = cfg.Command
+			existing.Args = cfg.Args
+			existing.DisplayName = cfg.DisplayName
+			existing.Description = cfg.Description
+			if err := repo.Update(existing); err != nil {
+				log.Printf("更新 registry agent %s 失败: %v", cfg.Type, err)
+			}
+		} else {
+			enabled := false
+			cfg.Enabled = &enabled
+			if err := repo.Create(&cfg); err != nil {
+				log.Printf("写入 registry agent %s 失败: %v", cfg.Type, err)
+				continue
+			}
+		}
+	}
+	// 不在此处注册 backend——统一交由 loadDBAgentConfigs 根据 DB 中的 enabled 状态注册
+	log.Printf("registry agent 已同步到数据库（%d 个），等待用户在设置中启用", len(agents))
+}
+
 // loadDBAgentConfigs 加载数据库中启用的 agent 配置并注册到 registry 与 acp service。
 func loadDBAgentConfigs(repo *repository.AgentConfigRepository, registrar *agent.Registrar) {
 	list, err := repo.FindAllEnabled()
@@ -183,63 +223,5 @@ func loadDBAgentConfigs(repo *repository.AgentConfigRepository, registrar *agent
 			Backend:     backend,
 		})
 		log.Printf("已注册数据库 agent: %s", cfg.Type)
-	}
-}
-
-// defaultAgentConfigs 是首次启动时写入数据库的默认 agent 配置。
-// npx 包不指定版本号，始终使用最新版（用户可在设置页手动固定版本）。
-var defaultAgentConfigs = []models.AgentConfig{
-	{
-		Type:        "claude-code",
-		DisplayName: "Claude Code",
-		Description: "Anthropic Claude Code 编码 agent",
-		Command:     "npx",
-		Args:        `["@agentclientprotocol/claude-agent-acp"]`,
-		APIKeyEnv:   "ANTHROPIC_API_KEY",
-		Timeout:     "300s",
-		Enabled:     true,
-	},
-	{
-		Type:        "codebuddy",
-		DisplayName: "CodeBuddy",
-		Description: "腾讯 CodeBuddy 编码 agent",
-		Command:     "npx",
-		Args:        `["@tencent-ai/codebuddy-code","--acp"]`,
-		Timeout:     "300s",
-		Enabled:     false,
-	},
-	{
-		Type:        "kilocode",
-		DisplayName: "Kilo Code",
-		Description: "Kilo Code 编码 agent",
-		Command:     "npx",
-		Args:        `["@kilocode/cli","acp"]`,
-		Timeout:     "300s",
-		Enabled:     false,
-	},
-}
-
-// seedDefaultAgentConfigs 在 agent_configs 表为空时写入默认配置。
-// 已有记录（含用户自定义或禁用的）不会被覆盖。
-func seedDefaultAgentConfigs(repo *repository.AgentConfigRepository) {
-	existing, err := repo.FindAll()
-	if err != nil {
-		log.Printf("查询已有 agent 配置失败: %v", err)
-		return
-	}
-	if len(existing) > 0 {
-		return // 已有数据，不覆盖
-	}
-	for i := range defaultAgentConfigs {
-		cfg := defaultAgentConfigs[i]
-		// 跳过与 config.yaml 内置 claude-code 重复的类型（由内置注册）
-		if cfg.Type == "claude-code" {
-			// 仍写入 DB 以便设置页统一管理，但内置注册优先
-		}
-		if err := repo.Create(&cfg); err != nil {
-			log.Printf("写入默认 agent 配置 %s 失败: %v", cfg.Type, err)
-			continue
-		}
-		log.Printf("已写入默认 agent 配置: %s", cfg.Type)
 	}
 }

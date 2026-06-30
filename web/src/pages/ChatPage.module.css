@@ -76,28 +76,6 @@
   color: var(--text-primary);
 }
 
-.statusBadge {
-  font-size: 12px;
-  padding: 2px 10px;
-  border-radius: 10px;
-  font-weight: 500;
-}
-
-.status_active {
-  background: var(--success-bg);
-  color: var(--success);
-}
-
-.status_closed {
-  background: var(--bg-hover);
-  color: var(--text-muted);
-}
-
-.status_error {
-  background: var(--danger-bg);
-  color: var(--danger);
-}
-
 .cwd {
   font-size: 12px;
   color: var(--text-muted);
@@ -162,32 +140,138 @@
   overflow: hidden;
 }
 
-.resumeBtn {
-  padding: 6px 16px;
-  background: var(--warning);
-  color: var(--text-on-accent);
-  border: none;
+/* ====== 无会话模式（首页选择 agent/模型/路径）样式 ====== */
+.homeConfigRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  width: 100%;
+  min-height: 32px;
+}
+
+.homeConfigItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+}
+
+.homeConfigLabel {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.homeConfigSelect {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  cursor: pointer;
+  max-width: 220px;
+  outline: none;
+  line-height: 1;
+}
+
+.homeConfigSelect:focus {
+  border-color: var(--accent);
+}
+
+.homeConfigSelect:disabled {
+  background: var(--bg-muted);
+  cursor: not-allowed;
+  color: var(--text-muted);
+}
+
+.homeConfigInput {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  outline: none;
+  width: 260px;
+  line-height: 1;
+}
+
+.homeConfigInput:focus {
+  border-color: var(--accent);
+}
+
+.homeConfigInput:disabled {
+  background: var(--bg-muted);
+  cursor: not-allowed;
+  color: var(--text-muted);
+}
+
+.homeBrowseBtn {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--accent);
+  background: var(--bg-surface);
+  color: var(--accent);
   border-radius: 6px;
   font-size: 13px;
   font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  line-height: 1;
 }
 
-.resumeBtn:hover {
-  background: var(--warning);
-  opacity: 0.85;
-}
-
-.closeBtn {
-  padding: 6px 16px;
-  background: var(--danger);
+.homeBrowseBtn:hover {
+  background: var(--accent);
   color: var(--text-on-accent);
-  border: none;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 500;
 }
 
-.closeBtn:hover {
-  background: var(--danger);
-  opacity: 0.85;
+.homeCwdDisplay {
+  height: 32px;
+  line-height: 32px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: 'IBM Plex Mono', 'Monaco', 'Menlo', monospace;
+  padding: 0 4px;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.homeConfigHint {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.homeContent {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.homeHero {
+  text-align: center;
+  padding: 40px 24px;
+}
+
+.homeTitle {
+  margin: 0 0 8px 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.homeSubtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
 }

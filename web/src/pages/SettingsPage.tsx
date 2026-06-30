@@ -2,7 +2,7 @@ import { useState, useEffect, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useRequireAuth } from '../hooks/useRequireAuth'
-import { listAgentConfigs, createAgentConfig, updateAgentConfig, deleteAgentConfig } from '../api/agentConfigs'
+import { listAgentConfigs, updateAgentConfig, deleteAgentConfig } from '../api/agentConfigs'
 import { listAgents } from '../api/agents'
 import { listSessions } from '../api/sessions'
 import type { AgentConfig, Session, Agent } from '../types'
@@ -78,9 +78,11 @@ export default function SettingsPage() {
       api_key_env: form.api_key_env.trim(), timeout: form.timeout.trim(), enabled: form.enabled,
     }
     try {
-      if (editingId != null) await updateAgentConfig(editingId, payload)
-      else await createAgentConfig(payload)
-      resetForm(); await loadData()
+      if (editingId != null) {
+        await updateAgentConfig(editingId, payload)
+        resetForm()
+        await loadData()
+      }
     } catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) }
     finally { setSaving(false) }
   }
@@ -148,99 +150,97 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <form className={styles.form} onSubmit={handleSubmit}>
-              <h2 className={styles.formTitle}>{editingId != null ? t('settings.editTitle') : t('settings.addTitle')}</h2>
-              <div className={styles.grid}>
-                <div className={styles.field}>
-                  <label className={styles.label}>{t('settings.type')} *</label>
-                  <input className={styles.input} value={form.type}
-                    onChange={(e) => setForm({ ...form, type: e.target.value })}
-                    placeholder="claude-code / codebuddy / devin"
-                  />
-                </div>
-                <div className={styles.field}>
-                  <label className={styles.label}>{t('settings.displayName')} *</label>
-                  <input className={styles.input} value={form.display_name}
-                    onChange={(e) => setForm({ ...form, display_name: e.target.value })} placeholder="Claude Code"
-                  />
-                </div>
-                <div className={styles.field}>
-                  <label className={styles.label}>{t('settings.command')} *</label>
-                  <input className={styles.input} value={form.command}
-                    onChange={(e) => setForm({ ...form, command: e.target.value })} placeholder="npx / codebuddy"
-                  />
-                </div>
-                <div className={styles.field}>
-                  <label className={styles.label}>{t('settings.apiKeyEnv')}</label>
-                  <input className={styles.input} value={form.api_key_env}
-                    onChange={(e) => setForm({ ...form, api_key_env: e.target.value })} placeholder="ANTHROPIC_API_KEY"
-                  />
-                </div>
-                <div className={styles.field}>
-                  <label className={styles.label}>{t('settings.timeout')}</label>
-                  <input className={styles.input} value={form.timeout}
-                    onChange={(e) => setForm({ ...form, timeout: e.target.value })} placeholder="300s"
-                  />
-                </div>
-                <div className={styles.field}>
-                  <label className={styles.label}>{t('settings.description')}</label>
-                  <input className={styles.input} value={form.description}
-                    onChange={(e) => setForm({ ...form, description: e.target.value })}
-                    placeholder="Anthropic Claude Code agent"
-                  />
-                </div>
-              </div>
-              <div className={styles.field}>
-                <label className={styles.label}>{t('settings.args')}</label>
-                <textarea className={styles.textarea} rows={3} value={form.args}
-                  onChange={(e) => setForm({ ...form, args: e.target.value })}
-                  placeholder={'-y\n@agentclientprotocol/claude-agent-acp@latest'}
-                />
-              </div>
-              <label className={styles.checkbox}>
-                <input type="checkbox" checked={form.enabled}
-                  onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
-                /> {t('settings.enabled')}
-              </label>
-              <div className={styles.formActions}>
-                <button className={styles.submitBtn} type="submit" disabled={saving}>
-                  {saving ? t('common.saving') : editingId != null ? t('common.save') : t('common.create')}
-                </button>
-                {editingId != null && (
-                  <button type="button" className={styles.cancelBtn} onClick={resetForm}>{t('common.cancel')}</button>
-                )}
-              </div>
-            </form>
-
             <div className={styles.configList}>
               <h2 className={styles.sectionTitle}>{t('settings.agentList')}（{configs.length}）</h2>
               {configs.length === 0 ? (
                 <p className={styles.empty}>{t('settings.noAgents')}</p>
               ) : (
                 configs.map((cfg) => (
-                  <div key={cfg.id} className={styles.configCard}>
-                    <div className={styles.configHeader}>
-                      <span className={styles.configType}>{cfg.display_name}</span>
-                      <span className={`${styles.statusBadge} ${cfg.enabled ? styles.enabled : styles.disabled}`}>
-                        {cfg.enabled ? t('settings.enabled') : t('settings.disabled')}
-                      </span>
+                  <div key={cfg.id} className={styles.configRow}>
+                    <div className={styles.configIcon}>{cfg.display_name.slice(0, 2).toUpperCase()}</div>
+                    <div className={styles.configInfo}>
+                      <div className={styles.configName}>{cfg.display_name}</div>
+                      {cfg.description && <div className={styles.configDesc}>{cfg.description}</div>}
                     </div>
-                    <div className={styles.configMeta}>
-                      <span className={styles.metaItem}>{t('settings.type')}: {cfg.type}</span>
-                      <span className={styles.metaItem}>{t('settings.command')}: {cfg.command}</span>
-                      {cfg.api_key_env && <span className={styles.metaItem}>KeyEnv: {cfg.api_key_env}</span>}
-                      {cfg.timeout && <span className={styles.metaItem}>{t('settings.timeout')}: {cfg.timeout}</span>}
-                    </div>
-                    {cfg.description && <p className={styles.configDesc}>{cfg.description}</p>}
-                    {cfg.args && cfg.args.length > 0 && <code className={styles.argsBlock}>{cfg.args.join(' ')}</code>}
-                    <div className={styles.cardActions}>
-                      <button type="button" className={styles.editBtn} onClick={() => startEdit(cfg)}>{t('common.edit')}</button>
-                      <button type="button" className={styles.deleteBtn} onClick={() => handleDelete(cfg.id)}>{t('common.delete')}</button>
-                    </div>
+                    {cfg.enabled ? (
+                      <span className={styles.enabledTag}>{t('settings.enabled')}</span>
+                    ) : (
+                      <button type="button" className={styles.enableBtn}
+                        onClick={async () => {
+                          try { await updateAgentConfig(cfg.id, { ...cfg, enabled: true }); await loadData() }
+                          catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) }
+                        }}
+                      >Enable</button>
+                    )}
+                    <button type="button" className={styles.editIconBtn} title={t('common.edit')}
+                      onClick={() => startEdit(cfg)}
+                    >⋯</button>
                   </div>
                 ))
               )}
             </div>
+
+            {editingId != null && (
+              <form className={styles.form} onSubmit={handleSubmit}>
+                <h2 className={styles.formTitle}>{t('settings.editTitle')}</h2>
+                <div className={styles.grid}>
+                  <div className={styles.field}>
+                    <label className={styles.label}>{t('settings.type')} *</label>
+                    <input className={styles.input} value={form.type} disabled />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.label}>{t('settings.displayName')} *</label>
+                    <input className={styles.input} value={form.display_name}
+                      onChange={(e) => setForm({ ...form, display_name: e.target.value })} placeholder="Claude Code"
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.label}>{t('settings.command')} *</label>
+                    <input className={styles.input} value={form.command}
+                      onChange={(e) => setForm({ ...form, command: e.target.value })} placeholder="npx / codebuddy"
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.label}>{t('settings.apiKeyEnv')}</label>
+                    <input className={styles.input} value={form.api_key_env}
+                      onChange={(e) => setForm({ ...form, api_key_env: e.target.value })} placeholder="ANTHROPIC_API_KEY"
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.label}>{t('settings.timeout')}</label>
+                    <input className={styles.input} value={form.timeout}
+                      onChange={(e) => setForm({ ...form, timeout: e.target.value })} placeholder="300s"
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.label}>{t('settings.description')}</label>
+                    <input className={styles.input} value={form.description}
+                      onChange={(e) => setForm({ ...form, description: e.target.value })}
+                      placeholder="Anthropic Claude Code agent"
+                    />
+                  </div>
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.label}>{t('settings.args')}</label>
+                  <textarea className={styles.textarea} rows={3} value={form.args}
+                    onChange={(e) => setForm({ ...form, args: e.target.value })}
+                    placeholder={'-y\n@agentclientprotocol/claude-agent-acp@latest'}
+                  />
+                </div>
+                <label className={styles.checkbox}>
+                  <input type="checkbox" checked={form.enabled}
+                    onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
+                  /> {t('settings.enabled')}
+                </label>
+                <div className={styles.formActions}>
+                  <button className={styles.submitBtn} type="submit" disabled={saving}>
+                    {saving ? t('common.saving') : t('common.save')}
+                  </button>
+                  <button type="button" className={styles.cancelBtn} onClick={resetForm}>{t('common.cancel')}</button>
+                  <button type="button" className={styles.deleteBtn} onClick={() => { handleDelete(editingId) }}>{t('common.delete')}</button>
+                </div>
+              </form>
+            )}
             <button className={styles.backBtn} type="button" onClick={() => navigate('/')}>{t('common.back')}</button>
           </div>
         )}

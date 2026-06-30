@@ -14,8 +14,13 @@ type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Database DatabaseConfig `yaml:"database"`
 	JWT      JWTConfig      `yaml:"jwt"`
+	Auth     AuthConfig     `yaml:"auth"`
 	Password PasswordConfig `yaml:"password"`
 	Agents   AgentsConfig   `yaml:"agents"`
+}
+
+type AuthConfig struct {
+	AutoLogin bool `yaml:"auto_login"`
 }
 
 type ServerConfig struct {

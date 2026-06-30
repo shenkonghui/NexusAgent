@@ -19,7 +19,7 @@ export default function AgentSelector({ agents, value, onChange }: AgentSelector
         {agents.length === 0 && <option value="">无可用 Agent</option>}
         {agents.map((agent) => (
           <option key={agent.type} value={agent.type}>
-            {agent.display_name} — {agent.description}
+            {agent.display_name}
           </option>
         ))}
       </select>

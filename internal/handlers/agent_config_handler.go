@@ -75,6 +75,10 @@ func toAgentConfigItem(cfg *models.AgentConfig) agentConfigItem {
 	if cfg.Args != "" {
 		_ = json.Unmarshal([]byte(cfg.Args), &args)
 	}
+	enabled := false
+	if cfg.Enabled != nil {
+		enabled = *cfg.Enabled
+	}
 	return agentConfigItem{
 		ID:          cfg.ID,
 		Type:        cfg.Type,
@@ -84,7 +88,7 @@ func toAgentConfigItem(cfg *models.AgentConfig) agentConfigItem {
 		Args:        args,
 		APIKeyEnv:   cfg.APIKeyEnv,
 		Timeout:     cfg.Timeout,
-		Enabled:     cfg.Enabled,
+		Enabled:     enabled,
 	}
 }
 
@@ -110,7 +114,7 @@ func validateTimeout(timeout string) error {
 
 // applyToRegistrar 根据 cfg 在 registrar 中注册/替换或注销。
 func (h *AgentConfigHandler) applyToRegistrar(cfg *models.AgentConfig) {
-	if !cfg.Enabled {
+	if cfg.Enabled == nil || !*cfg.Enabled {
 		h.registrar.UnregisterAgent(cfg.Type)
 		h.registrar.UnregisterBackend(cfg.Type)
 		return
@@ -162,7 +166,7 @@ func (h *AgentConfigHandler) Create(c *gin.Context) {
 		Args:        parseArgs(req.Args),
 		APIKeyEnv:   req.APIKeyEnv,
 		Timeout:     req.Timeout,
-		Enabled:     req.Enabled == nil || *req.Enabled,
+		Enabled:     req.Enabled,
 	}
 	if err := h.store.Create(cfg); err != nil {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
@@ -209,9 +213,7 @@ func (h *AgentConfigHandler) Update(c *gin.Context) {
 	cfg.Args = parseArgs(req.Args)
 	cfg.APIKeyEnv = req.APIKeyEnv
 	cfg.Timeout = req.Timeout
-	if req.Enabled != nil {
-		cfg.Enabled = *req.Enabled
-	}
+	cfg.Enabled = req.Enabled
 	if err := h.store.Update(cfg); err != nil {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
 		return

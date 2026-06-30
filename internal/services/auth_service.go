@@ -45,6 +45,26 @@ func NewAuthService(db *gorm.DB, jwtSvc *JWTService, bcryptCost int) *AuthServic
 	}
 }
 
+// SeedAdminUser 确保内置 admin 用户存在，不存在时自动创建。
+func (s *AuthService) SeedAdminUser() {
+	_, err := s.users.FindByUsername("admin")
+	if err == nil {
+		return // 已存在
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte("123456"), s.bcryptCost)
+	if err != nil {
+		return
+	}
+	user := &models.User{
+		Username:     "admin",
+		Email:        "admin@nexus.local",
+		PasswordHash: string(hash),
+		Role:         models.RoleAdmin,
+		Status:       models.StatusActive,
+	}
+	_ = s.users.Create(user)
+}
+
 func (s *AuthService) validatePassword(password string) bool {
 	return len(password) >= 8 && hasLetter.MatchString(password) && hasDigit.MatchString(password)
 }

@@ -73,12 +73,13 @@ func ConfigBackendFromParams(name, command string, args []string, apiKeyEnv, tim
 		}
 		argsJSON = string(b)
 	}
+	enabled := true
 	return NewConfigBackend(models.AgentConfig{
 		Type:      name,
 		Command:   command,
 		Args:      argsJSON,
 		APIKeyEnv: apiKeyEnv,
 		Timeout:   timeout,
-		Enabled:   true,
+		Enabled:   &enabled,
 	}), nil
 }

@@ -13,7 +13,7 @@ type AgentConfig struct {
 	Args        string    `gorm:"type:text" json:"args"` // JSON 编码的 []string
 	APIKeyEnv   string    `gorm:"size:64" json:"api_key_env"`
 	Timeout     string    `gorm:"size:32" json:"timeout"` // time.Duration 字符串，如 "300s"
-	Enabled     bool      `gorm:"not null;default:true" json:"enabled"`
+	Enabled     *bool     `gorm:"not null;default:true" json:"enabled"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

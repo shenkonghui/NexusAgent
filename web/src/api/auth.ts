@@ -37,6 +37,11 @@ export function updateProfile(username: string, email: string): Promise<{ data: 
   })
 }
 
+// 自动登录（免登录）
+export function autoLogin(): Promise<AuthResponse> {
+  return apiFetch<{ data: AuthResponse }>('/auth/auto-login', { method: 'GET' }).then(r => r.data)
+}
+
 // 修改当前用户密码
 export function changePassword(oldPassword: string, newPassword: string): Promise<void> {
   return apiFetch('/me/password', {

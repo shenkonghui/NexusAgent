@@ -9,13 +9,14 @@ import (
 )
 
 func TestConfigBackend_BasicFields(t *testing.T) {
+	enabled := true
 	cfg := models.AgentConfig{
 		Type:      "codebuddy",
 		Command:   "codebuddy",
 		Args:       `["--acp","--port","8080"]`,
 		APIKeyEnv: "CODEBUDDY_API_KEY",
 		Timeout:   "120s",
-		Enabled:   true,
+		Enabled:   &enabled,
 	}
 	b := NewConfigBackend(cfg)
 	if b.Name() != "codebuddy" {

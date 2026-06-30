@@ -2,7 +2,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
 import LoginPage from './pages/LoginPage'
-import SessionsPage from './pages/SessionsPage'
 import ChatPage from './pages/ChatPage'
 import SettingsPage from './pages/SettingsPage'
 import ScheduledTasksPage from './pages/ScheduledTasksPage'
@@ -14,8 +13,8 @@ export default function App() {
       <AuthProvider>
         <BrowserRouter>
         <Routes>
-          {/* 首页即会话列表 */}
-          <Route path="/" element={<SessionsPage />} />
+          {/* 首页即统一会话页面：无会话时选择 agent/模型/模式，首次对话后自动创建会话 */}
+          <Route path="/" element={<ChatPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/sessions" element={<Navigate to="/" replace />} />
           <Route path="/sessions/:id" element={<ChatPage />} />

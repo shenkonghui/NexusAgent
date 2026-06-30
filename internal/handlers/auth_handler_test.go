@@ -25,7 +25,7 @@ func setupRouter(t *testing.T) (*gin.Engine, *services.AuthService) {
 	db.Exec("DELETE FROM refresh_tokens")
 	jwtSvc := services.NewJWTService("this-is-a-very-long-jwt-secret-key-32+bytes!", 15*time.Minute, time.Hour)
 	authSvc := services.NewAuthService(db, jwtSvc, 10)
-	h := NewAuthHandler(authSvc)
+	h := NewAuthHandler(authSvc, false)
 
 	r := gin.New()
 	v1 := r.Group("/api/v1")

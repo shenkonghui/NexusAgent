@@ -60,8 +60,10 @@ type Service struct {
 	commands     map[string][]acp.AvailableCommand
 	configs      map[string][]acp.SessionConfigOption
 	modes        map[string][]acp.SessionMode
-	mu           sync.RWMutex
-	wsConfig     config.WorkspaceConfig
+	// probeCache 缓存探测结果，按 agentType 存储，避免重复创建临时会话探测。
+	probeCache map[string][]acp.SessionConfigOption
+	mu         sync.RWMutex
+	wsConfig   config.WorkspaceConfig
 
 	// 健康检查与自动重连控制
 	hcCtx    context.Context
@@ -81,6 +83,7 @@ func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig) *Service {
 		commands:     make(map[string][]acp.AvailableCommand),
 		configs:      make(map[string][]acp.SessionConfigOption),
 		modes:        make(map[string][]acp.SessionMode),
+		probeCache:   make(map[string][]acp.SessionConfigOption),
 		wsConfig:     wsConfig,
 	}
 }
@@ -102,6 +105,7 @@ func (s *Service) ReplaceBackend(b Backend) {
 	}
 	s.backends[b.Name()] = b
 	s.states[b.Name()] = connStateDisconnected
+	delete(s.probeCache, b.Name())
 	s.mu.Unlock()
 
 	if ok {
@@ -118,6 +122,7 @@ func (s *Service) UnregisterBackend(name string) {
 	}
 	delete(s.backends, name)
 	delete(s.states, name)
+	delete(s.probeCache, name)
 	s.mu.Unlock()
 
 	if ok {
@@ -236,6 +241,8 @@ func (s *Service) watchConnection(agentType string, conn *Connection) {
 	if cur, ok := s.pool[agentType]; ok && cur == conn {
 		delete(s.pool, agentType)
 		s.states[agentType] = connStateDisconnected
+		// 连接断开后清空探测缓存，重连时重新探测
+		delete(s.probeCache, agentType)
 	}
 	s.mu.Unlock()
 	// 健康检查 goroutine 会自动尝试重连
@@ -669,6 +676,24 @@ func (s *Service) DeleteSession(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+// cleanupProbeSession 清理探测用临时会话，仅删除 ACP 会话、消息和数据库记录，
+// 不关闭共享连接（与 DeleteSession 不同，后者在无活跃会话时会关闭整个 agent 进程）。
+func (s *Service) cleanupProbeSession(ctx context.Context, sess *models.Session) {
+	// 从路由表移除
+	agentType, hadConn := s.detachSession(sess.SessionID)
+	if hadConn {
+		if conn, ok := s.pool[agentType]; ok {
+			_ = conn.CloseSessionByID(ctx, sess.SessionID)
+		}
+	}
+	// 清理工作区
+	ws := &Workspace{Mode: sess.WorkspaceMode, TempDir: sess.TempDir}
+	_ = ws.Cleanup()
+	// 删除消息和会话记录
+	_ = s.messages.DeleteByDBSessionID(sess.ID)
+	_ = s.sessions.Delete(sess.ID)
+}
+
 // ListSessions 列出指定用户的会话。
 func (s *Service) ListSessions(userID uint) ([]models.Session, error) {
 	return s.sessions.FindByUserID(userID)
@@ -811,25 +836,53 @@ func (s *Service) CachedModelOptions(agentType string) []acp.SessionConfigOption
 	return nil
 }
 
-// ProbeConfigOptions 创建一个临时会话探测指定 agent 类型的 config options，随后删除该会话。
-// 用于在不保留会话的情况下获取该 agent 支持的模型及其他配置。cwd 为空时使用临时工作区。
+// ProbeConfigOptions 返回指定 agent 类型的 config options。
+// 首次调用时创建临时会话探测，结果缓存在内存中，后续调用直接返回缓存。
+// 连接断开时缓存自动清空，重连后重新探测。
 func (s *Service) ProbeConfigOptions(ctx context.Context, agentType string, userID uint) ([]acp.SessionConfigOption, error) {
+	// 先查缓存
+	s.mu.RLock()
+	if cached, ok := s.probeCache[agentType]; ok {
+		s.mu.RUnlock()
+		return cached, nil
+	}
+	s.mu.RUnlock()
+
+	// 缓存未命中，创建临时会话探测
 	sess, err := s.CreateSessionWithSource(ctx, agentType, "", userID, models.SessionSourceManual, "")
 	if err != nil {
 		return nil, fmt.Errorf("创建探测会话: %w", err)
 	}
+
+	// 发送简短的 prompt 触发 agent 返回 ConfigOptionUpdate
+	promptCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	msgChan, promptErr := s.Prompt(promptCtx, sess.SessionID, "ok")
+	if promptErr == nil {
+		for range msgChan {
+		}
+	} else {
+		slog.Warn("探测 prompt 失败（非致命）", "agent", agentType, "err", promptErr)
+	}
+	cancel()
+
 	opts, err := s.ListConfigOptions(sess.SessionID)
 	if err != nil {
 		_ = s.DeleteSession(ctx, sess.SessionID)
 		return nil, fmt.Errorf("查询探测会话配置: %w", err)
 	}
-	// 复制一份再删除，避免删除后引用被清空的缓存
+	slog.Info("探测配置结果", "agent", agentType, "config_count", len(opts))
+
+	// 复制并缓存结果
 	out := make([]acp.SessionConfigOption, len(opts))
 	copy(out, opts)
-	if err := s.DeleteSession(ctx, sess.SessionID); err != nil {
-		// 删除失败不致命，仅记录
-		_ = err
-	}
+
+	// 存入缓存
+	s.mu.Lock()
+	s.probeCache[agentType] = out
+	s.mu.Unlock()
+
+	// 清理临时会话（仅删除数据，不关闭连接）
+	s.cleanupProbeSession(ctx, sess)
 	return out, nil
 }
 

@@ -3,6 +3,7 @@ package acp
 import (
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 )
 
@@ -27,6 +28,8 @@ func NewProcess(backend Backend) (*Process, error) {
 	if err != nil {
 		return nil, fmt.Errorf("创建 stdout 管道: %w", err)
 	}
+	// 将 stderr 重定向到当前进程的 stderr，便于排查 agent 启动错误
+	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("启动 agent 进程 %s: %w", backend.Name(), err)

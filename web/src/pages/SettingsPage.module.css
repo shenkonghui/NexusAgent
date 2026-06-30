@@ -280,6 +280,108 @@
   padding: 16px;
 }
 
+/* 简洁的 agent 列表行（参考 Devin 风格） */
+.configRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  transition: border-color 0.15s;
+}
+
+.configRow:hover {
+  border-color: var(--accent-border);
+}
+
+.configIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--bg-muted);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.configInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.configName {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.configDesc {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.enabledTag {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--success);
+  flex-shrink: 0;
+}
+
+.enableBtn {
+  padding: 4px 12px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.enableBtn:hover {
+  background: var(--success-bg);
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.editIconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.editIconBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
 .configHeader {
   display: flex;
   align-items: center;
@@ -321,12 +423,6 @@
   font-size: 13px;
   color: var(--text-secondary);
   font-family: 'IBM Plex Mono', 'Monaco', 'Menlo', monospace;
-}
-
-.configDesc {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin: 0 0 8px 0;
 }
 
 .argsBlock {
