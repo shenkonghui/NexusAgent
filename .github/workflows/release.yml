@@ -43,14 +43,14 @@ jobs:
           npm ci
           npm run build
 
-      - name: Build Binary
+      - name: Build Binary (macOS/Linux)
+        if: matrix.os != 'windows'
         run: |
-          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o "dist/nexusagent-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.os == 'windows' && '.exe' || '' }}" ./cmd/server
+          GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} CGO_ENABLED=1 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o "dist/nexusagent-${{ matrix.os }}-${{ matrix.arch }}" ./cmd/server
 
-      - name: Build (Windows without CGO)
+      - name: Build Binary (Windows without CGO)
         if: matrix.os == 'windows'
         run: |
-          # Windows: 交叉编译时不能启用 CGO，SQLite 使用纯 Go 驱动
           GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build -tags=sqlite_nocgo -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o "dist/nexusagent-${{ matrix.os }}-${{ matrix.arch }}.exe" ./cmd/server
 
       - name: Package (Linux / macOS)
@@ -65,19 +65,37 @@ jobs:
           cd dist
           Compress-Archive -Path "nexusagent-${{ matrix.os }}-${{ matrix.arch }}.exe" -DestinationPath "nexusagent-${{ matrix.os }}-${{ matrix.arch }}.zip"
 
-      - name: Create macOS .app Bundle
-        if: matrix.os == 'darwin'
+      # ========== macOS Pake 桌面客户端打包（仅 darwin-arm64） ==========
+      - name: Setup Rust (macOS Pake)
+        if: matrix.os == 'darwin' && matrix.arch == 'arm64'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup pnpm (macOS Pake)
+        if: matrix.os == 'darwin' && matrix.arch == 'arm64'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install pake-cli (macOS Pake)
+        if: matrix.os == 'darwin' && matrix.arch == 'arm64'
+        run: pnpm install -g pake-cli@3.13.0
+
+      - name: Build Pake Desktop Client (macOS)
+        if: matrix.os == 'darwin' && matrix.arch == 'arm64'
         run: |
-          chmod +x scripts/package-darwin.sh
-          ./scripts/package-darwin.sh dist "nexusagent-${{ matrix.os }}-${{ matrix.arch }}"
+          chmod +x scripts/build-pake.sh scripts/package-darwin.sh
+          ./scripts/build-pake.sh dist ${{ github.ref_name }}
+          ./scripts/package-darwin.sh dist nexusagent-darwin-arm64 dist
           cd dist
-          tar czf "nexusagent-darwin-${{ matrix.arch }}-app.tar.gz" "NexusAgent.app"
+          tar czf nexusagent-darwin-desktop.tar.gz NexusAgent.app
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: nexusagent-${{ matrix.os }}-${{ matrix.arch }}
-          path: dist/*.tar.gz
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
           if-no-files-found: error
 
   release:
@@ -96,21 +114,34 @@ jobs:
           echo "" >> release-notes.md
           echo "### 下载说明" >> release-notes.md
           echo "" >> release-notes.md
+          echo "**桌面客户端（推荐）**" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "| 平台 | 文件 | 说明 |" >> release-notes.md
+          echo "|------|------|------|" >> release-notes.md
+          echo "| macOS (桌面应用) | \`nexusagent-darwin-desktop.tar.gz\` | Pake 桌面客户端，双击即用 |" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "**命令行版本**" >> release-notes.md
+          echo "" >> release-notes.md
           echo "| 平台 | 文件 | 说明 |" >> release-notes.md
           echo "|------|------|------|" >> release-notes.md
           echo "| macOS Intel | \`nexusagent-darwin-amd64.tar.gz\` | 命令行运行 |" >> release-notes.md
           echo "| macOS Apple Silicon | \`nexusagent-darwin-arm64.tar.gz\` | 命令行运行 |" >> release-notes.md
-          echo "| macOS Intel (App) | \`nexusagent-darwin-amd64-app.tar.gz\` | 桌面 App 包 |" >> release-notes.md
-          echo "| macOS Apple Silicon (App) | \`nexusagent-darwin-arm64-app.tar.gz\` | 桌面 App 包 |" >> release-notes.md
           echo "| Linux x86_64 | \`nexusagent-linux-amd64.tar.gz\` | 命令行运行 |" >> release-notes.md
           echo "| Linux ARM64 | \`nexusagent-linux-arm64.tar.gz\` | 命令行运行 |" >> release-notes.md
           echo "| Windows x86_64 | \`nexusagent-windows-amd64.zip\` | 命令行运行 |" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "### 使用方式" >> release-notes.md
+          echo "" >> release-notes.md
+          echo "- **桌面客户端**: 下载 \`nexusagent-darwin-desktop.tar.gz\`，解压后双击 \`NexusAgent.app\` 即可启动" >> release-notes.md
+          echo "- **命令行版本**: 解压后执行 \`./nexusagent\`，浏览器访问 http://127.0.0.1:8080" >> release-notes.md
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           name: NexusAgent ${{ github.ref_name }}
           body_path: release-notes.md
-          files: artifacts/**/*.tar.gz
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
           draft: true
           prerelease: false

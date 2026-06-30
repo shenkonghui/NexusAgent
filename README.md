@@ -112,6 +112,8 @@ Agent commands, arguments, and API keys can be managed dynamically in the Settin
 | `make dev` | Start frontend + backend dev servers |
 | `make run` | Single-port production mode |
 | `make build` | Build frontend + backend |
+| `make pake` | Build Pake desktop client only |
+| `make desktop` | Build complete desktop app (backend + Pake) |
 | `make test` | Run all backend tests |
 | `make clean` | Clean build artifacts |
 | `make docker-up` | Build Docker image and start |

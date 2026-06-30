@@ -33,10 +33,33 @@ build:
 	@echo "==> 构建后端 ($(VERSION))"
 	@CGO_ENABLED=1 go build $(LDFLAGS) -o nexusagent ./cmd/server
 
-# 桌面模式：构建后以 release 模式启动并自动打开浏览器
+# 使用 Pake (Tauri) 打包桌面客户端壳子
+# 依赖: Rust + Node + pake-cli (pnpm install -g pake-cli@3.13.0)
+# 用法: make pake
+pake:
+	@echo "==> 使用 Pake 打包桌面客户端"
+	@./scripts/build-pake.sh dist $(VERSION)
+
+# 完整 macOS 桌面应用打包（Go 后端 + Pake 客户端 → app bundle）
+# 用法: make desktop
+desktop:
+	@echo "==> 1/3 构建前端"
+	@cd web && npm run build
+	@echo "==> 2/3 构建后端 binary"
+	@mkdir -p dist
+	@CGO_ENABLED=1 go build $(LDFLAGS) -o dist/nexusagent ./cmd/server
+	@echo "==> 3/3 Pake 客户端 + 组装 app bundle"
+	@./scripts/build-pake.sh dist $(VERSION)
+	@./scripts/package-darwin.sh dist nexusagent dist
+	@echo ""
+	@echo "✅ 桌面应用打包完成"
+	@du -sh dist/NexusAgent.app
+	@echo "   双击 dist/NexusAgent.app 启动"
+
+# 开发模式：构建后以 release 模式启动并打开浏览器
 # 用法: make run-desktop
 run-desktop: build
-	@echo "==> 桌面模式启动 http://localhost:8080"
+	@echo "==> 单端口模式启动 http://localhost:8080"
 	@SERVER_MODE=release ./nexusagent --open
 
 # 单端口运行：先构建前端，再以 release 模式启动后端（前端 + API 同端口）
@@ -59,8 +82,15 @@ release:
 	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags=sqlite_nocgo $(LDFLAGS) -o "dist/nexusagent-windows-amd64.exe" ./cmd/server
 	@echo "==> 打包"
 	cd dist && tar czf nexusagent-darwin-amd64.tar.gz nexusagent-darwin-amd64 && tar czf nexusagent-darwin-arm64.tar.gz nexusagent-darwin-arm64 && tar czf nexusagent-linux-amd64.tar.gz nexusagent-linux-amd64 && tar czf nexusagent-linux-arm64.tar.gz nexusagent-linux-arm64 && zip nexusagent-windows-amd64.zip nexusagent-windows-amd64.exe
-	@echo "==> 创建 macOS App 包"
-	@./scripts/package-darwin.sh dist nexusagent-darwin-arm64 2>/dev/null || echo "⚠️   macOS 打包需在 macOS 上运行"
+	@echo "==> 创建 macOS 桌面应用包"
+	@if command -v pake &>/dev/null; then \
+		./scripts/build-pake.sh dist $(VERSION) && \
+		./scripts/package-darwin.sh dist nexusagent-darwin-arm64 dist && \
+		cd dist && tar czf nexusagent-darwin-desktop.tar.gz NexusAgent.app; \
+	else \
+		echo "⚠️  未安装 pake-cli，跳过桌面客户端打包"; \
+		echo "   安装: pnpm install -g pake-cli"; \
+	fi
 	@echo "==> 发布文件已生成到 dist/"
 	@ls -lh dist/
 
@@ -71,7 +101,7 @@ test:
 # 清理构建产物
 clean:
 	@-rm -f nexusagent
-	@-rm -rf web/dist
+	@-rm -rf web/dist dist
 
 # 构建 Docker 镜像（多阶段构建，含前端 + 后端）
 # 用法: make docker-build

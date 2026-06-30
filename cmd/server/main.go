@@ -141,10 +141,16 @@ func main() {
 	acpSvc.StopHealthCheck()
 }
 
-// openBrowserAfterDelay 延迟打开浏览器（等待服务就绪）
+// openBrowserAfterDelay 延迟后用系统默认浏览器打开 URL（开发模式快速预览）。
+// 生产桌面客户端使用 Pake (Tauri) 打包，不依赖此函数。
 func openBrowserAfterDelay(url string) {
 	time.Sleep(800 * time.Millisecond)
 	log.Printf("打开浏览器: %s", url)
+	openDefaultBrowser(url)
+}
+
+// openDefaultBrowser 用系统默认浏览器打开 URL。
+func openDefaultBrowser(url string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
@@ -181,13 +187,14 @@ func loadDBAgentConfigs(repo *repository.AgentConfigRepository, registrar *agent
 }
 
 // defaultAgentConfigs 是首次启动时写入数据库的默认 agent 配置。
+// npx 包不指定版本号，始终使用最新版（用户可在设置页手动固定版本）。
 var defaultAgentConfigs = []models.AgentConfig{
 	{
 		Type:        "claude-code",
 		DisplayName: "Claude Code",
 		Description: "Anthropic Claude Code 编码 agent",
 		Command:     "npx",
-		Args:        `["@agentclientprotocol/claude-agent-acp@0.39.0"]`,
+		Args:        `["@agentclientprotocol/claude-agent-acp"]`,
 		APIKeyEnv:   "ANTHROPIC_API_KEY",
 		Timeout:     "300s",
 		Enabled:     true,
@@ -197,27 +204,18 @@ var defaultAgentConfigs = []models.AgentConfig{
 		DisplayName: "CodeBuddy",
 		Description: "腾讯 CodeBuddy 编码 agent",
 		Command:     "npx",
-		Args:        `["@tencent-ai/codebuddy-code@2.101.0","--acp"]`,
+		Args:        `["@tencent-ai/codebuddy-code","--acp"]`,
 		Timeout:     "300s",
-		Enabled:     true,
+		Enabled:     false,
 	},
 	{
 		Type:        "kilocode",
 		DisplayName: "Kilo Code",
 		Description: "Kilo Code 编码 agent",
 		Command:     "npx",
-		Args:        `["@kilocode/cli@7.3.16","acp"]`,
+		Args:        `["@kilocode/cli","acp"]`,
 		Timeout:     "300s",
-		Enabled:     true,
-	},
-	{
-		Type:        "devin",
-		DisplayName: "Devin",
-		Description: "Devin AI agent",
-		Command:     "/Users/shenkonghui/.aizen/agents/devin/bin/devin",
-		Args:        `["acp"]`,
-		Timeout:     "300s",
-		Enabled:     true,
+		Enabled:     false,
 	},
 }
 
