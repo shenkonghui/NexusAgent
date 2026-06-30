@@ -1,11 +1,11 @@
 import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill } from '../types'
 import { apiFetch } from './client'
 
-// 创建会话（可选 model_value 指定初始模型）
-export function createSession(agentType: string, cwd?: string, modelValue?: string): Promise<{ data: Session }> {
+// 创建会话（可选 model_value 指定初始模型，可选 workspace_id）
+export function createSession(agentType: string, workspaceId?: number, modelValue?: string): Promise<{ data: Session }> {
   return apiFetch('/sessions', {
     method: 'POST',
-    body: JSON.stringify({ agent_type: agentType, cwd: cwd || '', model_value: modelValue || '' }),
+    body: JSON.stringify({ agent_type: agentType, workspace_id: workspaceId || 0, model_value: modelValue || '' }),
   })
 }
 
@@ -38,11 +38,10 @@ export function cancelSession(id: number): Promise<void> {
   return apiFetch(`/sessions/${id}/cancel`, { method: 'POST' })
 }
 
-// 恢复/重开会话，可选 cwd 用于指定新工作目录
-export function resumeSession(id: number, cwd?: string): Promise<{ data: Session }> {
+// 恢复/重开会话
+export function resumeSession(id: number): Promise<{ data: Session }> {
   return apiFetch(`/sessions/${id}/resume`, {
     method: 'POST',
-    body: JSON.stringify({ cwd: cwd || '' }),
   })
 }
 

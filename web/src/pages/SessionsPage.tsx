@@ -86,8 +86,8 @@ export default function SessionsPage() {
     if (!selectedAgent || creating) return
     setCreating(true); setError('')
     try {
-      const resp = await createSession(selectedAgent, cwd, selectedModel || undefined)
-      navigate(`/sessions/${resp.data.id}`, { state: { initialPrompt: prompt } })
+      const resp = await createSession(selectedAgent, 0, selectedModel || undefined)
+      navigate(`/workspaces/${resp.data.workspace_id}/sessions/${resp.data.id}`, { state: { initialPrompt: prompt } })
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.failed'))
       setCreating(false)

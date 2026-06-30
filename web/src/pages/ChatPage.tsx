@@ -12,7 +12,6 @@ import SessionSidebar from '../components/SessionSidebar'
 import MessageList from '../components/MessageList'
 import PromptInput from '../components/PromptInput'
 import ModelSelector from '../components/ModelSelector'
-import DirectoryPicker from '../components/DirectoryPicker'
 import ErrorBanner from '../components/ErrorBanner'
 import LoadingSpinner from '../components/LoadingSpinner'
 import WorkspacePanel from '../components/WorkspacePanel'
@@ -24,8 +23,9 @@ const DEFAULT_AGENT_KEY = 'nexus.default.agent'
 
 export default function ChatPage() {
   const { t } = useTranslation()
-  const { id } = useParams<{ id: string }>()
-  const sessionId = Number(id)
+  const { wid, sid } = useParams<{ wid: string; sid: string }>()
+  const workspaceId = Number(wid)
+  const sessionId = Number(sid)
   const hasSession = !isNaN(sessionId)
   const { user, loading: authLoading } = useRequireAuth()
   const navigate = useNavigate()
@@ -60,12 +60,8 @@ export default function ChatPage() {
   const [selectedModel, setSelectedModel] = useState('')
   const [probeConfigs, setProbeConfigs] = useState<ConfigOption[]>([])
   const [probing, setProbing] = useState(false)
-  const [agentCwd, setAgentCwd] = useState('')
-  const [showDirPicker, setShowDirPicker] = useState(false)
   const [creating, setCreating] = useState(false)
   const [resuming, setResuming] = useState(false)
-  const [showResumePicker, setShowResumePicker] = useState(false)
-  const [resumeCwd, setResumeCwd] = useState('')
 
   const changesCount = useMemo(() => {
     const paths = new Set<string>()
@@ -178,11 +174,9 @@ export default function ChatPage() {
     if (!selectedAgent || creating) return
     setCreating(true); setError('')
     try {
-      const resp = await createSession(selectedAgent, agentCwd, selectedModel || undefined)
-      // 记住默认 agent
+      const resp = await createSession(selectedAgent, workspaceId || 0, selectedModel || undefined)
       localStorage.setItem(DEFAULT_AGENT_KEY, selectedAgent)
-      // 导航到新建的会话页面，携带初始 prompt
-      navigate(`/sessions/${resp.data.id}`, { state: { initialPrompt: prompt } })
+      navigate(`/workspaces/${resp.data.workspace_id}/sessions/${resp.data.id}`, { state: { initialPrompt: prompt } })
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.failed'))
       setCreating(false)
@@ -205,10 +199,10 @@ export default function ChatPage() {
   async function handleCancel() { try { await cancelSession(sessionId); setSending(false) } catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) } }
 
   // 恢复异常状态的会话（error 或 closed）
-  async function handleResume(cwd?: string) {
+  async function handleResume() {
     setResuming(true); setError('')
     try {
-      await resumeSession(sessionId, cwd)
+      await resumeSession(sessionId)
       await loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.failed'))
@@ -227,8 +221,15 @@ export default function ChatPage() {
 
   async function handleDeleteSession(id: number) {
     setError('')
-    try { await deleteSession(id); if (id === sessionId) navigate('/'); else setAllSessions((prev) => prev.filter((s) => s.id !== id)) }
-    catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) }
+    try {
+      await deleteSession(id)
+      if (id === sessionId) {
+        if (!isNaN(workspaceId)) navigate(`/workspaces/${workspaceId}`)
+        else navigate('/')
+      } else {
+        setAllSessions((prev) => prev.filter((s) => s.id !== id))
+      }
+    } catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) }
   }
 
   async function handleRenameSession(id: number, title: string) {
@@ -333,14 +334,7 @@ export default function ChatPage() {
                 </div>
               )}
               {probing && <span className={styles.homeConfigHint}>探测配置中...</span>}
-              {/* 工作目录：未设置时显示按钮，设置后置灰显示路径 */}
-              {!agentCwd ? (
-                <button type="button" className={styles.homeBrowseBtn}
-                  onClick={() => setShowDirPicker(true)}
-                >设置工作目录</button>
-              ) : (
-                <span className={styles.homeCwdDisplay} title={agentCwd}>{agentCwd}</span>
-              )}
+              {/* 工作目录：后续由 workspace 管理 */}
             </div>
           </div>
 
@@ -362,12 +356,7 @@ export default function ChatPage() {
           />
         </div>
 
-        {showDirPicker && (
-          <DirectoryPicker initialPath={agentCwd}
-            onSelect={(path) => { setAgentCwd(path); setShowDirPicker(false) }}
-            onClose={() => setShowDirPicker(false)}
-          />
-        )}
+        
       </div>
     )
   }
@@ -394,7 +383,7 @@ export default function ChatPage() {
               </button>
             )}
             <span className={styles.agentType}>{session?.agent_type || ''}</span>
-            {session?.cwd && <span className={styles.cwd}>{session.cwd}</span>}
+            {session?.workspace?.cwd && <span className={styles.cwd}>{session.workspace.cwd}</span>}
           </div>
           <div className={styles.actions}>
             <button className={`${styles.fileBtn} ${showWorkspace ? styles.fileBtnActive : ''}`}
@@ -419,13 +408,13 @@ export default function ChatPage() {
 
         <MessageList messages={messages} loading={sending}
           scheduled={session?.source === 'scheduled'} executions={executions}
-          sessionId={sessionId} cwd={session?.cwd}
+          sessionId={sessionId} cwd={session?.workspace?.cwd || ''}
         />
 
         {session?.status === 'active' ? (
           <PromptInput onSend={handleSend} onCancel={handleCancel}
             sending={sending} disabled={false}
-            commands={commands} modes={modes} skills={skills} cwd={session?.cwd}
+            commands={commands} modes={modes} skills={skills} cwd={session?.workspace?.cwd || ''}
             placeholder={t('session.promptPlaceholder')}
           />
         ) : (
@@ -434,33 +423,23 @@ export default function ChatPage() {
               {session?.status === 'error' ? t('session.errorHint') : t('session.closedHint')}
             </span>
             <button type="button" className={styles.recoverBtn}
-              onClick={() => handleResume(resumeCwd || undefined)}
+              onClick={handleResume}
               disabled={resuming}
             >{resuming ? t('common.loading') : t('session.resume')}</button>
-            <button type="button" className={styles.recoverDirBtn}
-              onClick={() => setShowResumePicker(true)}
-              disabled={resuming}
-              title={t('session.resumePrompt')}
-            >{resumeCwd ? resumeCwd : t('session.resumePrompt')}</button>
           </div>
         )}
       </div>
 
       {showWorkspace && session && (
         <div className={styles.workspaceWrap}>
-          <WorkspacePanel sessionId={sessionId} cwd={session.cwd}
+          <WorkspacePanel sessionId={sessionId} cwd={session.workspace?.cwd || ''}
             messages={messages} changesCount={changesCount}
             onClose={() => setShowWorkspace(false)}
           />
         </div>
       )}
 
-      {showResumePicker && (
-        <DirectoryPicker initialPath={resumeCwd || session?.cwd || ''}
-          onSelect={(path) => { setResumeCwd(path); setShowResumePicker(false) }}
-          onClose={() => setShowResumePicker(false)}
-        />
-      )}
+      
     </div>
   )
 }

@@ -1,0 +1,82 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dialog {
+  background: #fff;
+  border-radius: 8px;
+  padding: 24px;
+  min-width: 400px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.dialog h3 {
+  margin: 0 0 16px;
+  font-size: 16px;
+}
+
+.input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  font-size: 14px;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+}
+
+.dirRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.dirRow .input {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.browseBtn {
+  padding: 8px 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.actions button {
+  padding: 6px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.actions button[type="button"] {
+  border: 1px solid #d9d9d9;
+  background: #fff;
+}
+
+.actions button[type="submit"] {
+  border: none;
+  background: #1677ff;
+  color: #fff;
+}
+
+.actions button[type="submit"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

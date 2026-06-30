@@ -73,15 +73,28 @@ export interface AgentSkill {
   scope: string; // "project" | "user"
 }
 
+// 工作区
+export interface Workspace {
+  id: number;
+  user_id: number;
+  name: string;
+  cwd: string;
+  mode: 'persistent' | 'temporary';
+  temp_dir?: string;
+  session_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // 会话
 export interface Session {
   id: number;
   session_id: string;
   agent_type: string;
-  cwd: string;
   status: 'active' | 'closed' | 'error';
   user_id: number;
-  workspace_mode: string;
+  workspace_id: number | null;
+  workspace?: Workspace;
   last_prompt: string;
   title: string;
   source: 'manual' | 'scheduled';

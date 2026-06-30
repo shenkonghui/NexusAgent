@@ -117,7 +117,7 @@
     "noFavorites": "暂无收藏"
   },
   "settings": {
-    "title": "Agent 设置",
+    "title": "设置",
     "agentList": "Agent 列表",
     "addAgent": "添加 Agent",
     "editAgent": "编辑 Agent",
@@ -263,5 +263,16 @@
     "minutesAgo": "{{count}} 分钟前",
     "hoursAgo": "{{count}} 小时前",
     "daysAgo": "{{count}} 天前"
+  },
+  "workspace": {
+    "title": "工作区",
+    "create": "新建工作区",
+    "name": "名称",
+    "cwd": "工作目录",
+    "save": "保存为正式工作区",
+    "delete": "删除工作区",
+    "rename": "重命名",
+    "default": "默认工作区",
+    "empty": "暂无工作区"
   }
 }
