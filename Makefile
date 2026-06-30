@@ -1,4 +1,7 @@
-.PHONY: dev backend frontend build run test clean docker-build docker-up docker-down docker-logs
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+LDFLAGS := -ldflags="-s -w -X main.version=$(VERSION)"
+
+.PHONY: dev backend frontend build run test clean release release-dry docker-build docker-up docker-down docker-logs
 
 # 一键启动前后端开发服务器
 # 用法: make dev
@@ -27,14 +30,39 @@ backend-stop:
 build:
 	@echo "==> 构建前端"
 	@cd web && npm run build
-	@echo "==> 构建后端"
-	@go build -o nexusagent ./cmd/server
+	@echo "==> 构建后端 ($(VERSION))"
+	@CGO_ENABLED=1 go build $(LDFLAGS) -o nexusagent ./cmd/server
+
+# 桌面模式：构建后以 release 模式启动并自动打开浏览器
+# 用法: make run-desktop
+run-desktop: build
+	@echo "==> 桌面模式启动 http://localhost:8080"
+	@SERVER_MODE=release ./nexusagent --open
 
 # 单端口运行：先构建前端，再以 release 模式启动后端（前端 + API 同端口）
 # 用法: make run
 run: build
 	@echo "==> 单端口启动 http://localhost:8080"
 	@SERVER_MODE=release ./nexusagent
+
+# 生产环境发布构建：跨平台编译
+# 用法: make release
+release:
+	@echo "==> 构建前端"
+	@cd web && npm run build
+	@echo "==> 交叉编译"
+	@mkdir -p dist
+	@CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o "dist/nexusagent-darwin-amd64" ./cmd/server
+	@CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o "dist/nexusagent-darwin-arm64" ./cmd/server
+	@CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o "dist/nexusagent-linux-amd64" ./cmd/server
+	@CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o "dist/nexusagent-linux-arm64" ./cmd/server
+	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags=sqlite_nocgo $(LDFLAGS) -o "dist/nexusagent-windows-amd64.exe" ./cmd/server
+	@echo "==> 打包"
+	cd dist && tar czf nexusagent-darwin-amd64.tar.gz nexusagent-darwin-amd64 && tar czf nexusagent-darwin-arm64.tar.gz nexusagent-darwin-arm64 && tar czf nexusagent-linux-amd64.tar.gz nexusagent-linux-amd64 && tar czf nexusagent-linux-arm64.tar.gz nexusagent-linux-arm64 && zip nexusagent-windows-amd64.zip nexusagent-windows-amd64.exe
+	@echo "==> 创建 macOS App 包"
+	@./scripts/package-darwin.sh dist nexusagent-darwin-arm64 2>/dev/null || echo "⚠️   macOS 打包需在 macOS 上运行"
+	@echo "==> 发布文件已生成到 dist/"
+	@ls -lh dist/
 
 # 运行后端全部测试
 test:

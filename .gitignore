@@ -10,3 +10,10 @@ web/dist/
 
 # go vendor（本地依赖，go mod vendor 生成，不入库）
 vendor/
+
+# release build artifacts
+dist/
+*.tar.gz
+*.zip
+*.exe
+*.app

@@ -1,12 +1,16 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
+	"time"
 
 	"nexusagent/internal/acp"
 	"nexusagent/internal/agent"
@@ -19,7 +23,21 @@ import (
 	"nexusagent/internal/services"
 )
 
+// ldflags 注入
+var version = "dev"
+
 func main() {
+	// 命令行参数（桌面客户端模式）
+	openBrowser := flag.Bool("open", false, "启动后自动打开浏览器")
+	dataDir := flag.String("data-dir", "", "数据目录（覆盖 config.yaml 中的 database.path 和 workspace）")
+	showVersion := flag.Bool("version", false, "显示版本号")
+	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("NexusAgent %s %s/%s\n", version, runtime.GOOS, runtime.GOARCH)
+		return
+	}
+
 	cfgPath := "config.yaml"
 	if p := os.Getenv("CONFIG_PATH"); p != "" {
 		cfgPath = p
@@ -31,6 +49,12 @@ func main() {
 	}
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("配置校验失败: %v", err)
+	}
+
+	// --data-dir 覆盖数据库路径与会话工作区
+	if *dataDir != "" {
+		cfg.Database.Path = filepath.Join(*dataDir, "nexus.db")
+		cfg.Agents.Workspace.SessionDir = filepath.Join(*dataDir, "session")
 	}
 
 	if cfg.Database.Path != ":memory:" {
@@ -95,7 +119,7 @@ func main() {
 	go func() {
 		addr := fmt.Sprintf(":%d", cfg.Server.Port)
 		if cfg.Server.Mode == "release" {
-			log.Printf("NexusAgent 启动于 %s（单端口模式，前端 + API）", addr)
+			log.Printf("NexusAgent %s 启动于 %s（单端口模式，前端 + API）", version, addr)
 		} else {
 			log.Printf("NexusAgent API 启动于 %s（开发模式，前端请访问 vite dev server）", addr)
 		}
@@ -104,12 +128,35 @@ func main() {
 		}
 	}()
 
+	// 桌面模式：自动打开浏览器
+	if *openBrowser {
+		go openBrowserAfterDelay(fmt.Sprintf("http://127.0.0.1:%d", cfg.Server.Port))
+	}
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("服务正在关闭...")
 	schedulerSvc.Stop()
 	acpSvc.StopHealthCheck()
+}
+
+// openBrowserAfterDelay 延迟打开浏览器（等待服务就绪）
+func openBrowserAfterDelay(url string) {
+	time.Sleep(800 * time.Millisecond)
+	log.Printf("打开浏览器: %s", url)
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", url)
+	default:
+		return
+	}
+	_ = cmd.Start()
 }
 
 // loadDBAgentConfigs 加载数据库中启用的 agent 配置并注册到 registry 与 acp service。
