@@ -39,8 +39,22 @@ type PasswordConfig struct {
 }
 
 type AgentsConfig struct {
-	Workspace  WorkspaceConfig  `yaml:"workspace"`
-	ClaudeCode ClaudeCodeConfig `yaml:"claude_code"`
+	Workspace      WorkspaceConfig      `yaml:"workspace"`
+	ClaudeCode     ClaudeCodeConfig     `yaml:"claude_code"`
+	Skills         SkillsConfig         `yaml:"skills"`
+	SlashCommands  SlashCommandsConfig  `yaml:"slash_commands"`
+}
+
+// SkillsConfig 配置 Agent Skill 扫描目录（相对项目 cwd 或用户 home，支持 ~ 与绝对路径）。
+type SkillsConfig struct {
+	ProjectDirs []string `yaml:"project_dirs"`
+	UserDirs    []string `yaml:"user_dirs"`
+}
+
+// SlashCommandsConfig 配置 slash command 扫描目录（Markdown 文件，支持子目录）。
+type SlashCommandsConfig struct {
+	ProjectDirs []string `yaml:"project_dirs"`
+	UserDirs    []string `yaml:"user_dirs"`
 }
 
 type WorkspaceConfig struct {

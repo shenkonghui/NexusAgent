@@ -6,7 +6,7 @@ import { getSession, listMessages, closeSession, cancelSession, resumeSession, l
 import { listScheduledTasks, listExecutions } from '../api/scheduledTasks'
 import { streamPrompt, isTimeoutError } from '../api/sse'
 import { parseDiffsFromMessage } from '../utils/diff'
-import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution } from '../types'
+import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution, ScheduledTask } from '../types'
 import SessionSidebar from '../components/SessionSidebar'
 import MessageList from '../components/MessageList'
 import PromptInput from '../components/PromptInput'
@@ -35,6 +35,7 @@ export default function ChatPage() {
   const [commands, setCommands] = useState<AgentCommand[]>([])
   const [modes, setModes] = useState<SessionMode[]>([])
   const [skills, setSkills] = useState<AgentSkill[]>([])
+  const [tasks, setTasks] = useState<ScheduledTask[]>([])
   const [configOptions, setConfigOptions] = useState<ConfigOption[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -70,6 +71,7 @@ export default function ChatPage() {
       listModes(sessionId).then((r) => setModes(r.data.modes || [])).catch(() => setModes([]))
       listSkills(sessionId).then((r) => setSkills(r.data.skills || [])).catch(() => setSkills([]))
       listConfigOptions(sessionId).then((r) => setConfigOptions(r.data.config_options || [])).catch(() => setConfigOptions([]))
+      listScheduledTasks().then((r) => setTasks(r.data.tasks || [])).catch(() => setTasks([]))
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.failed'))
     } finally { setLoading(false) }
@@ -123,6 +125,7 @@ export default function ChatPage() {
       listModes(sessionId).then((r) => setModes(r.data.modes || [])).catch(() => setModes([]))
       listSkills(sessionId).then((r) => setSkills(r.data.skills || [])).catch(() => setSkills([]))
       listConfigOptions(sessionId).then((r) => setConfigOptions(r.data.config_options || [])).catch(() => setConfigOptions([]))
+      listScheduledTasks().then((r) => setTasks(r.data.tasks || [])).catch(() => setTasks([]))
     } catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) }
   }
 
@@ -217,7 +220,7 @@ export default function ChatPage() {
 
         <PromptInput onSend={handleSend} onCancel={handleCancel}
           sending={sending} disabled={session?.status !== 'active'}
-          commands={commands} modes={modes} skills={skills} cwd={session?.cwd}
+          commands={commands} modes={modes} skills={skills} tasks={tasks} cwd={session?.cwd}
           placeholder={session?.status === 'closed'
             ? t('session.closedHint')
             : session?.status === 'error'

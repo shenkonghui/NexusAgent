@@ -110,6 +110,12 @@ ANTHROPIC_API_KEY=sk-xxx make docker-up-d
 | `database.path` | `DATABASE_PATH` | SQLite 数据库路径，默认 `./data/nexus.db` |
 | `jwt.secret` | `JWT_SECRET` | JWT 签名密钥（生产环境务必修改） |
 | `agents.workspace.session_dir` | `AGENTS_WORKSPACE_SESSION_DIR` | 会话工作区根目录 |
+| `agents.skills.project_dirs` | — | 项目级 Skill 扫描目录（相对 cwd，支持子目录） |
+| `agents.skills.user_dirs` | — | 用户级 Skill 扫描目录（相对 home，支持子目录） |
+| `agents.slash_commands.project_dirs` | — | 项目级 slash command 扫描目录（Markdown，支持子目录） |
+| `agents.slash_commands.user_dirs` | — | 用户级 slash command 扫描目录（Markdown，支持子目录） |
+
+Skill 与 slash command 均可在对话输入框中通过 `/` 触发自动补全。Skill 遵循 agentskills.io 规范（`SKILL.md`）；slash command 为 Markdown 文件，文件名即命令名，子目录以 `/` 分隔。
 
 Agent 的连接命令、参数、API Key 等可在前端「设置」页面动态管理，修改后实时生效。
 

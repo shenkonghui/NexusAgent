@@ -20,7 +20,8 @@
     "success": "Success",
     "failed": "Failed",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "send": "Send"
   },
   "nav": {
     "sessionList": "Sessions",
@@ -93,7 +94,7 @@
     "deleteSuccess": "Session deleted",
     "closeSuccess": "Session closed",
     "noSessions": "No sessions",
-    "promptPlaceholder": "Type your prompt, / for commands, @ for files. Enter to send, Shift+Enter for new line",
+    "promptPlaceholder": "Type your prompt, / for commands, @ for skill/command/file/task. Enter to send, Shift+Enter for new line",
     "sending": "Sending...",
     "cancelPrompt": "Cancel",
     "resume": "Reopen",
@@ -113,6 +114,21 @@
     "advancedOptions": "Advanced Options",
     "closedHint": "Session closed, click Reopen to continue",
     "errorHint": "Session has an error, please reconnect"
+  },
+  "prompt": {
+    "slashMenuTitle": "Commands / modes (↑↓ select, Enter/Tab confirm)",
+    "atMenuTitle": "Mention skill / command / file / task (↑↓ select, Enter/Tab confirm)",
+    "atFileMenuTitle": "File — {{path}} (↑↓ select, Enter/Tab confirm, 📁 enter folder)",
+    "atSkill": "@skill",
+    "atSkillHint": "Reference an Agent Skill",
+    "atCommand": "@command",
+    "atCommandHint": "Reference a Slash Command",
+    "atFile": "@file",
+    "atFileHint": "Reference a workspace file",
+    "atTask": "@task",
+    "atTaskHint": "Reference a scheduled task",
+    "directory": "Directory",
+    "fileItem": "File"
   },
   "settings": {
     "title": "Agent Settings",
