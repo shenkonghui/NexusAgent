@@ -30,9 +30,12 @@ export default function ChatPage() {
   const { user, loading: authLoading } = useRequireAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const initialPromptRef = useRef<string>(
-    (location.state as { initialPrompt?: string } | null)?.initialPrompt || '',
-  )
+  const initialPromptRef = useRef<string>('')
+  // location.state 变化时同步到 ref（navigate 跳转不会重新挂载组件，useRef 不会自动更新）
+  const pendingInitial = (location.state as { initialPrompt?: string } | null)?.initialPrompt
+  if (pendingInitial) {
+    initialPromptRef.current = pendingInitial
+  }
 
   // 会话相关状态
   const [session, setSession] = useState<Session | null>(null)
