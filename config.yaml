@@ -27,3 +27,19 @@ agents:
       - "@zed-industries/claude-code-acp@latest"
     api_key_env: ANTHROPIC_API_KEY
     timeout: 300s
+  # Agent Skill 扫描目录（相对项目 cwd 或用户 home，支持 ~ 与绝对路径；留空使用默认目录）
+  skills:
+    project_dirs:
+      - .agents/skills
+      - .claude/skills
+    user_dirs:
+      - .agents/skills
+      - .claude/skills
+  # Slash command 扫描目录（Markdown 文件，支持子目录；留空使用默认目录）
+  slash_commands:
+    project_dirs:
+      - .cursor/commands
+      - .claude/commands
+    user_dirs:
+      - .cursor/commands
+      - .claude/commands

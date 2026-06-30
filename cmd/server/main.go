@@ -49,7 +49,7 @@ func main() {
 	authSvc := services.NewAuthService(db, jwtSvc, cfg.Password.BcryptCost)
 
 	// P1: ACP 服务
-	acpSvc := acp.NewService(db, cfg.Agents.Workspace)
+	acpSvc := acp.NewService(db, cfg.Agents)
 	acpSvc.RecoverActiveSessions()
 	if cfg.Agents.ClaudeCode.Enabled {
 		acpSvc.RegisterBackend(acp.NewClaudeCodeBackend(cfg.Agents.ClaudeCode))

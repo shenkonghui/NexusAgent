@@ -28,11 +28,12 @@ func setupACPTestDB(t *testing.T) *gorm.DB {
 func newTestService(t *testing.T) *Service {
 	t.Helper()
 	db := setupACPTestDB(t)
-	wsCfg := config.WorkspaceConfig{
-		DefaultMode:   "external",
-		TempDirPrefix: "test-",
-	}
-	return NewService(db, wsCfg)
+	return NewService(db, config.AgentsConfig{
+		Workspace: config.WorkspaceConfig{
+			DefaultMode:   "external",
+			TempDirPrefix: "test-",
+		},
+	})
 }
 
 func TestService_RegisterBackend(t *testing.T) {
@@ -91,7 +92,7 @@ func TestService_RecoverActiveSessions(t *testing.T) {
 		WorkspaceMode: models.WorkspaceModeExternal,
 	})
 
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	svc := NewService(db, config.AgentsConfig{Workspace: config.WorkspaceConfig{DefaultMode: "external"}})
 	svc.RecoverActiveSessions()
 
 	s, _ := svc.GetSession("recovery-1")
@@ -142,7 +143,7 @@ func TestService_ListMessages(t *testing.T) {
 	_ = msgRepo.Create(&models.Message{SessionID: "msg-list-1", DBSessionID: sess.ID, Role: models.MessageRoleUser, Kind: models.MessageKindUserMessageChunk, Content: "问题", RawJSON: "{}", Sequence: 1})
 	_ = msgRepo.Create(&models.Message{SessionID: "msg-list-1", DBSessionID: sess.ID, Role: models.MessageRoleAssistant, Kind: models.MessageKindAgentMessageChunk, Content: "回答", RawJSON: "{}", Sequence: 2})
 
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	svc := NewService(db, config.AgentsConfig{Workspace: config.WorkspaceConfig{DefaultMode: "external"}})
 	msgs, err := svc.ListMessages("msg-list-1")
 	if err != nil {
 		t.Fatalf("ListMessages 返回错误: %v", err)
@@ -173,7 +174,7 @@ func TestService_ListMessages_Empty(t *testing.T) {
 		Status: models.SessionStatusActive, WorkspaceMode: models.WorkspaceModeExternal,
 	})
 
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	svc := NewService(db, config.AgentsConfig{Workspace: config.WorkspaceConfig{DefaultMode: "external"}})
 	msgs, err := svc.ListMessages("empty-msg-1")
 	if err != nil {
 		t.Fatalf("ListMessages 返回错误: %v", err)
@@ -192,7 +193,7 @@ func TestService_ResumeSession_Closed_NoBackend(t *testing.T) {
 		Status: models.SessionStatusClosed, WorkspaceMode: models.WorkspaceModeExternal,
 	})
 
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	svc := NewService(db, config.AgentsConfig{Workspace: config.WorkspaceConfig{DefaultMode: "external"}})
 	_, err := svc.ResumeSession(context.Background(), "closed-resume-1", "")
 	if err == nil {
 		t.Error("期望后端未注册时重开返回错误")
@@ -207,7 +208,7 @@ func TestService_ResumeSession_CwdNotExists(t *testing.T) {
 		Status: models.SessionStatusError, WorkspaceMode: models.WorkspaceModeExternal,
 	})
 
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	svc := NewService(db, config.AgentsConfig{Workspace: config.WorkspaceConfig{DefaultMode: "external"}})
 	_, err := svc.ResumeSession(context.Background(), "closed-resume-2", "")
 	if err == nil {
 		t.Error("期望工作目录不存在时返回错误")
@@ -239,7 +240,7 @@ func TestService_DeleteSession_RemovesSessionAndMessages(t *testing.T) {
 		t.Fatalf("创建消息失败: %v", err)
 	}
 
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	svc := NewService(db, config.AgentsConfig{Workspace: config.WorkspaceConfig{DefaultMode: "external"}})
 	if err := svc.DeleteSession(context.Background(), "delete-1"); err != nil {
 		t.Fatalf("DeleteSession 错误: %v", err)
 	}

@@ -61,7 +61,7 @@ type Service struct {
 	configs      map[string][]acp.SessionConfigOption
 	modes        map[string][]acp.SessionMode
 	mu           sync.RWMutex
-	wsConfig     config.WorkspaceConfig
+	agentsConfig config.AgentsConfig
 
 	// 健康检查与自动重连控制
 	hcCtx    context.Context
@@ -70,7 +70,7 @@ type Service struct {
 }
 
 // NewService 创建新的 Service。
-func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig) *Service {
+func NewService(db *gorm.DB, agentsConfig config.AgentsConfig) *Service {
 	return &Service{
 		sessions:     repository.NewSessionRepository(db),
 		messages:     repository.NewMessageRepository(db),
@@ -81,7 +81,7 @@ func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig) *Service {
 		commands:     make(map[string][]acp.AvailableCommand),
 		configs:      make(map[string][]acp.SessionConfigOption),
 		modes:        make(map[string][]acp.SessionMode),
-		wsConfig:     wsConfig,
+		agentsConfig: agentsConfig,
 	}
 }
 
@@ -418,9 +418,9 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType, cwd st
 	var ws *Workspace
 	if cwd != "" {
 		ws = NewExternalWorkspace(cwd)
-	} else if s.wsConfig.DefaultMode == "temporary" {
+	} else if s.agentsConfig.Workspace.DefaultMode == "temporary" {
 		var err error
-		ws, err = NewTemporaryWorkspace(s.wsConfig.SessionDir, s.wsConfig.TempDirPrefix)
+		ws, err = NewTemporaryWorkspace(s.agentsConfig.Workspace.SessionDir, s.agentsConfig.Workspace.TempDirPrefix)
 		if err != nil {
 			return nil, err
 		}
@@ -755,16 +755,34 @@ func (s *Service) captureCommands(sessionID string, u acp.SessionUpdate) {
 	// CurrentModeUpdate 仅更新当前选中的 mode ID，可用 mode 列表不变，无需重新缓存
 }
 
-// ListCommands 返回会话缓存的可用 slash command 列表。
+// ListCommands 返回会话可用的 slash command 列表（ACP 缓存 + 配置目录扫描）。
 func (s *Service) ListCommands(sessionID string) ([]acp.AvailableCommand, error) {
-	if _, err := s.GetSession(sessionID); err != nil {
+	session, err := s.GetSession(sessionID)
+	if err != nil {
 		return nil, err
 	}
+
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	cmds := s.commands[sessionID]
-	out := make([]acp.AvailableCommand, len(cmds))
-	copy(out, cmds)
+	acpCmds := s.commands[sessionID]
+	s.mu.RUnlock()
+
+	seen := make(map[string]bool, len(acpCmds))
+	out := make([]acp.AvailableCommand, 0, len(acpCmds))
+	for _, cmd := range acpCmds {
+		seen[cmd.Name] = true
+		out = append(out, cmd)
+	}
+
+	for _, cmd := range ScanSlashCommands(session.Cwd, s.agentsConfig.SlashCommands) {
+		if seen[cmd.Name] {
+			continue
+		}
+		seen[cmd.Name] = true
+		out = append(out, acp.AvailableCommand{
+			Name:        cmd.Name,
+			Description: cmd.Description,
+		})
+	}
 	return out, nil
 }
 
@@ -852,7 +870,7 @@ func (s *Service) ListSkills(sessionID string) ([]Skill, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ScanSkills(session.Cwd), nil
+	return ScanSkills(session.Cwd, s.agentsConfig.Skills), nil
 }
 
 // SetConfigOption 设置会话的 config option 值（如切换模型）。

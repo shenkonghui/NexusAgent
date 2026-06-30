@@ -1,11 +1,14 @@
 package acp
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"nexusagent/internal/config"
 )
 
 // Skill 表示一个已发现的 Agent Skill（agentskills.io 规范）。
@@ -22,96 +25,65 @@ type skillFrontmatter struct {
 	Description string `json:"description" yaml:"description"`
 }
 
-// skillScanDirs 返回需要扫描的 skill 目录列表（按优先级排序，project 优先于 user）。
-// cwd 为会话工作目录，home 为用户主目录。
-func skillScanDirs(cwd, home string) []struct {
-	Path  string
-	Scope string
-} {
-	var dirs []struct {
-		Path  string
-		Scope string
-	}
-	if cwd != "" {
-		dirs = append(dirs,
-			struct {
-				Path  string
-				Scope string
-			}{filepath.Join(cwd, ".agents", "skills"), "project"},
-			struct {
-				Path  string
-				Scope string
-			}{filepath.Join(cwd, ".claude", "skills"), "project"},
-		)
-	}
-	if home != "" {
-		dirs = append(dirs,
-			struct {
-				Path  string
-				Scope string
-			}{filepath.Join(home, ".agents", "skills"), "user"},
-			struct {
-				Path  string
-				Scope string
-			}{filepath.Join(home, ".claude", "skills"), "user"},
-		)
-	}
-	return dirs
-}
-
-// ScanSkills 扫描指定工作目录和用户主目录下的 Agent Skills。
+// ScanSkills 扫描配置目录下的 Agent Skills（支持子目录）。
 // 发现的 skill 按 name 去重（project 级别优先于 user 级别）。
-func ScanSkills(cwd string) []Skill {
+func ScanSkills(cwd string, cfg config.SkillsConfig) []Skill {
 	home, _ := os.UserHomeDir()
-	scanDirs := skillScanDirs(cwd, home)
+	scanDirs := skillScanEntries(cwd, home, cfg)
 
 	seen := make(map[string]bool)
 	var skills []Skill
 
 	for _, dir := range scanDirs {
-		entries, err := os.ReadDir(dir.Path)
-		if err != nil {
+		info, err := os.Stat(dir.Path)
+		if err != nil || !info.IsDir() {
 			continue
 		}
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			name := entry.Name()
-			// 跳过隐藏目录
-			if strings.HasPrefix(name, ".") {
-				continue
-			}
-			// project 级别优先，已发现则跳过 user 级别同名 skill
-			if seen[name] {
-				continue
-			}
-
-			skillPath := filepath.Join(dir.Path, name, "SKILL.md")
-			content, err := os.ReadFile(skillPath)
+		_ = filepath.WalkDir(dir.Path, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
-				continue
+				return nil
+			}
+			if d.IsDir() {
+				if path != dir.Path && isHiddenEntry(d.Name()) {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !strings.EqualFold(d.Name(), "SKILL.md") {
+				return nil
 			}
 
+			content, err := os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
 			parsed, ok := parseSkillMarkdown(content)
 			if !ok {
-				continue
+				return nil
 			}
 
-			// name 以 frontmatter 为准，若为空则用目录名
 			skillName := parsed.Name
 			if skillName == "" {
-				skillName = name
+				relDir, err := filepath.Rel(dir.Path, filepath.Dir(path))
+				if err != nil || relDir == "." {
+					skillName = filepath.Base(filepath.Dir(path))
+				} else {
+					skillName = filepath.ToSlash(relDir)
+				}
+			}
+			if seen[skillName] {
+				return nil
 			}
 
 			seen[skillName] = true
 			skills = append(skills, Skill{
 				Name:        skillName,
 				Description: parsed.Description,
-				Location:    skillPath,
+				Location:    path,
 				Scope:       dir.Scope,
 			})
-		}
+			return nil
+		})
 	}
 
 	return skills

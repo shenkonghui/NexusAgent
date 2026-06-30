@@ -102,6 +102,12 @@ The configuration file is `config.yaml`. Environment variable overrides:
 | `server.web_dist` | `WEB_DIST` | Frontend build directory (default: `./web/dist`) |
 | `database.path` | `DATABASE_PATH` | SQLite database path (default: `./data/nexus.db`) |
 | `jwt.secret` | `JWT_SECRET` | JWT signing secret (change in production!) |
+| `agents.skills.project_dirs` | — | Project-level Skill scan directories (relative to cwd, supports subdirs) |
+| `agents.skills.user_dirs` | — | User-level Skill scan directories (relative to home, supports subdirs) |
+| `agents.slash_commands.project_dirs` | — | Project-level slash command scan directories (Markdown, supports subdirs) |
+| `agents.slash_commands.user_dirs` | — | User-level slash command scan directories (Markdown, supports subdirs) |
+
+Skills and slash commands can be triggered via `/` in the chat input. Skills follow the agentskills.io spec (`SKILL.md`); slash commands are Markdown files where the filename becomes the command name (nested dirs use `/` as separator).
 
 Agent commands, arguments, and API keys can be managed dynamically in the Settings page — changes take effect immediately.
 
