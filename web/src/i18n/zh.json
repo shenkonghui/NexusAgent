@@ -20,7 +20,8 @@
     "success": "操作成功",
     "failed": "操作失败",
     "yes": "是",
-    "no": "否"
+    "no": "否",
+    "send": "发送"
   },
   "nav": {
     "sessionList": "会话列表",
@@ -93,7 +94,7 @@
     "deleteSuccess": "会话已删除",
     "closeSuccess": "会话已关闭",
     "noSessions": "暂无会话",
-    "promptPlaceholder": "输入 prompt，/ 命令/模式，@ 文件引用，Enter 发送，Shift+Enter 换行",
+    "promptPlaceholder": "输入 prompt，/ 命令/模式，@ skill/command/file/task，Enter 发送，Shift+Enter 换行",
     "sending": "发送中...",
     "cancelPrompt": "取消",
     "resume": "重新打开",
@@ -113,6 +114,21 @@
     "advancedOptions": "高级选项",
     "closedHint": "会话已关闭，点击「重新打开」继续",
     "errorHint": "会话状态异常，请先恢复"
+  },
+  "prompt": {
+    "slashMenuTitle": "命令 / 模式（↑↓ 选择，Enter/Tab 确认）",
+    "atMenuTitle": "引用 skill / command / file / task（↑↓ 选择，Enter/Tab 确认）",
+    "atFileMenuTitle": "文件引用 — {{path}}（↑↓ 选择，Enter/Tab 确认，📁 进入目录）",
+    "atSkill": "@skill",
+    "atSkillHint": "引用 Agent Skill",
+    "atCommand": "@command",
+    "atCommandHint": "引用 Slash Command",
+    "atFile": "@file",
+    "atFileHint": "引用工作区文件",
+    "atTask": "@task",
+    "atTaskHint": "引用定时任务",
+    "directory": "目录",
+    "fileItem": "文件"
   },
   "settings": {
     "title": "Agent 设置",
