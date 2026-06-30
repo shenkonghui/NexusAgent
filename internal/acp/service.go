@@ -949,11 +949,10 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID, cwdOverride stri
 		return nil, fmt.Errorf("恢复会话-创建 ACP 会话: %w", err)
 	}
 
-	// 若提供了 cwd 覆盖，更新会话工作区为 external 模式
+	// 若提供了 cwd 覆盖，更新会话工作区为 persistent 模式
 	if cwdOverride != "" && cwdOverride != session.Cwd {
-		_ = s.sessions.UpdateWorkspace(session.ID, cwdOverride, models.WorkspaceModeExternal, "")
+		// TODO(workspace): 后续迁移到 Workspace 模型后移除
 		session.Cwd = cwdOverride
-		session.WorkspaceMode = models.WorkspaceModeExternal
 		session.TempDir = ""
 	}
 

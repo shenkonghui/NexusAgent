@@ -7,9 +7,6 @@ const (
 	SessionStatusClosed = "closed"
 	SessionStatusError  = "error"
 
-	WorkspaceModeExternal  = "external"
-	WorkspaceModeTemporary = "temporary"
-
 	// 会话来源：手动创建或定时任务创建
 	SessionSourceManual    = "manual"
 	SessionSourceScheduled = "scheduled"

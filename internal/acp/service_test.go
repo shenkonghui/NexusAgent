@@ -83,7 +83,7 @@ func TestService_RecoverActiveSessions(t *testing.T) {
 		AgentType:     "claude-code",
 		Cwd:           "/tmp",
 		Status:        models.SessionStatusActive,
-		WorkspaceMode: models.WorkspaceModeExternal,
+		WorkspaceMode: "",
 	})
 
 	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
@@ -100,7 +100,7 @@ func TestService_GetSessionByDBID(t *testing.T) {
 	repo := repository.NewSessionRepository(setupACPTestDB(t))
 	_ = repo.Create(&models.Session{
 		SessionID: "db-id-test", AgentType: "claude-code", Cwd: "/tmp",
-		Status: models.SessionStatusActive, WorkspaceMode: models.WorkspaceModeExternal,
+		Status: models.SessionStatusActive, WorkspaceMode: "",
 	})
 	// 用 svc 自身的 sessions 仓库重新查（因为 newTestService 用的是同一个 db）
 	sess, err := svc.GetSession("db-id-test")
@@ -129,7 +129,7 @@ func TestService_ListMessages(t *testing.T) {
 	repo := repository.NewSessionRepository(db)
 	sess := &models.Session{
 		SessionID: "msg-list-1", AgentType: "claude-code", Cwd: "/tmp",
-		Status: models.SessionStatusActive, WorkspaceMode: models.WorkspaceModeExternal,
+		Status: models.SessionStatusActive, WorkspaceMode: "",
 	}
 	_ = repo.Create(sess)
 
@@ -165,7 +165,7 @@ func TestService_ListMessages_Empty(t *testing.T) {
 	repo := repository.NewSessionRepository(db)
 	_ = repo.Create(&models.Session{
 		SessionID: "empty-msg-1", AgentType: "claude-code", Cwd: "/tmp",
-		Status: models.SessionStatusActive, WorkspaceMode: models.WorkspaceModeExternal,
+		Status: models.SessionStatusActive, WorkspaceMode: "",
 	})
 
 	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
@@ -184,7 +184,7 @@ func TestService_ResumeSession_Closed_NoBackend(t *testing.T) {
 	repo := repository.NewSessionRepository(db)
 	_ = repo.Create(&models.Session{
 		SessionID: "closed-resume-1", AgentType: "claude-code", Cwd: "/tmp",
-		Status: models.SessionStatusClosed, WorkspaceMode: models.WorkspaceModeExternal,
+		Status: models.SessionStatusClosed, WorkspaceMode: "",
 	})
 
 	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
@@ -199,7 +199,7 @@ func TestService_ResumeSession_CwdNotExists(t *testing.T) {
 	repo := repository.NewSessionRepository(db)
 	_ = repo.Create(&models.Session{
 		SessionID: "closed-resume-2", AgentType: "claude-code", Cwd: "/this/path/does/not/exist",
-		Status: models.SessionStatusError, WorkspaceMode: models.WorkspaceModeExternal,
+		Status: models.SessionStatusError, WorkspaceMode: "",
 	})
 
 	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
@@ -222,7 +222,7 @@ func TestService_DeleteSession_RemovesSessionAndMessages(t *testing.T) {
 	msgRepo := repository.NewMessageRepository(db)
 	sess := &models.Session{
 		SessionID: "delete-1", AgentType: "claude-code", Cwd: "/tmp",
-		Status: models.SessionStatusClosed, WorkspaceMode: models.WorkspaceModeExternal,
+		Status: models.SessionStatusClosed, WorkspaceMode: "",
 	}
 	if err := repo.Create(sess); err != nil {
 		t.Fatalf("创建会话失败: %v", err)

@@ -18,7 +18,7 @@ type Workspace struct {
 // NewExternalWorkspace 创建一个使用外部指定 cwd 的工作区。
 func NewExternalWorkspace(cwd string) *Workspace {
 	return &Workspace{
-		Mode: models.WorkspaceModeExternal,
+		Mode: models.WorkspaceModePersistent,
 		Cwd:  cwd,
 	}
 }

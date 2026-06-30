@@ -18,7 +18,7 @@ func TestSessionRepo_Create(t *testing.T) {
 		AgentType:     "claude-code",
 		Cwd:           "/tmp/work",
 		Status:        models.SessionStatusActive,
-		WorkspaceMode: models.WorkspaceModeExternal,
+		WorkspaceMode: "",
 	}
 	if err := repo.Create(s); err != nil {
 		t.Fatalf("Create 返回错误: %v", err)
@@ -33,7 +33,7 @@ func TestSessionRepo_FindBySessionID(t *testing.T) {
 	repo := NewSessionRepository(db)
 	_ = repo.Create(&models.Session{
 		SessionID: "acp-session-2", AgentType: "claude-code", Cwd: "/tmp",
-		Status: models.SessionStatusActive, WorkspaceMode: models.WorkspaceModeExternal,
+		Status: models.SessionStatusActive, WorkspaceMode: "",
 	})
 
 	got, err := repo.FindBySessionID("acp-session-2")
@@ -58,7 +58,7 @@ func TestSessionRepo_UpdateStatus(t *testing.T) {
 	repo := NewSessionRepository(db)
 	s := &models.Session{
 		SessionID: "acp-session-3", AgentType: "claude-code", Cwd: "/tmp",
-		Status: models.SessionStatusActive, WorkspaceMode: models.WorkspaceModeExternal,
+		Status: models.SessionStatusActive, WorkspaceMode: "",
 	}
 	_ = repo.Create(s)
 
@@ -80,7 +80,7 @@ func TestSessionRepo_UpdateLastPrompt(t *testing.T) {
 	repo := NewSessionRepository(db)
 	s := &models.Session{
 		SessionID: "acp-session-4", AgentType: "claude-code", Cwd: "/tmp",
-		Status: models.SessionStatusActive, WorkspaceMode: models.WorkspaceModeExternal,
+		Status: models.SessionStatusActive, WorkspaceMode: "",
 	}
 	_ = repo.Create(s)
 
@@ -96,9 +96,9 @@ func TestSessionRepo_UpdateLastPrompt(t *testing.T) {
 func TestSessionRepo_FindByUserID(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewSessionRepository(db)
-	_ = repo.Create(&models.Session{SessionID: "u1-s1", AgentType: "claude-code", Cwd: "/tmp", Status: models.SessionStatusActive, WorkspaceMode: models.WorkspaceModeExternal, UserID: 1})
-	_ = repo.Create(&models.Session{SessionID: "u1-s2", AgentType: "claude-code", Cwd: "/tmp", Status: models.SessionStatusActive, WorkspaceMode: models.WorkspaceModeExternal, UserID: 1})
-	_ = repo.Create(&models.Session{SessionID: "u2-s1", AgentType: "claude-code", Cwd: "/tmp", Status: models.SessionStatusActive, WorkspaceMode: models.WorkspaceModeExternal, UserID: 2})
+	_ = repo.Create(&models.Session{SessionID: "u1-s1", AgentType: "claude-code", Cwd: "/tmp", Status: models.SessionStatusActive, WorkspaceMode: "", UserID: 1})
+	_ = repo.Create(&models.Session{SessionID: "u1-s2", AgentType: "claude-code", Cwd: "/tmp", Status: models.SessionStatusActive, WorkspaceMode: "", UserID: 1})
+	_ = repo.Create(&models.Session{SessionID: "u2-s1", AgentType: "claude-code", Cwd: "/tmp", Status: models.SessionStatusActive, WorkspaceMode: "", UserID: 2})
 
 	sessions, err := repo.FindByUserID(1)
 	if err != nil {
@@ -112,8 +112,8 @@ func TestSessionRepo_FindByUserID(t *testing.T) {
 func TestSessionRepo_MarkActiveAsError(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewSessionRepository(db)
-	_ = repo.Create(&models.Session{SessionID: "err-1", AgentType: "claude-code", Cwd: "/tmp", Status: models.SessionStatusActive, WorkspaceMode: models.WorkspaceModeExternal})
-	_ = repo.Create(&models.Session{SessionID: "err-2", AgentType: "claude-code", Cwd: "/tmp", Status: models.SessionStatusClosed, WorkspaceMode: models.WorkspaceModeExternal})
+	_ = repo.Create(&models.Session{SessionID: "err-1", AgentType: "claude-code", Cwd: "/tmp", Status: models.SessionStatusActive, WorkspaceMode: ""})
+	_ = repo.Create(&models.Session{SessionID: "err-2", AgentType: "claude-code", Cwd: "/tmp", Status: models.SessionStatusClosed, WorkspaceMode: ""})
 
 	if err := repo.MarkActiveAsError(); err != nil {
 		t.Fatalf("MarkActiveAsError 返回错误: %v", err)
@@ -133,7 +133,7 @@ func TestSessionRepo_FindByID(t *testing.T) {
 	repo := NewSessionRepository(db)
 	s := &models.Session{
 		SessionID: "find-by-id-1", AgentType: "claude-code", Cwd: "/tmp",
-		Status: models.SessionStatusActive, WorkspaceMode: models.WorkspaceModeExternal,
+		Status: models.SessionStatusActive, WorkspaceMode: "",
 	}
 	_ = repo.Create(s)
 
@@ -159,7 +159,7 @@ func TestSessionRepo_UpdateSessionID(t *testing.T) {
 	repo := NewSessionRepository(db)
 	s := &models.Session{
 		SessionID: "old-session-id", AgentType: "claude-code", Cwd: "/tmp",
-		Status: models.SessionStatusError, WorkspaceMode: models.WorkspaceModeExternal,
+		Status: models.SessionStatusError, WorkspaceMode: "",
 	}
 	_ = repo.Create(s)
 
