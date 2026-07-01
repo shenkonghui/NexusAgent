@@ -23,22 +23,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // 启动时验证 token 有效性
+  // 启动时验证 token；无 token 或 token 失效时尝试 auto_login
   useEffect(() => {
-    const token = localStorage.getItem('access_token')
-    if (!token) {
-      setLoading(false)
-      return
+    async function initAuth() {
+      try {
+        const token = localStorage.getItem('access_token')
+        if (token) {
+          try {
+            const resp = await authApi.getMe({ skipAuthRedirect: true })
+            setUser(resp.data)
+            return
+          } catch {
+            localStorage.removeItem('access_token')
+            localStorage.removeItem('refresh_token')
+          }
+        }
+        try {
+          const resp = await authApi.autoLogin()
+          localStorage.setItem('access_token', resp.access_token)
+          localStorage.setItem('refresh_token', resp.refresh_token)
+          setUser(resp.user)
+        } catch {
+          // auto_login 未启用或失败，展示登录页
+        }
+      } finally {
+        setLoading(false)
+      }
     }
-
-    authApi
-      .getMe()
-      .then((resp) => setUser(resp.data))
-      .catch(() => {
-        localStorage.removeItem('access_token')
-        localStorage.removeItem('refresh_token')
-      })
-      .finally(() => setLoading(false))
+    void initAuth()
   }, [])
 
   const login = useCallback(async (account: string, password: string) => {

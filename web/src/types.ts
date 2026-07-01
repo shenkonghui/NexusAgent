@@ -120,6 +120,7 @@ export interface ScheduledTask {
   id: number;
   name: string;
   agent_type: string;
+  workspace_id?: number;
   cwd: string;
   prompt: string;
   cron_expr: string;

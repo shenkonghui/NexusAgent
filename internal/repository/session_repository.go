@@ -70,10 +70,10 @@ func (r *SessionRepository) MarkActiveAsError() error {
 		Update("status", models.SessionStatusError).Error
 }
 
-// FindByID 按数据库主键查询会话。
+// FindByID 按数据库主键查询会话（含关联 Workspace，供前端 @ 文件引用等使用）。
 func (r *SessionRepository) FindByID(id uint) (*models.Session, error) {
 	var s models.Session
-	if err := r.db.First(&s, id).Error; err != nil {
+	if err := r.db.Preload("Workspace").First(&s, id).Error; err != nil {
 		return nil, ErrSessionNotFound
 	}
 	return &s, nil

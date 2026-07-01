@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -73,7 +75,7 @@ func main() {
 	authSvc.SeedAdminUser()
 
 	// P1: ACP 服务
-	acpSvc := acp.NewService(db, cfg.Agents.Workspace)
+	acpSvc := acp.NewService(db, cfg.Agents.Workspace, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules)
 	acpSvc.RecoverActiveSessions()
 
 	// P2: Agent 注册表与路由
@@ -103,18 +105,19 @@ func main() {
 	if err := schedulerSvc.Start(); err != nil {
 		log.Fatalf("启动定时任务调度器失败: %v", err)
 	}
-	schedTaskH := handlers.NewScheduledTaskHandler(schedTaskRepo, execRepo, schedulerSvc, agentRouter)
+	schedTaskH := handlers.NewScheduledTaskHandler(schedTaskRepo, execRepo, schedulerSvc, agentRouter, agentRouter)
 
-	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
+	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
 
+	addr := fmt.Sprintf(":%d", cfg.Server.Port)
+	srv := &http.Server{Addr: addr, Handler: engine}
 	go func() {
-		addr := fmt.Sprintf(":%d", cfg.Server.Port)
 		if cfg.Server.Mode == "release" {
 			log.Printf("NexusAgent %s 启动于 %s（单端口模式，前端 + API）", version, addr)
 		} else {
 			log.Printf("NexusAgent API 启动于 %s（开发模式，前端请访问 vite dev server）", addr)
 		}
-		if err := engine.Run(addr); err != nil {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("服务器启动失败: %v", err)
 		}
 	}()
@@ -128,8 +131,21 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("服务正在关闭...")
+	go func() {
+		<-quit
+		log.Println("强制退出...")
+		os.Exit(1)
+	}()
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer shutdownCancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP 服务关闭超时: %v", err)
+	}
+
 	schedulerSvc.Stop()
 	acpSvc.StopHealthCheck()
+	os.Exit(0)
 }
 
 // openBrowserAfterDelay 延迟后用系统默认浏览器打开 URL（开发模式快速预览）。

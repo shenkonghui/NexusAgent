@@ -36,28 +36,36 @@ async function refreshAccessToken(): Promise<boolean> {
   }
 }
 
-// 清除 token 并跳转登录页
-export function clearTokensAndRedirect(): void {
+export type ApiFetchOptions = RequestInit & {
+  // 401 且 refresh 失败时不硬跳转 /login，留给 AuthContext 尝试 auto_login
+  skipAuthRedirect?: boolean
+}
+
+// 清除 token；可选跳转登录页
+export function clearTokensAndRedirect(redirect = true): void {
   localStorage.removeItem('access_token')
   localStorage.removeItem('refresh_token')
-  window.location.href = '/login'
+  if (redirect) {
+    window.location.href = '/login'
+  }
 }
 
 // 带认证的 fetch 封装
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit = {},
+  options: ApiFetchOptions = {},
 ): Promise<T> {
+  const { skipAuthRedirect, ...fetchOptions } = options
   const token = getAccessToken()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...options.headers as Record<string, string>,
+    ...fetchOptions.headers as Record<string, string>,
   }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  let resp = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+  let resp = await fetch(`${BASE_URL}${path}`, { ...fetchOptions, headers })
 
   // 401 时尝试刷新 token 并重试
   if (resp.status === 401) {
@@ -67,9 +75,9 @@ export async function apiFetch<T>(
       if (newToken) {
         headers['Authorization'] = `Bearer ${newToken}`
       }
-      resp = await fetch(`${BASE_URL}${path}`, { ...options, headers })
+      resp = await fetch(`${BASE_URL}${path}`, { ...fetchOptions, headers })
     } else {
-      clearTokensAndRedirect()
+      clearTokensAndRedirect(!skipAuthRedirect)
       throw new Error('认证已过期，请重新登录')
     }
   }

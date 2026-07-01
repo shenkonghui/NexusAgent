@@ -144,3 +144,17 @@
   background: var(--danger);
   opacity: 0.85;
 }
+
+.embedded {
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.embedded .form {
+  align-items: stretch;
+}
+
+.embedded .input {
+  max-height: 160px;
+}

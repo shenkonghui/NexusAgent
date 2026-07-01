@@ -182,6 +182,7 @@
     "loadFailed": "Failed to load scheduled tasks",
     "noTasks": "No scheduled tasks",
     "validationError": "Please fill in all required fields",
+    "workspaceHint": "Task runs in the currently selected workspace",
     "executions": "Execution History",
     "executionTime": "Execution Time",
     "executionStatus": "Status",
@@ -257,5 +258,17 @@
     "minutesAgo": "{{count}} min ago",
     "hoursAgo": "{{count}} hr ago",
     "daysAgo": "{{count}} days ago"
+  },
+  "workspace": {
+    "title": "Workspace",
+    "create": "New Workspace",
+    "name": "Name",
+    "cwd": "Working Directory",
+    "save": "Save as Persistent",
+    "delete": "Delete Workspace",
+    "deleteConfirm": "Are you sure you want to delete this workspace? All sessions in it will be deleted too. This action cannot be undone.",
+    "rename": "Rename",
+    "default": "Default Workspace",
+    "empty": "No workspaces"
   }
 }

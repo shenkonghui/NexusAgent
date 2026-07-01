@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import i18n from '../i18n'
+import { formatTimeAgo } from '../utils/time'
 import type { Session, ScheduledTask, AgentStatus } from '../types'
 import { listScheduledTasks } from '../api/scheduledTasks'
 import { listAgentStatus } from '../api/agents'
@@ -13,6 +14,7 @@ interface SessionSidebarProps {
   onDelete?: (id: number) => void
   onRename?: (id: number, title: string) => void
   onCollapse?: () => void
+  onNewScheduledTask?: () => void
 }
 
 const STORAGE_KEY = 'nexus.sidebar.collapsed'
@@ -38,7 +40,7 @@ function saveFavorites(ids: number[]) {
   try { localStorage.setItem(FAVS_KEY, JSON.stringify(ids)) } catch { /* ignore */ }
 }
 
-export default function SessionSidebar({ sessions, currentId, onDelete, onRename, onCollapse }: SessionSidebarProps) {
+export default function SessionSidebar({ sessions, currentId, onDelete, onRename, onCollapse, onNewScheduledTask }: SessionSidebarProps) {
   const { t } = useTranslation()
   const [editingId, setEditingId] = useState<number | null>(null)
   const [showLangMenu, setShowLangMenu] = useState(false)
@@ -46,7 +48,7 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
   const [editTitle, setEditTitle] = useState('')
   const location = useLocation()
   const navigate = useNavigate()
-  const isHome = location.pathname === '/' || location.pathname.startsWith('/sessions')
+  const isSessionList = location.pathname === '/'
 
   const [collapsed, setCollapsed] = useState(loadCollapsed)
   const [favorites, setFavorites] = useState<number[]>(loadFavorites)
@@ -104,7 +106,14 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
     })
   }
 
-  const locale = i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US'
+  function handleNewScheduledTask(e: React.MouseEvent | React.KeyboardEvent) {
+    e.stopPropagation()
+    if (onNewScheduledTask) {
+      onNewScheduledTask()
+      return
+    }
+    navigate('/scheduled-tasks', { state: { openCreate: true } })
+  }
 
   return (
     <div className={styles.sidebar}>
@@ -122,23 +131,6 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
           </button>
         )}
       </Link>
-
-      {agentStatuses.length > 0 && (
-        <div className={styles.agentStatus}>
-          {agentStatuses.map((s) => {
-            const statusLabel = s.status === 'connected' ? t('status.connected') : s.status === 'connecting' ? t('status.connecting') : t('status.disconnected')
-            const dotClass = s.status === 'connected' ? styles.agentDotOn : s.status === 'connecting' ? styles.agentDotConnecting : styles.agentDotOff
-            return (
-              <div key={s.agent_type} className={styles.agentStatusItem} title={`${s.agent_type}: ${statusLabel}`}>
-                <span className={`${styles.agentDot} ${dotClass}`} />
-                <span className={styles.agentName}>{s.agent_type}</span>
-                {s.status === 'connecting' && <span className={styles.agentStatusText}>{statusLabel}</span>}
-                <span className={styles.agentCount}>{s.active_count}</span>
-              </div>
-            )
-          })}
-        </div>
-      )}
 
       <div className={styles.groups}>
         {/* 收藏任务 */}
@@ -159,11 +151,10 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
                   return (
                     <div key={session.id} className={`${styles.item} ${currentId === session.id ? styles.itemActive : ''}`}>
                       <Link to={`/sessions/${session.id}`} className={styles.itemLink}>
-                        <div className={styles.itemHeader}>
-                          <span className={styles.agentType}>{session.title || session.agent_type}</span>
+                        <div className={styles.itemRow}>
+                          <span className={styles.itemTitle}>{session.title || session.agent_type}</span>
+                          <span className={styles.itemTime}>{formatTimeAgo(session.created_at, t)}</span>
                         </div>
-                        {session.last_prompt && <p className={styles.lastPrompt}>{session.last_prompt}</p>}
-                        <span className={styles.time}>{new Date(session.created_at).toLocaleString(locale)}</span>
                       </Link>
                       <div className={styles.itemActions}>
                         <button type="button" className={styles.favBtnActive}
@@ -187,8 +178,8 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
             <span
               className={styles.addBtn} role="button" tabIndex={0}
               title={t('session.newSession')}
-              onClick={(e) => { e.stopPropagation(); navigate('/') }}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); navigate('/') } }}
+              onClick={(e) => { e.stopPropagation(); navigate('/new') }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); navigate('/new') } }}
             >+</span>
           </button>
           {!collapsed.manual && (
@@ -213,11 +204,10 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
                     ) : (
                       <>
                         <Link to={`/sessions/${session.id}`} className={styles.itemLink}>
-                          <div className={styles.itemHeader}>
-                            <span className={styles.agentType}>{session.title || session.agent_type}</span>
+                          <div className={styles.itemRow}>
+                            <span className={styles.itemTitle}>{session.title || session.agent_type}</span>
+                            <span className={styles.itemTime}>{formatTimeAgo(session.created_at, t)}</span>
                           </div>
-                          {session.last_prompt && <p className={styles.lastPrompt}>{session.last_prompt}</p>}
-                          <span className={styles.time}>{new Date(session.created_at).toLocaleString(locale)}</span>
                         </Link>
                         <div className={styles.itemActions}>
                           <button type="button" className={favorites.includes(session.id) ? styles.favBtnActive : styles.favBtn}
@@ -254,6 +244,12 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
             <span className={styles.groupArrow}>{collapsed.scheduled ? '▶' : '▼'}</span>
             <span className={styles.groupTitle}>📅 {t('nav.scheduledTasks')}</span>
             <span className={styles.groupCount}>{tasks.length}</span>
+            <span
+              className={styles.addBtn} role="button" tabIndex={0}
+              title={t('scheduledTask.newTask')}
+              onClick={handleNewScheduledTask}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleNewScheduledTask(e) }}
+            >+</span>
           </button>
           {!collapsed.scheduled && (
             <div className={styles.groupList}>
@@ -276,7 +272,12 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
                       disabled={!task.db_session_id}
                       style={!task.db_session_id ? { cursor: 'default', opacity: 0.6 } : undefined}
                     >
-                      <span className={styles.agentType}>{task.name}</span>
+                      <div className={styles.itemRow}>
+                        <span className={styles.itemTitle}>{task.name}</span>
+                        {task.last_run_at && (
+                          <span className={styles.itemTime}>{formatTimeAgo(task.last_run_at, t)}</span>
+                        )}
+                      </div>
                     </button>
                   </div>
                 ))
@@ -286,8 +287,26 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
         </div>
       </div>
 
+      {agentStatuses.length > 0 && (
+        <div className={styles.agentStatus}>
+          {agentStatuses.map((s) => {
+            const statusLabel = s.status === 'connected' ? t('status.connected') : s.status === 'connecting' ? t('status.connecting') : t('status.disconnected')
+            const dotClass = s.status === 'connected' ? styles.agentDotOn : s.status === 'connecting' ? styles.agentDotConnecting : styles.agentDotOff
+            const statusClass = s.status === 'connected' ? styles.agentStatusConnected : s.status === 'connecting' ? styles.agentStatusConnecting : styles.agentStatusDisconnected
+            return (
+              <div key={s.agent_type} className={styles.agentStatusItem}>
+                <span className={`${styles.agentDot} ${dotClass}`} />
+                <span className={styles.agentName}>{s.agent_type}</span>
+                <span className={`${styles.agentStatusText} ${statusClass}`}>{statusLabel}</span>
+                <span className={styles.agentCount}>{s.active_count}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       <div className={styles.footer}>
-        <Link to="/" className={`${styles.navItem} ${isHome ? styles.navItemActive : ''}`}>
+        <Link to="/" className={`${styles.navItem} ${isSessionList ? styles.navItemActive : ''}`}>
           <span className={styles.navIcon}>📋</span>
           <span>{t('nav.sessionList')}</span>
         </Link>

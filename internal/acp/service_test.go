@@ -25,6 +25,15 @@ func setupACPTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+func testDiscoveryConfig(t *testing.T) (config.SkillsConfig, config.CommandsConfig, config.RulesConfig) {
+	t.Helper()
+	cfg := &config.Config{JWT: config.JWTConfig{Secret: "this-is-a-very-long-jwt-secret-key-32+bytes!"}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate 默认配置失败: %v", err)
+	}
+	return cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules
+}
+
 func newTestService(t *testing.T) *Service {
 	t.Helper()
 	db := setupACPTestDB(t)
@@ -32,7 +41,8 @@ func newTestService(t *testing.T) *Service {
 		DefaultMode:   "external",
 		TempDirPrefix: "test-",
 	}
-	return NewService(db, wsCfg)
+	skills, commands, rules := testDiscoveryConfig(t)
+	return NewService(db, wsCfg, skills, commands, rules)
 }
 
 func TestService_RegisterBackend(t *testing.T) {
@@ -86,7 +96,8 @@ func TestService_RecoverActiveSessions(t *testing.T) {
 		WorkspaceMode: "",
 	})
 
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	skills, commands, rules := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
 	svc.RecoverActiveSessions()
 
 	s, _ := svc.GetSession("recovery-1")
@@ -137,7 +148,8 @@ func TestService_ListMessages(t *testing.T) {
 	_ = msgRepo.Create(&models.Message{SessionID: "msg-list-1", DBSessionID: sess.ID, Role: models.MessageRoleUser, Kind: models.MessageKindUserMessageChunk, Content: "问题", RawJSON: "{}", Sequence: 1})
 	_ = msgRepo.Create(&models.Message{SessionID: "msg-list-1", DBSessionID: sess.ID, Role: models.MessageRoleAssistant, Kind: models.MessageKindAgentMessageChunk, Content: "回答", RawJSON: "{}", Sequence: 2})
 
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	skills, commands, rules := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
 	msgs, err := svc.ListMessages("msg-list-1")
 	if err != nil {
 		t.Fatalf("ListMessages 返回错误: %v", err)
@@ -168,7 +180,8 @@ func TestService_ListMessages_Empty(t *testing.T) {
 		Status: models.SessionStatusActive, WorkspaceMode: "",
 	})
 
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	skills, commands, rules := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
 	msgs, err := svc.ListMessages("empty-msg-1")
 	if err != nil {
 		t.Fatalf("ListMessages 返回错误: %v", err)
@@ -187,7 +200,8 @@ func TestService_ResumeSession_Closed_NoBackend(t *testing.T) {
 		Status: models.SessionStatusClosed, WorkspaceMode: "",
 	})
 
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	skills, commands, rules := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
 	_, err := svc.ResumeSession(context.Background(), "closed-resume-1")
 	if err == nil {
 		t.Error("期望后端未注册时重开返回错误")
@@ -202,7 +216,8 @@ func TestService_ResumeSession_CwdNotExists(t *testing.T) {
 		Status: models.SessionStatusError, WorkspaceMode: "",
 	})
 
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	skills, commands, rules := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
 	_, err := svc.ResumeSession(context.Background(), "closed-resume-2")
 	if err == nil {
 		t.Error("期望工作目录不存在时返回错误")
@@ -234,7 +249,8 @@ func TestService_DeleteSession_RemovesSessionAndMessages(t *testing.T) {
 		t.Fatalf("创建消息失败: %v", err)
 	}
 
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"})
+	skills, commands, rules := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
 	if err := svc.DeleteSession(context.Background(), "delete-1"); err != nil {
 		t.Fatalf("DeleteSession 错误: %v", err)
 	}

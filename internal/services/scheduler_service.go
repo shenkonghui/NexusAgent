@@ -307,23 +307,9 @@ func (s *SchedulerService) ensureSession(ctx context.Context, t *models.Schedule
 
 	if t.DBSessionID == 0 {
 		// 首次执行：创建 session
-		// 从 scheduled task 的 cwd 创建或查找 workspace
-		ws, wsErr := s.exec.FindWorkspaceByUserIDAndCwd(t.UserID, t.Cwd)
-		var wsID uint
-		if wsErr != nil {
-			// 创建新 workspace
-			newWS := &models.Workspace{
-				UserID: t.UserID,
-				Name:   "scheduled-" + t.Name,
-				Cwd:    t.Cwd,
-				Mode:   models.WorkspaceModePersistent,
-			}
-			if cErr := s.exec.CreateWorkspace(newWS); cErr != nil {
-				return nil, 0, fmt.Errorf("创建工作区: %w", cErr)
-			}
-			wsID = newWS.ID
-		} else {
-			wsID = ws.ID
+		wsID, err := s.resolveTaskWorkspace(t)
+		if err != nil {
+			return nil, 0, err
 		}
 		session, err = s.exec.CreateSessionWithSource(ctx, t.AgentType, wsID, t.UserID, models.SessionSourceScheduled, t.ModelValue)
 		if err != nil {
@@ -364,4 +350,27 @@ func (s *SchedulerService) ensureSession(ctx context.Context, t *models.Schedule
 		execID = execs[0].ExecutionID + 1
 	}
 	return session, execID, nil
+}
+
+func (s *SchedulerService) resolveTaskWorkspace(t *models.ScheduledTask) (uint, error) {
+	if t.WorkspaceID > 0 {
+		return t.WorkspaceID, nil
+	}
+	if t.Cwd == "" {
+		return 0, fmt.Errorf("任务未关联工作区")
+	}
+	ws, err := s.exec.FindWorkspaceByUserIDAndCwd(t.UserID, t.Cwd)
+	if err != nil {
+		newWS := &models.Workspace{
+			UserID: t.UserID,
+			Name:   "scheduled-" + t.Name,
+			Cwd:    t.Cwd,
+			Mode:   models.WorkspaceModePersistent,
+		}
+		if cErr := s.exec.CreateWorkspace(newWS); cErr != nil {
+			return 0, fmt.Errorf("创建工作区: %w", cErr)
+		}
+		return newWS.ID, nil
+	}
+	return ws.ID, nil
 }

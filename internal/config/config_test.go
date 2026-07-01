@@ -156,6 +156,69 @@ func TestValidate_WorkspaceSessionDir_Default(t *testing.T) {
 	}
 }
 
+func TestValidate_SkillsUserDirsDefault(t *testing.T) {
+	cfg := &Config{JWT: JWTConfig{Secret: "this-is-a-very-long-jwt-secret-key-32+bytes!"}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate 错误: %v", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(home, ".claude", "skills")
+	if len(cfg.Agents.Skills.UserDirs) != 1 || cfg.Agents.Skills.UserDirs[0] != expected {
+		t.Errorf("UserDirs = %v, 期望 [%q]", cfg.Agents.Skills.UserDirs, expected)
+	}
+	if len(cfg.Agents.Skills.ProjectDirs) != 2 {
+		t.Errorf("ProjectDirs = %v, 期望 2 项", cfg.Agents.Skills.ProjectDirs)
+	}
+}
+
+func TestValidate_CommandsUserDirsDefault(t *testing.T) {
+	cfg := &Config{JWT: JWTConfig{Secret: "this-is-a-very-long-jwt-secret-key-32+bytes!"}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate 错误: %v", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(home, ".claude", "commands")
+	if len(cfg.Agents.Commands.UserDirs) != 1 || cfg.Agents.Commands.UserDirs[0] != expected {
+		t.Errorf("Commands.UserDirs = %v, 期望 [%q]", cfg.Agents.Commands.UserDirs, expected)
+	}
+	if len(cfg.Agents.Commands.ProjectDirs) != 1 || cfg.Agents.Commands.ProjectDirs[0] != ".claude/commands" {
+		t.Errorf("Commands.ProjectDirs = %v", cfg.Agents.Commands.ProjectDirs)
+	}
+}
+
+func TestValidate_RulesUserDirsDefault(t *testing.T) {
+	cfg := &Config{JWT: JWTConfig{Secret: "this-is-a-very-long-jwt-secret-key-32+bytes!"}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate 错误: %v", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantUser := []string{
+		filepath.Join(home, ".cursor", "rules"),
+		filepath.Join(home, ".claude", "CLAUDE.md"),
+	}
+	if len(cfg.Agents.Rules.UserDirs) != len(wantUser) {
+		t.Fatalf("Rules.UserDirs = %v, 期望 %v", cfg.Agents.Rules.UserDirs, wantUser)
+	}
+	for i, w := range wantUser {
+		if cfg.Agents.Rules.UserDirs[i] != w {
+			t.Errorf("Rules.UserDirs[%d] = %q, 期望 %q", i, cfg.Agents.Rules.UserDirs[i], w)
+		}
+	}
+	wantProject := []string{".cursor/rules", "CLAUDE.md"}
+	if len(cfg.Agents.Rules.ProjectDirs) != len(wantProject) {
+		t.Fatalf("Rules.ProjectDirs = %v, 期望 %v", cfg.Agents.Rules.ProjectDirs, wantProject)
+	}
+}
+
 func TestValidate_WorkspaceSessionDir_EnvOverride(t *testing.T) {
 	t.Setenv("JWT_SECRET", "env-secret-from-env-var-long-enough")
 	t.Setenv("AGENTS_WORKSPACE_SESSION_DIR", "/custom/session-dir")

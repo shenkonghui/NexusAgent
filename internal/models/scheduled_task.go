@@ -15,8 +15,9 @@ const (
 type ScheduledTask struct {
 	ID        uint   `gorm:"primaryKey" json:"id"`
 	Name      string `gorm:"size:128;not null" json:"name"`
-	AgentType string `gorm:"size:64;not null" json:"agent_type"`
-	Cwd       string `gorm:"size:512;not null" json:"cwd"`
+	AgentType   string `gorm:"size:64;not null" json:"agent_type"`
+	WorkspaceID uint   `gorm:"index" json:"workspace_id"`
+	Cwd         string `gorm:"size:512;not null" json:"cwd"`
 	Prompt    string `gorm:"type:text;not null" json:"prompt"`
 	CronExpr  string `gorm:"size:128;not null" json:"cron_expr"`
 	Enabled   bool   `gorm:"not null;default:true" json:"enabled"`

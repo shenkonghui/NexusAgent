@@ -188,6 +188,7 @@
     "loadFailed": "加载定时任务失败",
     "noTasks": "暂无定时任务",
     "validationError": "请填写所有必填字段",
+    "workspaceHint": "任务将在当前选中的工作区下执行",
     "executions": "执行记录",
     "executionTime": "执行时间",
     "executionStatus": "状态",
@@ -271,6 +272,7 @@
     "cwd": "工作目录",
     "save": "保存为正式工作区",
     "delete": "删除工作区",
+    "deleteConfirm": "确定删除此工作区吗？将同时删除其下所有会话，不可恢复。",
     "rename": "重命名",
     "default": "默认工作区",
     "empty": "暂无工作区"

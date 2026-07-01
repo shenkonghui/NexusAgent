@@ -26,22 +26,29 @@ type ExecutionLister interface {
 	ListExecutions(sessionID string) ([]repository.ExecutionAggregate, error)
 }
 
+// ScheduledTaskWorkspaceStore 解析定时任务关联的工作区。
+type ScheduledTaskWorkspaceStore interface {
+	FindWorkspaceByID(id uint) (*models.Workspace, error)
+}
+
 // ScheduledTaskHandler 处理定时任务相关请求。
 type ScheduledTaskHandler struct {
 	repo     *repository.ScheduledTaskRepository
 	execRepo *repository.TaskExecutionRepository
 	mgr      SchedulerManager
 	lister   ExecutionLister
+	wsStore  ScheduledTaskWorkspaceStore
 }
 
 // NewScheduledTaskHandler 创建 ScheduledTaskHandler。
-func NewScheduledTaskHandler(repo *repository.ScheduledTaskRepository, execRepo *repository.TaskExecutionRepository, mgr SchedulerManager, lister ExecutionLister) *ScheduledTaskHandler {
-	return &ScheduledTaskHandler{repo: repo, execRepo: execRepo, mgr: mgr, lister: lister}
+func NewScheduledTaskHandler(repo *repository.ScheduledTaskRepository, execRepo *repository.TaskExecutionRepository, mgr SchedulerManager, lister ExecutionLister, wsStore ScheduledTaskWorkspaceStore) *ScheduledTaskHandler {
+	return &ScheduledTaskHandler{repo: repo, execRepo: execRepo, mgr: mgr, lister: lister, wsStore: wsStore}
 }
 
 type createTaskRequest struct {
 	Name           string `json:"name" binding:"required"`
 	AgentType      string `json:"agent_type" binding:"required"`
+	WorkspaceID    uint   `json:"workspace_id"`
 	Cwd            string `json:"cwd"`
 	Prompt         string `json:"prompt" binding:"required"`
 	CronExpr       string `json:"cron_expr" binding:"required"`
@@ -66,15 +73,21 @@ func (h *ScheduledTaskHandler) Create(c *gin.Context) {
 		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
 		return
 	}
+	wsID, cwd, err := h.resolveWorkspace(uid, req.WorkspaceID, req.Cwd)
+	if err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+		return
+	}
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
 	task := &models.ScheduledTask{
-		Name:       strings.TrimSpace(req.Name),
-		AgentType:  req.AgentType,
-		Cwd:        req.Cwd,
-		Prompt:     req.Prompt,
+		Name:        strings.TrimSpace(req.Name),
+		AgentType:   req.AgentType,
+		WorkspaceID: wsID,
+		Cwd:         cwd,
+		Prompt:      req.Prompt,
 		CronExpr:   req.CronExpr,
 		Enabled:    enabled,
 		UserID:     uid,
@@ -119,6 +132,7 @@ func (h *ScheduledTaskHandler) Get(c *gin.Context) {
 type updateTaskRequest struct {
 	Name           *string `json:"name"`
 	AgentType      *string `json:"agent_type"`
+	WorkspaceID    *uint   `json:"workspace_id"`
 	Cwd            *string `json:"cwd"`
 	Prompt         *string `json:"prompt"`
 	CronExpr       *string `json:"cron_expr"`
@@ -144,7 +158,15 @@ func (h *ScheduledTaskHandler) Update(c *gin.Context) {
 	if req.AgentType != nil {
 		task.AgentType = *req.AgentType
 	}
-	if req.Cwd != nil {
+	if req.WorkspaceID != nil {
+		wsID, cwd, err := h.resolveWorkspace(task.UserID, *req.WorkspaceID, "")
+		if err != nil {
+			Fail(c, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+			return
+		}
+		task.WorkspaceID = wsID
+		task.Cwd = cwd
+	} else if req.Cwd != nil {
 		task.Cwd = *req.Cwd
 	}
 	if req.Prompt != nil {
@@ -254,6 +276,24 @@ func (h *ScheduledTaskHandler) loadOwnedTask(c *gin.Context) (*models.ScheduledT
 		return nil, false
 	}
 	return task, true
+}
+
+// resolveWorkspace 校验工作区归属并返回 workspace_id 与 cwd。
+func (h *ScheduledTaskHandler) resolveWorkspace(uid, workspaceID uint, fallbackCwd string) (uint, string, error) {
+	if workspaceID > 0 {
+		if h.wsStore == nil {
+			return 0, "", errors.New("工作区服务未配置")
+		}
+		ws, err := h.wsStore.FindWorkspaceByID(workspaceID)
+		if err != nil || ws == nil || ws.UserID != uid {
+			return 0, "", errors.New("工作区不存在")
+		}
+		return ws.ID, ws.Cwd, nil
+	}
+	if strings.TrimSpace(fallbackCwd) != "" {
+		return 0, strings.TrimSpace(fallbackCwd), nil
+	}
+	return 0, "", errors.New("请选择工作区")
 }
 
 // validateCron 校验标准 5 字段 cron 表达式。

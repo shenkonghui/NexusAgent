@@ -32,17 +32,36 @@ type AgentConfigProber interface {
 	ProbeConfigOptions(ctx context.Context, agentType string, userID uint) ([]acpsdk.SessionConfigOption, error)
 }
 
-// AgentHandler 处理 agent 列表相关请求。
-type AgentHandler struct {
-	lister       AgentLister
-	prober       AgentModelProber
-	cfgProber    AgentConfigProber
-	statusLister AgentStatusLister
+// AgentCommandLister 返回指定 agent 类型缓存的 slash command。
+type AgentCommandLister interface {
+	CachedCommands(agentType string, cwd string) []acpsdk.AvailableCommand
 }
 
-// NewAgentHandler 创建 AgentHandler。prober / cfgProber / statusLister 可为 nil。
+// AgentModeLister 返回指定 agent 类型缓存的 session mode。
+type AgentModeLister interface {
+	CachedModes(agentType string) []acpsdk.SessionMode
+}
+
+// AgentHandler 处理 agent 列表相关请求。
+type AgentHandler struct {
+	lister         AgentLister
+	prober         AgentModelProber
+	cfgProber      AgentConfigProber
+	cmdLister      AgentCommandLister
+	modeLister     AgentModeLister
+	statusLister   AgentStatusLister
+}
+
+// NewAgentHandler 创建 AgentHandler。各依赖可为 nil。
 func NewAgentHandler(lister AgentLister, prober AgentModelProber, cfgProber AgentConfigProber, statusLister AgentStatusLister) *AgentHandler {
-	return &AgentHandler{lister: lister, prober: prober, cfgProber: cfgProber, statusLister: statusLister}
+	h := &AgentHandler{lister: lister, prober: prober, cfgProber: cfgProber, statusLister: statusLister}
+	if cl, ok := lister.(AgentCommandLister); ok {
+		h.cmdLister = cl
+	}
+	if ml, ok := lister.(AgentModeLister); ok {
+		h.modeLister = ml
+	}
+	return h
 }
 
 // agentItem 是对外暴露的 agent 描述（隐藏 Backend 等内部字段）。
@@ -205,4 +224,54 @@ func (h *AgentHandler) Probe(c *gin.Context) {
 		items = append(items, item)
 	}
 	Success(c, http.StatusOK, gin.H{"config_options": items})
+}
+
+// Commands GET /api/v1/agents/:type/commands — 返回 agent 类型缓存的 slash command（新建任务页用）。
+func (h *AgentHandler) Commands(c *gin.Context) {
+	agentType := strings.TrimSpace(c.Param("type"))
+	if agentType == "" {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "缺少 agent 类型")
+		return
+	}
+	if h.cmdLister == nil {
+		Success(c, http.StatusOK, gin.H{"commands": []commandItem{}})
+		return
+	}
+	cmds := h.cmdLister.CachedCommands(agentType, strings.TrimSpace(c.Query("path")))
+	items := make([]commandItem, 0, len(cmds))
+	for _, cmd := range cmds {
+		items = append(items, commandItem{
+			Name:        cmd.Name,
+			Description: cmd.Description,
+			HasInput:    cmd.Input != nil,
+		})
+	}
+	Success(c, http.StatusOK, gin.H{"commands": items})
+}
+
+// Modes GET /api/v1/agents/:type/modes — 返回 agent 类型缓存的 session mode（新建任务页用）。
+func (h *AgentHandler) Modes(c *gin.Context) {
+	agentType := strings.TrimSpace(c.Param("type"))
+	if agentType == "" {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "缺少 agent 类型")
+		return
+	}
+	if h.modeLister == nil {
+		Success(c, http.StatusOK, gin.H{"modes": []modeItem{}})
+		return
+	}
+	modes := h.modeLister.CachedModes(agentType)
+	items := make([]modeItem, 0, len(modes))
+	for _, m := range modes {
+		desc := ""
+		if m.Description != nil {
+			desc = *m.Description
+		}
+		items = append(items, modeItem{
+			ID:          string(m.Id),
+			Name:        m.Name,
+			Description: desc,
+		})
+	}
+	Success(c, http.StatusOK, gin.H{"modes": items})
 }

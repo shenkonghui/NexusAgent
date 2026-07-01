@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/acp-go-sdk"
@@ -63,17 +64,28 @@ type Service struct {
 	modes        map[string][]acp.SessionMode
 	// probeCache 缓存探测结果，按 agentType 存储，避免重复创建临时会话探测。
 	probeCache map[string][]acp.SessionConfigOption
-	mu         sync.RWMutex
-	wsConfig   config.WorkspaceConfig
+	// agentCommands / agentModes 按 agentType 缓存，供新建任务页使用（无会话时）。
+	agentCommands map[string][]acp.AvailableCommand
+	agentModes    map[string][]acp.SessionMode
+	probeLock     sync.Mutex // 缓存未命中时串行探测，避免并发重复建临时 session
+	mu            sync.RWMutex
+	wsConfig      config.WorkspaceConfig
+	skillUserDirs    []string
+	skillProjectDirs []string
+	commandUserDirs    []string
+	commandProjectDirs []string
+	ruleUserDirs       []string
+	ruleProjectDirs    []string
 
 	// 健康检查与自动重连控制
-	hcCtx    context.Context
-	hcCancel context.CancelFunc
-	hcWG     sync.WaitGroup
+	hcCtx         context.Context
+	hcCancel      context.CancelFunc
+	hcWG          sync.WaitGroup
+	shuttingDown  atomic.Bool
 }
 
 // NewService 创建新的 Service。
-func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig) *Service {
+func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig, skillsConfig config.SkillsConfig, commandsConfig config.CommandsConfig, rulesConfig config.RulesConfig) *Service {
 	return &Service{
 		sessions:     repository.NewSessionRepository(db),
 		messages:     repository.NewMessageRepository(db),
@@ -85,8 +97,16 @@ func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig) *Service {
 		commands:     make(map[string][]acp.AvailableCommand),
 		configs:      make(map[string][]acp.SessionConfigOption),
 		modes:        make(map[string][]acp.SessionMode),
-		probeCache:   make(map[string][]acp.SessionConfigOption),
-		wsConfig:     wsConfig,
+		probeCache:    make(map[string][]acp.SessionConfigOption),
+		agentCommands: make(map[string][]acp.AvailableCommand),
+		agentModes:    make(map[string][]acp.SessionMode),
+		wsConfig:         wsConfig,
+		skillUserDirs:    append([]string(nil), skillsConfig.UserDirs...),
+		skillProjectDirs: append([]string(nil), skillsConfig.ProjectDirs...),
+		commandUserDirs:    append([]string(nil), commandsConfig.UserDirs...),
+		commandProjectDirs: append([]string(nil), commandsConfig.ProjectDirs...),
+		ruleUserDirs:       append([]string(nil), rulesConfig.UserDirs...),
+		ruleProjectDirs:    append([]string(nil), rulesConfig.ProjectDirs...),
 	}
 }
 
@@ -108,6 +128,8 @@ func (s *Service) ReplaceBackend(b Backend) {
 	s.backends[b.Name()] = b
 	s.states[b.Name()] = connStateDisconnected
 	delete(s.probeCache, b.Name())
+	delete(s.agentCommands, b.Name())
+	delete(s.agentModes, b.Name())
 	s.mu.Unlock()
 
 	if ok {
@@ -125,6 +147,8 @@ func (s *Service) UnregisterBackend(name string) {
 	delete(s.backends, name)
 	delete(s.states, name)
 	delete(s.probeCache, name)
+	delete(s.agentCommands, name)
+	delete(s.agentModes, name)
 	s.mu.Unlock()
 
 	if ok {
@@ -147,6 +171,9 @@ func (s *Service) GetBackend(name string) (Backend, error) {
 // 若池中连接已断开（Done() 已关闭），自动清理并重建。
 // 状态流转：disconnected → connecting → connected（或 connecting → disconnected 失败）。
 func (s *Service) ensureConnection(ctx context.Context, agentType string) (*Connection, error) {
+	if s.shuttingDown.Load() {
+		return nil, context.Canceled
+	}
 	// 快速路径：池中有存活连接
 	s.mu.RLock()
 	conn, ok := s.pool[agentType]
@@ -193,6 +220,10 @@ func (s *Service) ensureConnection(ctx context.Context, agentType string) (*Conn
 		s.states[agentType] = connStateDisconnected
 		s.mu.Unlock()
 		return nil, err
+	}
+	if s.shuttingDown.Load() {
+		_ = conn.Close()
+		return nil, context.Canceled
 	}
 
 	s.mu.Lock()
@@ -286,6 +317,7 @@ func (s *Service) PreconnectAllAsync() {
 				return
 			}
 			slog.Info("预连接 agent 成功", "agent", at)
+			s.prefetchProbeConfig(s.hcCtx, at)
 		}(agentType)
 	}
 }
@@ -301,18 +333,33 @@ func (s *Service) StartHealthCheck() {
 
 // StopHealthCheck 停止健康检查 goroutine 并关闭所有共享连接。
 func (s *Service) StopHealthCheck() {
+	s.shuttingDown.Store(true)
 	if s.hcCancel != nil {
 		s.hcCancel()
 	}
-	s.hcWG.Wait()
 
-	// 关闭所有共享连接
+	// 立即终止 agent 子进程，不等待健康检查循环结束
 	s.mu.Lock()
+	conns := make([]*Connection, 0, len(s.pool))
 	for _, conn := range s.pool {
-		_ = conn.Close()
+		conns = append(conns, conn)
 	}
 	s.pool = make(map[string]*Connection)
 	s.mu.Unlock()
+	for _, conn := range conns {
+		_ = conn.Close()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		s.hcWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		slog.Warn("健康检查 goroutine 退出超时，继续关闭")
+	}
 }
 
 // healthCheckLoop 定期检查连接状态并自动重连断开的 agent。
@@ -407,6 +454,7 @@ func (s *Service) checkAgent(agentType string, delays map[string]time.Duration) 
 
 	slog.Info("重连 agent 成功", "agent", agentType)
 	delays[agentType] = 0
+	s.prefetchProbeConfig(s.hcCtx, agentType)
 }
 
 // CreateSession 创建新的 ACP 会话。
@@ -469,7 +517,7 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 		return nil, err
 	}
 
-	sessionID, configOptions, modes, err := conn.NewSession(ctx, ws.Cwd)
+	sessionID, configOptions, modes, err := conn.NewSession(ctx, ws.Cwd, s.skillAdditionalDirs(ws.Cwd))
 	if err != nil {
 		_ = ws.Cleanup()
 		return nil, fmt.Errorf("创建 ACP 会话: %w", err)
@@ -490,6 +538,7 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 		_ = ws.Cleanup()
 		return nil, fmt.Errorf("会话落库: %w", err)
 	}
+	session.Workspace = *dbWS
 
 	s.mu.Lock()
 	s.sessionAgent[sessionID] = agentType
@@ -498,6 +547,7 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 	}
 	if len(modes) > 0 {
 		s.modes[sessionID] = modes
+		s.agentModes[agentType] = modes
 	}
 	s.mu.Unlock()
 
@@ -566,7 +616,8 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 		}
 	}
 
-	updates, err := conn.Prompt(ctx, sessionID, prompt)
+	agentPrompt := s.expandPrompt(sessionID, session, prompt)
+	updates, err := conn.Prompt(ctx, sessionID, agentPrompt)
 	if err != nil {
 		return nil, err
 	}
@@ -685,21 +736,6 @@ func (s *Service) DeleteSession(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-// cleanupProbeSession 清理探测用临时会话，仅删除 ACP 会话、消息和数据库记录，
-// 不关闭共享连接（与 DeleteSession 不同，后者在无活跃会话时会关闭整个 agent 进程）。
-func (s *Service) cleanupProbeSession(ctx context.Context, sess *models.Session) {
-	// 从路由表移除
-	agentType, hadConn := s.detachSession(sess.SessionID)
-	if hadConn {
-		if conn, ok := s.pool[agentType]; ok {
-			_ = conn.CloseSessionByID(ctx, sess.SessionID)
-		}
-	}
-	// 删除消息和会话记录
-	_ = s.messages.DeleteByDBSessionID(sess.ID)
-	_ = s.sessions.Delete(sess.ID)
-}
-
 // ListSessions 列出指定用户的会话。
 func (s *Service) ListSessions(userID uint) ([]models.Session, error) {
 	return s.sessions.FindByUserID(userID)
@@ -775,6 +811,9 @@ func (s *Service) captureCommands(sessionID string, u acp.SessionUpdate) {
 		cmds := u.AvailableCommandsUpdate.AvailableCommands
 		s.mu.Lock()
 		s.commands[sessionID] = cmds
+		if agentType, ok := s.sessionAgent[sessionID]; ok && len(cmds) > 0 {
+			s.agentCommands[agentType] = cmds
+		}
 		s.mu.Unlock()
 	}
 	if u.ConfigOptionUpdate != nil {
@@ -786,17 +825,59 @@ func (s *Service) captureCommands(sessionID string, u acp.SessionUpdate) {
 	// CurrentModeUpdate 仅更新当前选中的 mode ID，可用 mode 列表不变，无需重新缓存
 }
 
-// ListCommands 返回会话缓存的可用 slash command 列表。
+// ListCommands 返回会话可用的 slash command（Agent 原生 + 配置的 Claude Code commands）。
 func (s *Service) ListCommands(sessionID string) ([]acp.AvailableCommand, error) {
-	if _, err := s.GetSession(sessionID); err != nil {
+	session, err := s.GetSession(sessionID)
+	if err != nil {
 		return nil, err
 	}
+	cwd := sessionCwd(session, s.workspaces)
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-	cmds := s.commands[sessionID]
-	out := make([]acp.AvailableCommand, len(cmds))
-	copy(out, cmds)
-	return out, nil
+	agentCmds := s.commands[sessionID]
+	s.mu.RUnlock()
+	return s.mergeCommands(agentCmds, cwd), nil
+}
+
+func sessionCwd(session *models.Session, workspaces *repository.WorkspaceRepository) string {
+	cwd := session.Cwd
+	if session.WorkspaceID != nil {
+		if ws, err := workspaces.FindByID(*session.WorkspaceID); err == nil {
+			cwd = ws.Cwd
+		}
+	}
+	return cwd
+}
+
+func (s *Service) expandPrompt(sessionID string, session *models.Session, prompt string) string {
+	cwd := sessionCwd(session, s.workspaces)
+	s.mu.RLock()
+	agentCmds := s.commands[sessionID]
+	modes := s.modes[sessionID]
+	s.mu.RUnlock()
+	_, expanded := ExpandPrompt(ExpandPromptInput{
+		Prompt:             prompt,
+		Cwd:                cwd,
+		SkillUserDirs:      s.skillUserDirs,
+		SkillProjectDirs:   s.skillProjectDirs,
+		CommandUserDirs:    s.commandUserDirs,
+		CommandProjectDirs: s.commandProjectDirs,
+		AgentCommands:      agentCmds,
+		Modes:              modes,
+	})
+	if expanded != prompt {
+		slog.Info("slash 调用已展开", "session", sessionID, "chars", len(expanded))
+	}
+	return ApplyAlwaysApplyRules(expanded, cwd, s.ruleUserDirs, s.ruleProjectDirs)
+}
+
+func (s *Service) mergeCommands(agentCmds []acp.AvailableCommand, cwd string) []acp.AvailableCommand {
+	configured := SlashCommandsToAvailable(ScanSlashCommands(cwd, s.commandUserDirs, s.commandProjectDirs))
+	return MergeAvailableCommands(agentCmds, configured)
+}
+
+// ListConfiguredCommands 扫描配置的 slash command（Claude Code commands 目录）。
+func (s *Service) ListConfiguredCommands(cwd string) []SlashCommand {
+	return ScanSlashCommands(cwd, s.commandUserDirs, s.commandProjectDirs)
 }
 
 // ListConfigOptions 返回会话缓存的 config option 列表（含模型选择等）。
@@ -842,54 +923,133 @@ func (s *Service) CachedModelOptions(agentType string) []acp.SessionConfigOption
 	return nil
 }
 
+// CachedCommands 返回指定 agent 类型的 slash command（Agent 原生 + 配置的 commands）。
+// cwd 非空时一并扫描项目级 commands 目录。
+func (s *Service) CachedCommands(agentType string, cwd string) []acp.AvailableCommand {
+	s.mu.RLock()
+	agentCmds := s.agentCommands[agentType]
+	s.mu.RUnlock()
+	return s.mergeCommands(agentCmds, cwd)
+}
+
+// CachedModes 返回指定 agent 类型缓存的 session mode（来自探测或已有会话）。
+func (s *Service) CachedModes(agentType string) []acp.SessionMode {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	modes := s.agentModes[agentType]
+	if len(modes) == 0 {
+		return nil
+	}
+	out := make([]acp.SessionMode, len(modes))
+	copy(out, modes)
+	return out
+}
+
 // ProbeConfigOptions 返回指定 agent 类型的 config options。
-// 首次调用时创建临时会话探测，结果缓存在内存中，后续调用直接返回缓存。
-// 连接断开时缓存自动清空，重连后重新探测。
+// 结果在 agent 首次连接时预探测并缓存在内存中；缓存未命中时轻量探测（仅 NewSession，不发送 prompt）。
 func (s *Service) ProbeConfigOptions(ctx context.Context, agentType string, userID uint) ([]acp.SessionConfigOption, error) {
-	// 先查缓存
+	_ = userID
+	return s.fetchProbeConfig(ctx, agentType)
+}
+
+func (s *Service) prefetchProbeConfig(ctx context.Context, agentType string) {
+	if _, err := s.fetchProbeConfig(ctx, agentType); err != nil {
+		slog.Warn("预探测 agent 配置失败", "agent", agentType, "err", err)
+	}
+}
+
+func (s *Service) fetchProbeConfig(ctx context.Context, agentType string) ([]acp.SessionConfigOption, error) {
 	s.mu.RLock()
 	if cached, ok := s.probeCache[agentType]; ok {
+		out := make([]acp.SessionConfigOption, len(cached))
+		copy(out, cached)
 		s.mu.RUnlock()
-		return cached, nil
+		return out, nil
 	}
 	s.mu.RUnlock()
 
-	// 缓存未命中，创建临时会话探测
-	sess, err := s.CreateSessionWithSource(ctx, agentType, uint(0), userID, models.SessionSourceManual, "")
+	s.probeLock.Lock()
+	defer s.probeLock.Unlock()
+
+	s.mu.RLock()
+	if cached, ok := s.probeCache[agentType]; ok {
+		out := make([]acp.SessionConfigOption, len(cached))
+		copy(out, cached)
+		s.mu.RUnlock()
+		return out, nil
+	}
+	s.mu.RUnlock()
+
+	opts, err := s.probeConfigViaSession(ctx, agentType)
 	if err != nil {
-		return nil, fmt.Errorf("创建探测会话: %w", err)
+		return nil, err
 	}
-
-	// 发送简短的 prompt 触发 agent 返回 ConfigOptionUpdate
-	promptCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	msgChan, promptErr := s.Prompt(promptCtx, sess.SessionID, "ok")
-	if promptErr == nil {
-		for range msgChan {
-		}
-	} else {
-		slog.Warn("探测 prompt 失败（非致命）", "agent", agentType, "err", promptErr)
-	}
-	cancel()
-
-	opts, err := s.ListConfigOptions(sess.SessionID)
-	if err != nil {
-		_ = s.DeleteSession(ctx, sess.SessionID)
-		return nil, fmt.Errorf("查询探测会话配置: %w", err)
-	}
-	slog.Info("探测配置结果", "agent", agentType, "config_count", len(opts))
-
-	// 复制并缓存结果
 	out := make([]acp.SessionConfigOption, len(opts))
 	copy(out, opts)
+	return out, nil
+}
 
-	// 存入缓存
+func (s *Service) probeCwd() string {
+	if s.wsConfig.SessionDir != "" {
+		return s.wsConfig.SessionDir
+	}
+	return "/tmp"
+}
+
+// probeConfigViaSession 创建临时 ACP session 读取 ConfigOptions，不写入数据库、不发送 prompt。
+func (s *Service) probeConfigViaSession(ctx context.Context, agentType string) ([]acp.SessionConfigOption, error) {
+	conn, err := s.ensureConnection(ctx, agentType)
+	if err != nil {
+		return nil, err
+	}
+	probeCwd := s.probeCwd()
+	sessionID, configOptions, modes, err := conn.NewSession(ctx, probeCwd, s.skillAdditionalDirs(probeCwd))
+	if err != nil {
+		return nil, fmt.Errorf("探测 NewSession: %w", err)
+	}
+	defer func() { _ = conn.CloseSessionByID(ctx, sessionID) }()
+
+	cmds := s.collectProbeCommands(ctx, conn, sessionID)
+
+	out := make([]acp.SessionConfigOption, len(configOptions))
+	copy(out, configOptions)
+
 	s.mu.Lock()
 	s.probeCache[agentType] = out
+	if len(modes) > 0 {
+		s.agentModes[agentType] = modes
+	}
+	if len(cmds) > 0 {
+		s.agentCommands[agentType] = cmds
+	}
 	s.mu.Unlock()
-
-	// 清理临时会话（仅删除数据，不关闭连接）
-	s.cleanupProbeSession(ctx, sess)
+	slog.Info("探测配置已缓存", "agent", agentType, "config_count", len(out), "modes", len(modes), "commands", len(cmds))
 	return out, nil
+}
+
+// collectProbeCommands 在探测 session 上短暂等待 AvailableCommandsUpdate。
+func (s *Service) collectProbeCommands(ctx context.Context, conn *Connection, sessionID string) []acp.AvailableCommand {
+	sid := acp.SessionId(sessionID)
+	ch := conn.Client().RegisterStream(sid, 8)
+	defer conn.Client().UnregisterStream(sid)
+
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case u, ok := <-ch:
+			if !ok {
+				return nil
+			}
+			if u.AvailableCommandsUpdate != nil {
+				return u.AvailableCommandsUpdate.AvailableCommands
+			}
+		case <-timer.C:
+			return nil
+		case <-ctx.Done():
+			return nil
+		}
+	}
 }
 
 // ListModes 返回会话可用的 mode 列表（agent skill/模式，如 plan/act）。
@@ -905,6 +1065,15 @@ func (s *Service) ListModes(sessionID string) ([]acp.SessionMode, error) {
 	return out, nil
 }
 
+// skillAdditionalDirs 返回当前会话 cwd 应对 Agent 暴露的 skills/commands/rules 根目录。
+func (s *Service) skillAdditionalDirs(cwd string) []string {
+	return MergeAdditionalDirectories(
+		SkillAdditionalDirectories(cwd, s.skillUserDirs, s.skillProjectDirs),
+		SkillAdditionalDirectories(cwd, s.commandUserDirs, s.commandProjectDirs),
+		RuleAdditionalDirectories(cwd, s.ruleUserDirs, s.ruleProjectDirs),
+	)
+}
+
 // ListSkills 扫描会话工作目录和用户主目录下的 Agent Skills（agentskills.io 规范）。
 func (s *Service) ListSkills(sessionID string) ([]Skill, error) {
 	session, err := s.GetSession(sessionID)
@@ -917,7 +1086,7 @@ func (s *Service) ListSkills(sessionID string) ([]Skill, error) {
 			cwd = ws.Cwd
 		}
 	}
-	return ScanSkills(cwd), nil
+	return ScanSkills(cwd, s.skillUserDirs, s.skillProjectDirs), nil
 }
 
 // SetConfigOption 设置会话的 config option 值（如切换模型）。
@@ -976,7 +1145,7 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 		return nil, fmt.Errorf("恢复会话-建立连接: %w", err)
 	}
 
-	newSessionID, configOptions, modes, err := conn.NewSession(ctx, cwd)
+	newSessionID, configOptions, modes, err := conn.NewSession(ctx, cwd, s.skillAdditionalDirs(cwd))
 	if err != nil {
 		return nil, fmt.Errorf("恢复会话-创建 ACP 会话: %w", err)
 	}

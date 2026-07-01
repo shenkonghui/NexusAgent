@@ -8,6 +8,7 @@ import (
 
 	"nexusagent/internal/acp"
 	"nexusagent/internal/agent"
+	"nexusagent/internal/config"
 	"nexusagent/internal/database"
 	"nexusagent/internal/handlers"
 	"nexusagent/internal/models"
@@ -44,9 +45,11 @@ func TestSetup_RegistersP5Routes(t *testing.T) {
 	agentCfgH := handlers.NewAgentConfigHandler(repository.NewAgentConfigRepository(db), noopRegistrar{})
 	schedTaskRepo := repository.NewScheduledTaskRepository(db)
 	execRepo := repository.NewTaskExecutionRepository(db)
-	schedTaskH := handlers.NewScheduledTaskHandler(schedTaskRepo, execRepo, noopSchedulerMgr{}, agentRouter)
+	schedTaskH := handlers.NewScheduledTaskHandler(schedTaskRepo, execRepo, noopSchedulerMgr{}, agentRouter, agentRouter)
 
-	engine := Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, gin.TestMode, "", false)
+	skillsCfg := config.SkillsConfig{UserDirs: []string{t.TempDir()}}
+	commandsCfg := config.CommandsConfig{UserDirs: []string{t.TempDir()}}
+	engine := Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, skillsCfg, commandsCfg, gin.TestMode, "", false)
 
 	want := []string{
 		"GET /api/v1/agents",

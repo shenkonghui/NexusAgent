@@ -25,8 +25,8 @@ export function logout(): Promise<void> {
 }
 
 // 获取当前用户信息
-export function getMe(): Promise<{ data: User }> {
-  return apiFetch('/me')
+export function getMe(opts?: { skipAuthRedirect?: boolean }): Promise<{ data: User }> {
+  return apiFetch('/me', { skipAuthRedirect: opts?.skipAuthRedirect })
 }
 
 // 更新当前用户名与邮箱

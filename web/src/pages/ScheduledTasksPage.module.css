@@ -31,6 +31,14 @@
   padding: 10px 20px;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
+  gap: 12px;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
 .title {
@@ -77,7 +85,38 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-width: 560px;
+  max-width: 720px;
+}
+
+.formHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-subtle, var(--border));
+}
+
+.formTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.workspaceHint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.fieldRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 120px;
+  gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .fieldRow {
+    grid-template-columns: 1fr;
+  }
 }
 
 .field {
@@ -122,16 +161,16 @@
   border-color: var(--accent);
 }
 
-.cwdRow {
+.inlineRow {
   display: flex;
   gap: 8px;
 }
 
-.cwdRow .input {
+.inlineRow .input {
   flex: 1;
 }
 
-.browseBtn {
+.secondaryBtn {
   padding: 10px 16px;
   border: 1px solid var(--accent);
   background: var(--bg-surface);
@@ -144,9 +183,14 @@
   transition: background 0.2s, color 0.2s;
 }
 
-.browseBtn:hover {
+.secondaryBtn:hover:not(:disabled) {
   background: var(--accent);
   color: var(--text-on-accent);
+}
+
+.secondaryBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .hint {

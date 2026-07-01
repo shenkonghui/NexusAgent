@@ -1,4 +1,5 @@
 import { apiFetch } from './client'
+import type { AgentCommand, AgentSkill } from '../types'
 
 // 目录项
 export interface DirEntry {
@@ -40,6 +41,18 @@ export function listFiles(path?: string, query?: string): Promise<{ data: FileLi
   if (query) params.set('query', query)
   const qs = params.toString()
   return apiFetch(`/filesystem/list${qs ? `?${qs}` : ''}`)
+}
+
+// 扫描指定目录下的 Slash Commands（Claude Code 规范；path 为空时仅扫用户目录）
+export function listCommandsByPath(path?: string): Promise<{ data: { commands: AgentCommand[] } }> {
+  const qs = path ? `?path=${encodeURIComponent(path)}` : ''
+  return apiFetch(`/filesystem/commands${qs}`)
+}
+
+// 扫描指定目录下的 Agent Skills（新建任务页 / 命令补全用；path 为空时仅扫用户目录）
+export function listSkillsByPath(path?: string): Promise<{ data: { skills: AgentSkill[] } }> {
+  const qs = path ? `?path=${encodeURIComponent(path)}` : ''
+  return apiFetch(`/filesystem/skills${qs}`)
 }
 
 // ===== 会话工作目录文件 API =====

@@ -8,6 +8,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	acplocal "nexusagent/internal/acp"
+	"nexusagent/internal/config"
 )
 
 // dirEntry 是目录浏览 API 返回的单个目录项。
@@ -24,11 +27,21 @@ type fileEntry struct {
 }
 
 // FileSystemHandler 提供本地文件系统目录浏览能力（用于前端目录选择器）。
-type FileSystemHandler struct{}
+type FileSystemHandler struct {
+	skillUserDirs        []string
+	skillProjectDirs     []string
+	commandUserDirs      []string
+	commandProjectDirs   []string
+}
 
 // NewFileSystemHandler 创建 FileSystemHandler。
-func NewFileSystemHandler() *FileSystemHandler {
-	return &FileSystemHandler{}
+func NewFileSystemHandler(skills config.SkillsConfig, commands config.CommandsConfig) *FileSystemHandler {
+	return &FileSystemHandler{
+		skillUserDirs:      append([]string(nil), skills.UserDirs...),
+		skillProjectDirs:   append([]string(nil), skills.ProjectDirs...),
+		commandUserDirs:    append([]string(nil), commands.UserDirs...),
+		commandProjectDirs: append([]string(nil), commands.ProjectDirs...),
+	}
 }
 
 // resolveDirPath 解析并校验请求路径，返回绝对路径。失败时已写入错误响应。
@@ -172,6 +185,68 @@ func (h *FileSystemHandler) ListFiles(c *gin.Context) {
 		"parent_path":  parentPath(absPath),
 		"entries":      result,
 	})
+}
+
+// Skills GET /api/v1/filesystem/skills?path=...
+// 扫描指定目录下的 Agent Skills（agentskills.io 规范），用于新建任务页 / 命令补全。
+// path 可为空或无效：仍会扫描用户主目录下的 skills。
+func (h *FileSystemHandler) Skills(c *gin.Context) {
+	scanCwd := strings.TrimSpace(c.Query("path"))
+	if scanCwd != "" {
+		absPath, err := filepath.Abs(scanCwd)
+		if err != nil {
+			scanCwd = ""
+		} else if info, err := os.Stat(absPath); err != nil || !info.IsDir() {
+			scanCwd = ""
+		} else {
+			scanCwd = absPath
+		}
+	}
+	skills := acplocal.ScanSkills(scanCwd, h.skillUserDirs, h.skillProjectDirs)
+	items := make([]skillItem, 0, len(skills))
+	for _, s := range skills {
+		items = append(items, skillItem{
+			Name:        s.Name,
+			Description: s.Description,
+			Location:    s.Location,
+			Scope:       s.Scope,
+		})
+	}
+	Success(c, http.StatusOK, gin.H{"skills": items})
+}
+
+type slashCommandItem struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Location    string `json:"location"`
+	Scope       string `json:"scope"`
+}
+
+// Commands GET /api/v1/filesystem/commands?path=...
+// 扫描指定目录下的 Slash Commands（Claude Code 规范），用于新建任务页 / 命令补全。
+func (h *FileSystemHandler) Commands(c *gin.Context) {
+	scanCwd := strings.TrimSpace(c.Query("path"))
+	if scanCwd != "" {
+		absPath, err := filepath.Abs(scanCwd)
+		if err != nil {
+			scanCwd = ""
+		} else if info, err := os.Stat(absPath); err != nil || !info.IsDir() {
+			scanCwd = ""
+		} else {
+			scanCwd = absPath
+		}
+	}
+	commands := acplocal.ScanSlashCommands(scanCwd, h.commandUserDirs, h.commandProjectDirs)
+	items := make([]slashCommandItem, 0, len(commands))
+	for _, cmd := range commands {
+		items = append(items, slashCommandItem{
+			Name:        cmd.Name,
+			Description: cmd.Description,
+			Location:    cmd.Location,
+			Scope:       cmd.Scope,
+		})
+	}
+	Success(c, http.StatusOK, gin.H{"commands": items})
 }
 
 // parentPath 返回父目录路径，根目录时返回自身。

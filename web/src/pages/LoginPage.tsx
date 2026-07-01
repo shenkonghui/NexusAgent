@@ -2,22 +2,13 @@ import { useState, useEffect, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../hooks/useAuth'
-import { autoLogin } from '../api/auth'
+import LoadingSpinner from '../components/LoadingSpinner'
 import styles from './LoginPage.module.css'
 
 export default function LoginPage() {
   const { t } = useTranslation()
   const { user, loading, login, register } = useAuth()
   const navigate = useNavigate()
-
-  // 尝试自动登录
-  useEffect(() => {
-    autoLogin().then((result) => {
-      localStorage.setItem('access_token', result.access_token)
-      localStorage.setItem('refresh_token', result.refresh_token)
-      window.location.reload()
-    }).catch(() => { /* auto_login disabled, show login form */ })
-  }, [])
 
   useEffect(() => {
     if (!loading && user) {
@@ -32,6 +23,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  if (loading || user) {
+    return <LoadingSpinner text={t('common.loading')} />
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()

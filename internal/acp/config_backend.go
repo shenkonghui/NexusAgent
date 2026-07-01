@@ -38,7 +38,26 @@ func (b *ConfigBackend) Args() []string {
 	if err := json.Unmarshal([]byte(b.cfg.Args), &args); err != nil {
 		return nil
 	}
-	return args
+	return fixNpmExecArgs(b.cfg.Command, args)
+}
+
+// fixNpmExecArgs 为 npm exec 命令在 package 参数后插入 "--"，
+// 确保 package 专属参数（如 --acp）传给子进程而非被 npm 忽略。
+func fixNpmExecArgs(command string, args []string) []string {
+	if command != "npm" || len(args) < 4 || args[0] != "exec" {
+		return args
+	}
+	for _, a := range args {
+		if a == "--" {
+			return args
+		}
+	}
+	// 格式: exec --include=optional --yes <package> [packageArgs...]
+	if len(args) == 4 {
+		return args
+	}
+	fixed := append(append([]string{}, args[:4]...), "--")
+	return append(fixed, args[4:]...)
 }
 
 func (b *ConfigBackend) Env() []string {
@@ -65,14 +84,14 @@ func (b *ConfigBackend) Timeout() time.Duration {
 	return d
 }
 
-// BinaryBackend 是二进制分发 agent 的后端，首次调用 Command() 时自动下载解压。
+// BinaryBackend 是二进制分发 agent 的后端，Command() 时自动下载解压。
 // 嵌入 ConfigBackend，仅覆盖 Command() 方法的返回值。
+// 下载失败时允许后续调用重试（配合健康检查重连）。
 type BinaryBackend struct {
 	*ConfigBackend
-	info     BinaryInstallInfo
-	once     sync.Once
-	cmdPath  string
-	cmdErr   error
+	info    BinaryInstallInfo
+	mu      sync.Mutex
+	cmdPath string
 }
 
 // NewBinaryBackend 根据已有的 AgentConfig 和 BinaryInstallInfo 创建延迟下载的后端。
@@ -83,18 +102,25 @@ func NewBinaryBackend(cfg models.AgentConfig, info BinaryInstallInfo) *BinaryBac
 	}
 }
 
-// Command 返回二进制文件的完整路径，首次调用时触发下载解压。
+// Command 返回二进制文件的完整路径，必要时触发下载解压。
 func (b *BinaryBackend) Command() string {
-	b.once.Do(func() {
-		slog.Info("开始安装 binary agent", "agent", b.cfg.Type, "url", b.info.ArchiveURL)
-		b.cmdPath, b.cmdErr = ensureBinaryInstalled(b.cfg.Type, b.info.Version, b.info.ArchiveURL, b.info.BinaryCmd)
-		if b.cmdErr != nil {
-			slog.Error("安装 binary agent 失败", "agent", b.cfg.Type, "err", b.cmdErr)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.cmdPath != "" {
+		if _, err := os.Stat(b.cmdPath); err == nil {
+			return b.cmdPath
 		}
-	})
-	if b.cmdErr != nil {
+		b.cmdPath = ""
+	}
+
+	slog.Info("开始安装 binary agent", "agent", b.cfg.Type, "url", b.info.ArchiveURL)
+	path, err := ensureBinaryInstalled(b.cfg.Type, b.info.Version, b.info.ArchiveURL, b.info.BinaryCmd)
+	if err != nil {
+		slog.Error("安装 binary agent 失败", "agent", b.cfg.Type, "err", err)
 		return ""
 	}
+	b.cmdPath = path
 	return b.cmdPath
 }
 

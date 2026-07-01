@@ -59,6 +59,34 @@ func TestConfigBackend_InvalidArgsAndTimeout(t *testing.T) {
 	}
 }
 
+func TestFixNpmExecArgs(t *testing.T) {
+	in := []string{"exec", "--include=optional", "--yes", "@tencent-ai/codebuddy-code@2.106.7", "--acp"}
+	want := []string{"exec", "--include=optional", "--yes", "@tencent-ai/codebuddy-code@2.106.7", "--", "--acp"}
+	got := fixNpmExecArgs("npm", in)
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("index %d: got %q, want %q", i, got[i], want[i])
+		}
+	}
+	// 已有 "--" 时不重复插入
+	already := []string{"exec", "--include=optional", "--yes", "pkg", "--", "--acp"}
+	if fixNpmExecArgs("npm", already) != nil {
+		// slice compare - same content
+		got2 := fixNpmExecArgs("npm", already)
+		if len(got2) != len(already) {
+			t.Errorf("已有 -- 时不应修改: %+v", got2)
+		}
+	}
+	// 非 npm exec 不修改
+	plain := []string{"--acp"}
+	if fixNpmExecArgs("codebuddy", plain)[0] != "--acp" {
+		t.Errorf("非 npm 命令不应修改 args")
+	}
+}
+
 func TestConfigBackendFromParams(t *testing.T) {
 	b, err := ConfigBackendFromParams("devin", "devin", []string{"--acp"}, "DEVIN_KEY", "90s")
 	if err != nil {

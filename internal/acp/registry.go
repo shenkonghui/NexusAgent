@@ -234,10 +234,14 @@ func (ra *RegistryAgent) ToAgentConfig() (models.AgentConfig, error) {
 func (ra *RegistryAgent) buildCommand() (string, []string, error) {
 	switch ra.Distribution.Type {
 	case "npx":
-		// 格式: npm exec --include=optional --yes <package> [args...]
+		// 格式: npm exec --include=optional --yes <package> -- [args...]
 		// --include=optional 确保安装 native binary 等可选依赖（npm 11.x 默认跳过）
+		// 必须用 "--" 分隔，否则 package 参数（如 --acp）会被 npm 吞掉而非传给子进程
 		args := []string{"exec", "--include=optional", "--yes", ra.Distribution.Package}
-		args = append(args, ra.Distribution.Args...)
+		if len(ra.Distribution.Args) > 0 {
+			args = append(args, "--")
+			args = append(args, ra.Distribution.Args...)
+		}
 		return "npm", args, nil
 	case "uvx":
 		// 格式: uvx <package> [args...]

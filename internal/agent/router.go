@@ -80,6 +80,22 @@ func (r *Router) CachedModelOptions(agentType string) []acpsdk.SessionConfigOpti
 	return r.service.CachedModelOptions(agentType)
 }
 
+// CachedCommands 返回指定 agent 类型缓存的 slash command，委托 service。
+func (r *Router) CachedCommands(agentType string, cwd string) []acpsdk.AvailableCommand {
+	if r.service == nil {
+		return nil
+	}
+	return r.service.CachedCommands(agentType, cwd)
+}
+
+// CachedModes 返回指定 agent 类型缓存的 session mode，委托 service。
+func (r *Router) CachedModes(agentType string) []acpsdk.SessionMode {
+	if r.service == nil {
+		return nil
+	}
+	return r.service.CachedModes(agentType)
+}
+
 // ProbeConfigOptions 创建临时会话探测指定 agent 类型的 config options，随后删除，委托 service。
 func (r *Router) ProbeConfigOptions(ctx context.Context, agentType string, userID uint) ([]acpsdk.SessionConfigOption, error) {
 	if r.service == nil {

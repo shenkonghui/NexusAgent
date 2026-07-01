@@ -9,6 +9,12 @@ interface PromptInputProps {
   disabled?: boolean
   sending?: boolean
   placeholder?: string
+  /** 嵌入表单时使用：隐藏发送按钮，Enter 换行而非提交 */
+  embedded?: boolean
+  /** 受控模式：外部管理输入文本 */
+  value?: string
+  onValueChange?: (text: string) => void
+  rows?: number
   commands?: AgentCommand[]
   /** ACP 会话模式（如 plan/act） */
   modes?: SessionMode[]
@@ -55,12 +61,22 @@ export default function PromptInput({
   disabled = false,
   sending = false,
   placeholder = '输入 prompt...',
+  embedded = false,
+  value: controlledValue,
+  onValueChange,
+  rows = 1,
   commands = [],
   modes = [],
   skills = [],
   cwd = '',
 }: PromptInputProps) {
-  const [text, setText] = useState('')
+  const [internalText, setInternalText] = useState('')
+  const isControlled = controlledValue !== undefined
+  const text = isControlled ? controlledValue : internalText
+  const setText = (next: string) => {
+    if (isControlled) onValueChange?.(next)
+    else setInternalText(next)
+  }
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [cursorPos, setCursorPos] = useState(0)
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([])
@@ -139,7 +155,9 @@ export default function PromptInput({
 
   // 当前活跃的补全列表
   const activeItems = trigger.type === 'command' ? slashItems : trigger.type === 'file' ? fileItems : []
-  const showMenu = trigger.type !== null && activeItems.length > 0
+  const showMenu = trigger.type === 'command'
+    ? activeItems.length > 0
+    : trigger.type === 'file' && !!cwd
 
   // 加载文件列表（@ 触发时）
   const loadFileEntries = useCallback(async (path: string, query: string) => {
@@ -156,20 +174,28 @@ export default function PromptInput({
     }
   }, [])
 
+  // @ 结束时不保留上次浏览路径
+  useEffect(() => {
+    if (trigger.type !== 'file') {
+      setFileBrowsePath('')
+    }
+  }, [trigger.type])
+
   // @ 触发时加载文件（debounce）
   useEffect(() => {
     if (trigger.type !== 'file' || !cwd) {
       setFileEntries([])
       return
     }
+    const basePath = fileBrowsePath || cwd
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      loadFileEntries(cwd, trigger.query)
+      loadFileEntries(basePath, trigger.query)
     }, 200)
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [trigger.type, trigger.query, cwd, loadFileEntries])
+  }, [trigger.type, trigger.query, cwd, fileBrowsePath, loadFileEntries])
 
   // 补全列表变化时重置选中
   useEffect(() => {
@@ -210,8 +236,10 @@ export default function PromptInput({
     const trimmed = text.trim()
     if (!trimmed || disabled || sending) return
     onSend(trimmed)
-    setText('')
-    setCursorPos(0)
+    if (!isControlled) {
+      setInternalText('')
+      setCursorPos(0)
+    }
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -242,8 +270,8 @@ export default function PromptInput({
       }
     }
 
-    // 普通 Enter 发送
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // 普通 Enter 发送（嵌入模式 Enter 换行）
+    if (e.key === 'Enter' && !e.shiftKey && !embedded) {
       e.preventDefault()
       handleSubmit(e as unknown as FormEvent)
     }
@@ -265,7 +293,7 @@ export default function PromptInput({
       ? `文件引用 — ${fileBrowsePath || cwd}（↑↓ 选择，Enter/Tab 确认，📁 进入目录）`
       : ''
   return (
-    <div className={styles.container}>
+    <div className={`${styles.container} ${embedded ? styles.embedded : ''}`}>
       <form className={styles.form} onSubmit={handleSubmit}>
         <div className={styles.inputWrap}>
           <textarea
@@ -278,12 +306,15 @@ export default function PromptInput({
             onClick={handleSelect}
             placeholder={placeholder}
             disabled={disabled || sending}
-            rows={1}
+            rows={rows}
           />
           {showMenu && (
             <div className={styles.commandMenu}>
               <div className={styles.commandMenuHeader}>{menuTitle}</div>
               {fileLoading && <div className={styles.loadingHint}>加载中...</div>}
+              {!fileLoading && trigger.type === 'file' && activeItems.length === 0 && (
+                <div className={styles.loadingHint}>暂无匹配文件</div>
+              )}
               {activeItems.map((item, idx) => (
                 <div
                   key={`${item.type}-${item.label}-${idx}`}
@@ -302,7 +333,7 @@ export default function PromptInput({
             </div>
           )}
         </div>
-        {sending && onCancel ? (
+        {!embedded && (sending && onCancel ? (
           <button className={styles.cancelBtn} type="button" onClick={onCancel}>
             取消
           </button>
@@ -314,7 +345,7 @@ export default function PromptInput({
           >
             发送
           </button>
-        )}
+        ))}
       </form>
     </div>
   )

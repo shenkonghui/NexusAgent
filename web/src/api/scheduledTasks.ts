@@ -5,7 +5,7 @@ import { apiFetch } from './client'
 export function createScheduledTask(payload: {
   name: string
   agent_type: string
-  cwd?: string
+  workspace_id: number
   prompt: string
   cron_expr: string
   enabled?: boolean
@@ -34,7 +34,7 @@ export function updateScheduledTask(
   payload: Partial<{
     name: string
     agent_type: string
-    cwd: string
+    workspace_id: number
     prompt: string
     cron_expr: string
     enabled: boolean

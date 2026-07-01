@@ -66,12 +66,13 @@
 /* Agent 连接状态区域 */
 .agentStatus {
   padding: 6px 10px;
-  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 3px;
   max-height: 160px;
   overflow-y: auto;
+  flex-shrink: 0;
 }
 
 .agentStatusItem {
@@ -110,8 +111,19 @@
 
 .agentStatusText {
   font-size: 10px;
+  flex-shrink: 0;
+}
+
+.agentStatusConnected {
+  color: var(--success);
+}
+
+.agentStatusConnecting {
   color: var(--warning);
-  margin-left: -2px;
+}
+
+.agentStatusDisconnected {
+  color: var(--text-muted);
 }
 
 .agentName {
@@ -388,11 +400,29 @@
   background: var(--accent-hover);
 }
 
-.itemHeader {
+.itemRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 2px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.itemTitle {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.itemTime {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-muted);
 }
 
 .agentType {

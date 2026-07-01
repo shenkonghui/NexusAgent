@@ -276,6 +276,136 @@
   color: var(--text-muted);
 }
 
+.newTaskBtn {
+  padding: 6px 12px;
+  border: 1px solid var(--accent);
+  background: var(--bg-surface);
+  color: var(--accent);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s, color 0.2s;
+}
+
+.newTaskBtn:hover {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.listContent {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+
+.listTitle {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.sessionList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.listEmpty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 24px;
+  font-size: 14px;
+}
+
+.sessionCard {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.sessionCard:hover {
+  border-color: var(--accent-border);
+  box-shadow: 0 1px 4px var(--accent-subtle);
+}
+
+.sessionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.sessionAgent {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.sessionStatus {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.status_active {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.status_closed {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.status_error {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.sessionPrompt {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.sessionTime {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sessionFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 2px;
+}
+
+.listDeleteBtn {
+  padding: 2px 10px;
+  background: var(--bg-surface);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  transition: background 0.2s, color 0.2s;
+}
+
+.listDeleteBtn:hover {
+  background: var(--danger);
+  color: var(--text-on-accent);
+}
+
 /* ====== 会话恢复栏 ====== */
 .recoverBar {
   display: flex;

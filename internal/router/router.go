@@ -10,18 +10,19 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"nexusagent/internal/agent"
+	"nexusagent/internal/config"
 	"nexusagent/internal/handlers"
 	"nexusagent/internal/middleware"
 	"nexusagent/internal/services"
 )
 
-func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, schedTaskH *handlers.ScheduledTaskHandler, mode, webDist string, autoLogin bool) *gin.Engine {
+func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, schedTaskH *handlers.ScheduledTaskHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, mode, webDist string, autoLogin bool) *gin.Engine {
 	gin.SetMode(mode)
 	r := gin.New()
 	r.Use(gin.Recovery())
 
 	authHandler := handlers.NewAuthHandler(authSvc, autoLogin)
-	fsHandler := handlers.NewFileSystemHandler()
+	fsHandler := handlers.NewFileSystemHandler(skillsCfg, commandsCfg)
 
 	v1 := r.Group("/api/v1")
 	{
@@ -45,6 +46,8 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			protected.GET("/agents", agentH.List)
 			protected.GET("/agents/status", agentH.Status)
 			protected.GET("/agents/:type/models", agentH.Models)
+			protected.GET("/agents/:type/commands", agentH.Commands)
+			protected.GET("/agents/:type/modes", agentH.Modes)
 			protected.POST("/agents/:type/probe", agentH.Probe)
 
 			agentCfg := protected.Group("/agent-configs")
@@ -89,6 +92,8 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			// 文件系统目录浏览（用于前端目录选择器）
 			protected.GET("/filesystem/dirs", fsHandler.ListDirs)
 			protected.GET("/filesystem/list", fsHandler.ListFiles)
+			protected.GET("/filesystem/skills", fsHandler.Skills)
+			protected.GET("/filesystem/commands", fsHandler.Commands)
 
 			// 定时任务
 			sched := protected.Group("/scheduled-tasks")

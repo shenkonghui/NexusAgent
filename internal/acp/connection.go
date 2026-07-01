@@ -54,11 +54,13 @@ func (c *Connection) Initialize(ctx context.Context) (acp.InitializeResponse, er
 }
 
 // NewSession 在当前连接上创建新的 ACP session，返回 session ID、初始 config options 和初始 modes。
+// additionalDirectories 为 ACP 额外可访问根目录（如 skills 目录），路径须为绝对路径。
 // 同一 Connection 可多次调用，每次返回不同的 session ID。
-func (c *Connection) NewSession(ctx context.Context, cwd string) (string, []acp.SessionConfigOption, []acp.SessionMode, error) {
+func (c *Connection) NewSession(ctx context.Context, cwd string, additionalDirectories []string) (string, []acp.SessionConfigOption, []acp.SessionMode, error) {
 	resp, err := c.conn.NewSession(ctx, acp.NewSessionRequest{
-		Cwd:        cwd,
-		McpServers: []acp.McpServer{},
+		Cwd:                   cwd,
+		AdditionalDirectories: additionalDirectories,
+		McpServers:            []acp.McpServer{},
 	})
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("ACP newSession: %w", err)
