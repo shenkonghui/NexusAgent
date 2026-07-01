@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"nexusagent/internal/config"
+	"nexusagent/internal/logging"
 	"nexusagent/internal/models"
 	"nexusagent/internal/repository"
 )
@@ -522,6 +523,7 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 		_ = ws.Cleanup()
 		return nil, fmt.Errorf("创建 ACP 会话: %w", err)
 	}
+	slog.Debug("agent 会话已创建", "agent", agentType, "session", sessionID, "cwd", ws.Cwd)
 
 	wid := dbWS.ID
 	session := &models.Session{
@@ -617,6 +619,13 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 	}
 
 	agentPrompt := s.expandPrompt(sessionID, session, prompt)
+	slog.Debug("发送 agent prompt",
+		"session", sessionID,
+		"agent", session.AgentType,
+		"prompt_chars", len(prompt),
+		"expanded_chars", len(agentPrompt),
+		"preview", logging.Preview(prompt, 120),
+	)
 	updates, err := conn.Prompt(ctx, sessionID, agentPrompt)
 	if err != nil {
 		return nil, err
@@ -637,6 +646,9 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 		defer close(out)
 
 		seq := s.getNextSequence(session.ID)
+		sid := acp.SessionId(sessionID)
+		permCh := conn.Client().RegisterPermissionWaiter(sid)
+		defer conn.Client().UnregisterPermissionWaiter(sid)
 
 		// 持久化用户发送的 prompt 作为 user_message_chunk
 		seq++
@@ -653,14 +665,31 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 		_ = s.messages.Create(&userMsg)
 		out <- userMsg
 
-		// 读取 agent 返回的 update 流，逐条持久化并转发
-		for u := range updates {
-			s.captureCommands(sessionID, u)
-			seq++
-			msg := MapUpdate(sessionID, session.ID, seq, u)
-			msg.ExecutionID = executionID
-			_ = s.messages.Create(&msg)
-			out <- msg
+		// 读取 agent 返回的 update 流与权限请求，逐条持久化并转发
+		for {
+			select {
+			case u, ok := <-updates:
+				if !ok {
+					slog.Debug("agent prompt 流结束", "session", sessionID)
+					return
+				}
+				s.captureCommands(sessionID, u)
+				seq++
+				msg := MapUpdate(sessionID, session.ID, seq, u)
+				msg.ExecutionID = executionID
+				_ = s.messages.Create(&msg)
+				out <- msg
+			case pn, ok := <-permCh:
+				if !ok {
+					continue
+				}
+				slog.Debug("agent 权限请求", "session", sessionID, "request_id", pn.RequestID)
+				seq++
+				msg := MapPermissionRequest(sessionID, session.ID, seq, pn)
+				msg.ExecutionID = executionID
+				_ = s.messages.Create(&msg)
+				out <- msg
+			}
 		}
 	}()
 
@@ -673,6 +702,7 @@ func (s *Service) CancelSession(ctx context.Context, sessionID string) error {
 	if !ok {
 		return ErrSessionNotFound
 	}
+	conn.Client().CancelPermissions(acp.SessionId(sessionID))
 	return conn.Cancel(ctx, sessionID)
 }
 
@@ -878,6 +908,16 @@ func (s *Service) mergeCommands(agentCmds []acp.AvailableCommand, cwd string) []
 // ListConfiguredCommands 扫描配置的 slash command（Claude Code commands 目录）。
 func (s *Service) ListConfiguredCommands(cwd string) []SlashCommand {
 	return ScanSlashCommands(cwd, s.commandUserDirs, s.commandProjectDirs)
+}
+
+// ListConfiguredCommandsForSession 扫描会话工作区下的配置 slash command。
+func (s *Service) ListConfiguredCommandsForSession(sessionID string) ([]SlashCommand, error) {
+	session, err := s.GetSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	cwd := sessionCwd(session, s.workspaces)
+	return ScanSlashCommands(cwd, s.commandUserDirs, s.commandProjectDirs), nil
 }
 
 // ListConfigOptions 返回会话缓存的 config option 列表（含模型选择等）。
@@ -1099,6 +1139,27 @@ func (s *Service) SetConfigOption(ctx context.Context, sessionID, configID, valu
 		return ErrSessionNotActive
 	}
 	return conn.SetConfigOption(ctx, sessionID, configID, value)
+}
+
+// SetSessionMode 切换会话模式（如 ask / agent / edit）。
+func (s *Service) SetSessionMode(ctx context.Context, sessionID, modeID string) error {
+	if _, err := s.GetSession(sessionID); err != nil {
+		return err
+	}
+	conn, ok := s.connForSession(sessionID)
+	if !ok {
+		return ErrSessionNotActive
+	}
+	return conn.SetSessionMode(ctx, sessionID, modeID)
+}
+
+// RespondPermission 提交用户对权限请求的响应。
+func (s *Service) RespondPermission(sessionID, requestID, optionID string, cancelled bool) error {
+	conn, ok := s.connForSession(sessionID)
+	if !ok {
+		return ErrSessionNotActive
+	}
+	return conn.Client().RespondPermission(requestID, optionID, cancelled)
 }
 
 // GetSessionByDBID 按数据库主键查询会话。

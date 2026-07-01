@@ -8,6 +8,7 @@ import styles from './MessageBubble.module.css'
 interface MessageBubbleProps {
   message: Message
   defaultOpen?: boolean
+  forceCollapsed?: boolean
   sessionId?: number
   cwd?: string
 }
@@ -28,10 +29,10 @@ function toolSummary(content: string): string {
   return 'chat.toolCall'
 }
 
-export default function MessageBubble({ message, defaultOpen = false, sessionId, cwd }: MessageBubbleProps) {
+export default function MessageBubble({ message, defaultOpen = false, forceCollapsed = false, sessionId, cwd }: MessageBubbleProps) {
   const { t } = useTranslation()
   const [showRaw, setShowRaw] = useState(false)
-  const [open, setOpen] = useState(defaultOpen)
+  const [open, setOpen] = useState(defaultOpen && !forceCollapsed)
 
   // 检测 tool_call 消息是否携带文件 diff
   const hasDiff = useMemo(
@@ -40,10 +41,14 @@ export default function MessageBubble({ message, defaultOpen = false, sessionId,
     [message],
   )
 
-  // 流式思考：开始时展开，结束后折叠
+  // 流式思考：进行中展开，本轮结束后强制折叠
   useEffect(() => {
-    setOpen(defaultOpen)
-  }, [defaultOpen])
+    if (forceCollapsed) {
+      setOpen(false)
+    } else {
+      setOpen(defaultOpen)
+    }
+  }, [defaultOpen, forceCollapsed])
 
   const isUser = message.role === 'user'
   const isThought = message.kind === 'agent_thought_chunk'
@@ -104,7 +109,7 @@ export default function MessageBubble({ message, defaultOpen = false, sessionId,
                 message={message}
                 sessionId={sessionId}
                 cwd={cwd}
-                defaultExpanded={defaultOpen}
+                defaultExpanded={defaultOpen && !forceCollapsed}
               />
             )}
             {showRaw && message.raw_json && (

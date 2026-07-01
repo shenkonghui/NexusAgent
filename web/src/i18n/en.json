@@ -22,9 +22,23 @@
     "yes": "Yes",
     "no": "No"
   },
+  "prompt": {
+    "send": "Send",
+    "slashMenuTitle": "Filter commands / skills / modes (↑↓ select, Enter confirm)",
+    "slashNoMatch": "No matches",
+    "slashKindCommand": "Command",
+    "slashKindSkill": "Skill",
+    "slashKindMode": "Mode",
+    "slashKindAgent": "Agent",
+    "slashKindFile": "File",
+    "fileMenuTitle": "File reference — {{path}}",
+    "fileDir": "Directory",
+    "fileFile": "File"
+  },
   "nav": {
     "sessionList": "Sessions",
     "scheduledTasks": "Scheduled Tasks",
+    "notes": "Notes",
     "agentSettings": "Agent Settings",
     "profile": "Profile",
     "login": "Login",
@@ -99,6 +113,15 @@
     "resumePrompt": "Recover session (select working directory, leave empty to reuse)",
     "reconnecting": "Reconnecting...",
     "waitingAgent": "Waiting for Agent response...",
+    "conv_connecting": "Waiting",
+    "conv_streaming": "Generating",
+    "conv_reconnecting": "Reconnecting",
+    "conv_waiting_permission": "Waiting for approval",
+    "timeoutReconnected": "Timed out — reconnected automatically",
+    "permission": {
+      "title": "Permission required",
+      "defaultTitle": "Agent wants to perform an action"
+    },
     "errorSend": "Failed to send",
     "errorLoad": "Failed to load messages",
     "sessionExpired": "Session expired",
@@ -108,12 +131,24 @@
     "autoCreateHint": "Start with the default Agent. A session will be created after the first message.",
     "defaultAgent": "Default Agent",
     "quickSendPlaceholder": "What do you want to do? Enter to send, Shift+Enter for new line",
+    "selectModel": "Select model",
+    "searchModels": "Search models",
+    "noModelsFound": "No matching models",
+    "useCustomModel": "Use custom model: {{value}}",
     "advancedOptions": "Advanced Options",
     "closedHint": "Session needs recovery",
     "errorHint": "Session error, needs recovery"
   },
   "settings": {
     "title": "Agent Settings",
+    "tabLanguage": "Language",
+    "tabAgent": "Agent",
+    "tabClassify": "Note Classification",
+    "languageHint": "Choose the interface display language.",
+    "classifyHint": "Configure the agent, model and prompt for automatic note tagging. Classification runs in a dedicated task session in the default workspace; open「Note classify task」in the sidebar to view each run.",
+    "viewClassifyTask": "View classify task flow →",
+    "noteClassifyInterval": "Classification Interval (minutes)",
+    "noteClassifyIntervalHint": "Wait at least this long after a note is created or updated before auto-classifying; skipped when no notes are pending",
     "agentList": "Agent List",
     "addAgent": "Add Agent",
     "editAgent": "Edit Agent",
@@ -138,7 +173,13 @@
     "languageChanged": "Language switched",
     "hint": "Add local ACP-compatible agents (Claude Code, CodeBuddy, Devin, etc.) here. Configurations are shared globally. Built-in agents are managed by config.yaml.",
     "defaultAgent": "Default Agent (auto-selected when creating sessions)",
-    "validationError": "Type, display name and command are required"
+    "validationError": "Type, display name and command are required",
+    "noteClassifyAgent": "Note Classification Agent",
+    "noteClassifyAgentHint": "Auto-tag notes on create/edit using this agent; leave empty to use manual #tags only",
+    "noteClassifyModel": "Classification Model",
+    "noteClassifyPrompt": "Classification Prompt",
+    "noteClassifyPromptHint": "Supports {{content}} (note body) and {{existing_tags}} (existing tags) placeholders",
+    "noteSettingsSaved": "Note classification settings saved"
   },
   "scheduledTask": {
     "title": "Scheduled Tasks",
@@ -270,5 +311,25 @@
     "rename": "Rename",
     "default": "Default Workspace",
     "empty": "No workspaces"
+  },
+  "notes": {
+    "title": "Notes",
+    "allTags": "All",
+    "searchPlaceholder": "Search notes…",
+    "quickInputPlaceholder": "#tag title or content, press Enter to create",
+    "quickInputHint": "Use #tag on first line (no space); Shift+Enter for newline",
+    "empty": "No notes yet",
+    "selectHint": "Select or create a note",
+    "loadFailed": "Failed to load notes",
+    "createFailed": "Failed to create note",
+    "saveFailed": "Failed to save note",
+    "deleteFailed": "Failed to delete note",
+    "deleteConfirm": "Delete this note?",
+    "saving": "Saving…",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "classifying": "Classifying…",
+    "classifyTask": "Note classify task",
+    "classifyTaskHint": "This is the automatic note classification task session. Each classification appears as one execution block (view only)."
   }
 }

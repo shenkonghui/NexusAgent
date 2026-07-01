@@ -19,10 +19,20 @@ export function getAgentModels(agentType: string): Promise<{ data: { model_optio
 // 探测指定 agent 类型的全部 config options（服务端预连接时已缓存）。
 const probeCache = new Map<string, ConfigOption[]>()
 
-export function probeAgentConfigs(agentType: string): Promise<{ data: { config_options: ConfigOption[] } }> {
-  const cached = probeCache.get(agentType)
-  if (cached) {
-    return Promise.resolve({ data: { config_options: cached } })
+export function clearAgentProbeCache(agentType?: string) {
+  if (agentType) probeCache.delete(agentType)
+  else probeCache.clear()
+}
+
+export function probeAgentConfigs(
+  agentType: string,
+  options?: { force?: boolean },
+): Promise<{ data: { config_options: ConfigOption[] } }> {
+  if (!options?.force) {
+    const cached = probeCache.get(agentType)
+    if (cached) {
+      return Promise.resolve({ data: { config_options: cached } })
+    }
   }
   return apiFetch<{ data: { config_options: ConfigOption[] } }>(
     `/agents/${encodeURIComponent(agentType)}/probe`,

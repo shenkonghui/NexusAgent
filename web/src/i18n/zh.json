@@ -22,9 +22,23 @@
     "yes": "是",
     "no": "否"
   },
+  "prompt": {
+    "send": "发送",
+    "slashMenuTitle": "输入筛选 command / skill / 模式（↑↓ 选择，Enter 确认）",
+    "slashNoMatch": "无匹配项",
+    "slashKindCommand": "Command",
+    "slashKindSkill": "Skill",
+    "slashKindMode": "Mode",
+    "slashKindAgent": "Agent",
+    "slashKindFile": "File",
+    "fileMenuTitle": "文件引用 — {{path}}",
+    "fileDir": "目录",
+    "fileFile": "文件"
+  },
   "nav": {
     "sessionList": "任务列表",
     "scheduledTasks": "定时任务",
+    "notes": "笔记",
     "agentSettings": "Agent 设置",
     "profile": "个人中心",
     "login": "登录",
@@ -99,6 +113,15 @@
     "resumePrompt": "恢复任务（选择工作目录，留空复用原目录）",
     "reconnecting": "重新连接...",
     "waitingAgent": "等待 Agent 响应...",
+    "conv_connecting": "等待响应",
+    "conv_streaming": "生成中",
+    "conv_reconnecting": "重新连接",
+    "conv_waiting_permission": "等待操作确认",
+    "timeoutReconnected": "响应超时，已自动重连",
+    "permission": {
+      "title": "需要你的确认",
+      "defaultTitle": "Agent 请求执行操作"
+    },
     "errorSend": "发送失败",
     "errorLoad": "加载消息失败",
     "sessionExpired": "任务已过期",
@@ -108,6 +131,10 @@
     "autoCreateHint": "使用默认 Agent 开始，发送第一条消息后将自动创建任务",
     "defaultAgent": "默认 Agent",
     "quickSendPlaceholder": "输入你想做的事，Enter 发送，Shift+Enter 换行",
+    "selectModel": "选择模型",
+    "searchModels": "搜索模型",
+    "noModelsFound": "未找到匹配的模型",
+    "useCustomModel": "使用自定义模型：{{value}}",
     "advancedOptions": "高级选项",
     "closedHint": "任务需恢复后才能继续",
     "errorHint": "任务状态异常，需恢复",
@@ -118,6 +145,14 @@
   },
   "settings": {
     "title": "设置",
+    "tabLanguage": "语言设置",
+    "tabAgent": "Agent 设置",
+    "tabClassify": "笔记分类",
+    "languageHint": "选择界面显示语言。",
+    "classifyHint": "配置笔记自动分类使用的 Agent、模型与提示词。分类在默认工作区的专用任务会话中执行，可在侧边栏「笔记分类任务」查看每次处理流程。",
+    "viewClassifyTask": "查看分类任务流程 →",
+    "noteClassifyInterval": "分类间隔（分钟）",
+    "noteClassifyIntervalHint": "笔记创建或更新后，至少等待该时间再进行自动分类；无待分类笔记时不触发",
     "agentList": "Agent 列表",
     "addAgent": "添加 Agent",
     "editAgent": "编辑 Agent",
@@ -144,7 +179,13 @@
     "languageChanged": "语言已切换",
     "hint": "在此添加本地支持 ACP 的 agent（如 Claude Code、CodeBuddy、Devin 等）。配置全局共享，所有用户可用。内置 agent 由 config.yaml 管理。",
     "defaultAgent": "默认 Agent（新建任务时自动选中）",
-    "validationError": "类型、显示名称、命令为必填项"
+    "validationError": "类型、显示名称、命令为必填项",
+    "noteClassifyAgent": "笔记分类 Agent",
+    "noteClassifyAgentHint": "创建或编辑笔记时，使用该 Agent 自动打标签；留空则仅使用手动 #tag",
+    "noteClassifyModel": "分类模型",
+    "noteClassifyPrompt": "分类提示词",
+    "noteClassifyPromptHint": "支持 {{content}}（笔记内容）和 {{existing_tags}}（已有标签）占位符",
+    "noteSettingsSaved": "笔记分类设置已保存"
   },
   "scheduledTask": {
     "title": "定时任务",
@@ -276,5 +317,25 @@
     "rename": "重命名",
     "default": "默认工作区",
     "empty": "暂无工作区"
+  },
+  "notes": {
+    "title": "笔记",
+    "allTags": "全部",
+    "searchPlaceholder": "搜索笔记…",
+    "quickInputPlaceholder": "#tag 标题或内容，回车创建",
+    "quickInputHint": "首行 #tag 无空格；Shift+Enter 换行",
+    "empty": "暂无笔记",
+    "selectHint": "选择或创建一条笔记",
+    "loadFailed": "加载笔记失败",
+    "createFailed": "创建笔记失败",
+    "saveFailed": "保存笔记失败",
+    "deleteFailed": "删除笔记失败",
+    "deleteConfirm": "确定删除此笔记吗？",
+    "saving": "保存中…",
+    "expand": "展开",
+    "collapse": "收起",
+    "classifying": "分类中…",
+    "classifyTask": "笔记分类任务",
+    "classifyTaskHint": "此为笔记自动分类任务会话，每次分类对应一条执行记录，仅供查看。"
   }
 }

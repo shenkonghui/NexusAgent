@@ -15,6 +15,7 @@ type SlashCommand struct {
 	Description string `json:"description"`
 	Location    string `json:"location"` // .md 文件的绝对路径
 	Scope       string `json:"scope"`    // "project" | "user"
+	Path        string `json:"path"`     // 相对扫描根目录的展示路径，如 nested/deploy
 }
 
 type commandFrontmatter struct {
@@ -22,7 +23,7 @@ type commandFrontmatter struct {
 	Description string `yaml:"description"`
 }
 
-// ScanSlashCommands 扫描工作区与用户配置的 commands 目录（Claude Code：递归 *.md）。
+// ScanSlashCommands 扫描工作区与用户配置的 commands 目录（Claude Code：递归 *.md，支持子目录与符号链接目录）。
 // 命令名取自文件名（不含 .md）；子目录仅用于组织，不改变命令名。
 func ScanSlashCommands(cwd string, userDirs, projectSubdirs []string) []SlashCommand {
 	scanDirs := skillScanDirs(cwd, userDirs, projectSubdirs)
@@ -31,12 +32,12 @@ func ScanSlashCommands(cwd string, userDirs, projectSubdirs []string) []SlashCom
 	var commands []SlashCommand
 
 	for _, dir := range scanDirs {
-		scanCommandsUnder(dir.Path, dir.Scope, seen, &commands)
+		scanCommandsUnder(dir.Path, dir.Path, dir.Scope, seen, &commands)
 	}
 	return commands
 }
 
-func scanCommandsUnder(root, scope string, seen map[string]bool, commands *[]SlashCommand) {
+func scanCommandsUnder(root, scanRoot, scope string, seen map[string]bool, commands *[]SlashCommand) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return
@@ -47,8 +48,8 @@ func scanCommandsUnder(root, scope string, seen map[string]bool, commands *[]Sla
 			continue
 		}
 		entryPath := filepath.Join(root, name)
-		if entry.IsDir() {
-			scanCommandsUnder(entryPath, scope, seen, commands)
+		if isScanEntryDir(entryPath, entry) {
+			scanCommandsUnder(entryPath, scanRoot, scope, seen, commands)
 			continue
 		}
 		if !strings.HasSuffix(strings.ToLower(name), ".md") {
@@ -71,6 +72,7 @@ func scanCommandsUnder(root, scope string, seen map[string]bool, commands *[]Sla
 			Description: desc,
 			Location:    entryPath,
 			Scope:       scope,
+			Path:        commandDisplayPath(entryPath, scanRoot),
 		})
 	}
 }

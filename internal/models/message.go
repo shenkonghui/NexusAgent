@@ -22,6 +22,7 @@ const (
 	MessageKindSessionInfoUpdate = "session_info_update"
 	MessageKindUsageUpdate       = "usage_update"
 	MessageKindCurrentModeUpdate = "current_mode_update"
+	MessageKindPermissionRequest = "permission_request"
 	MessageKindUnknown           = "unknown"
 )
 

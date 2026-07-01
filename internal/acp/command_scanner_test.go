@@ -34,8 +34,48 @@ func TestScanSlashCommands_ClaudeCodeLayout(t *testing.T) {
 	if cmds[0].Name != "review" || cmds[0].Scope != "project" {
 		t.Fatalf("project command 异常: %+v", cmds[0])
 	}
-	if cmds[1].Name != "deploy" || cmds[1].Scope != "user" {
+	if cmds[1].Name != "deploy" || cmds[1].Scope != "user" || cmds[1].Path != "nested/deploy" {
 		t.Fatalf("user command 异常: %+v", cmds[1])
+	}
+}
+
+func TestScanSlashCommands_SymlinkDir(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target-cmd")
+	userCmds := filepath.Join(root, "user-commands")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "linked.md"), []byte("Linked command\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(userCmds, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(userCmds, "linked")); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds := ScanSlashCommands("", []string{userCmds}, nil)
+	if len(cmds) != 1 || cmds[0].Name != "linked" {
+		t.Fatalf("期望扫描符号链接 command 目录，实际: %+v", cmds)
+	}
+}
+
+func TestScanSlashCommands_NestedSubdirs(t *testing.T) {
+	root := t.TempDir()
+	userCmds := filepath.Join(root, "user-commands")
+	nested := filepath.Join(userCmds, "group", "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "deep.md"), []byte("Deep command\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmds := ScanSlashCommands("", []string{userCmds}, nil)
+	if len(cmds) != 1 || cmds[0].Name != "deep" || cmds[0].Path != "group/nested/deep" {
+		t.Fatalf("期望扫描嵌套 command，实际: %+v", cmds)
 	}
 }
 

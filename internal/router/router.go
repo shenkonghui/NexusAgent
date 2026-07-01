@@ -16,7 +16,7 @@ import (
 	"nexusagent/internal/services"
 )
 
-func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, schedTaskH *handlers.ScheduledTaskHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, mode, webDist string, autoLogin bool) *gin.Engine {
+func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, schedTaskH *handlers.ScheduledTaskHandler, noteH *handlers.NoteHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, mode, webDist string, autoLogin bool) *gin.Engine {
 	gin.SetMode(mode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -68,11 +68,14 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			protected.POST("/sessions/:id/cancel", sessionH.Cancel)
 			protected.POST("/sessions/:id/resume", sessionH.Resume)
 			protected.GET("/sessions/:id/messages", sessionH.Messages)
+			protected.GET("/sessions/:id/executions", sessionH.Executions)
 			protected.GET("/sessions/:id/commands", sessionH.Commands)
 			protected.GET("/sessions/:id/modes", sessionH.Modes)
 			protected.GET("/sessions/:id/skills", sessionH.Skills)
 			protected.GET("/sessions/:id/config-options", sessionH.ConfigOptions)
 			protected.POST("/sessions/:id/config-options", sessionH.SetConfigOption)
+			protected.POST("/sessions/:id/mode", sessionH.SetMode)
+			protected.POST("/sessions/:id/permissions/:requestId/respond", sessionH.RespondPermission)
 
 			// Workspace 路由
 			workspaceH := handlers.NewWorkspaceHandler(agentRouter)
@@ -105,6 +108,19 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 				sched.DELETE("/:id", schedTaskH.Delete)
 				sched.POST("/:id/run", schedTaskH.Run)
 				sched.GET("/:id/executions", schedTaskH.Executions)
+			}
+
+			// 全局笔记
+			notes := protected.Group("/notes")
+			{
+				notes.GET("/tags", noteH.ListTags)
+				notes.GET("/settings", noteH.GetSettings)
+				notes.PUT("/settings", noteH.UpdateSettings)
+				notes.POST("", noteH.Create)
+				notes.GET("", noteH.List)
+				notes.GET("/:id", noteH.Get)
+				notes.PUT("/:id", noteH.Update)
+				notes.DELETE("/:id", noteH.Delete)
 			}
 		}
 

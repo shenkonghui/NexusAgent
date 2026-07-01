@@ -6,6 +6,8 @@ import (
 	"log/slog"
 
 	"github.com/coder/acp-go-sdk"
+
+	"nexusagent/internal/logging"
 )
 
 // Connection 封装 acp.ClientSideConnection，管理一个 agent 进程与一条 ACP 连接。
@@ -38,6 +40,7 @@ func NewConnection(backend Backend) (*Connection, error) {
 
 // Initialize 执行 ACP 握手。
 func (c *Connection) Initialize(ctx context.Context) (acp.InitializeResponse, error) {
+	slog.Debug("ACP initialize")
 	resp, err := c.conn.Initialize(ctx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		ClientCapabilities: acp.ClientCapabilities{
@@ -50,6 +53,7 @@ func (c *Connection) Initialize(ctx context.Context) (acp.InitializeResponse, er
 	if err != nil {
 		return acp.InitializeResponse{}, fmt.Errorf("ACP initialize: %w", err)
 	}
+	slog.Debug("ACP initialize 完成", "protocol", resp.ProtocolVersion)
 	return resp, nil
 }
 
@@ -57,6 +61,7 @@ func (c *Connection) Initialize(ctx context.Context) (acp.InitializeResponse, er
 // additionalDirectories 为 ACP 额外可访问根目录（如 skills 目录），路径须为绝对路径。
 // 同一 Connection 可多次调用，每次返回不同的 session ID。
 func (c *Connection) NewSession(ctx context.Context, cwd string, additionalDirectories []string) (string, []acp.SessionConfigOption, []acp.SessionMode, error) {
+	slog.Debug("ACP newSession", "cwd", cwd, "extra_dirs", len(additionalDirectories))
 	resp, err := c.conn.NewSession(ctx, acp.NewSessionRequest{
 		Cwd:                   cwd,
 		AdditionalDirectories: additionalDirectories,
@@ -70,6 +75,7 @@ func (c *Connection) NewSession(ctx context.Context, cwd string, additionalDirec
 	if resp.Modes != nil {
 		modes = resp.Modes.AvailableModes
 	}
+	slog.Debug("ACP newSession 完成", "session", resp.SessionId, "config_options", len(resp.ConfigOptions), "modes", len(modes))
 	return string(resp.SessionId), resp.ConfigOptions, modes, nil
 }
 
@@ -78,13 +84,19 @@ func (c *Connection) NewSession(ctx context.Context, cwd string, additionalDirec
 func (c *Connection) Prompt(ctx context.Context, sessionID, prompt string) (<-chan acp.SessionUpdate, error) {
 	sid := acp.SessionId(sessionID)
 	ch := c.client.RegisterStream(sid, 256)
+	slog.Debug("ACP prompt", "session", sessionID, "chars", len(prompt), "preview", logging.Preview(prompt, 120))
 
 	go func() {
 		defer c.client.UnregisterStream(sid)
-		_, _ = c.conn.Prompt(ctx, acp.PromptRequest{
+		_, err := c.conn.Prompt(ctx, acp.PromptRequest{
 			SessionId: sid,
 			Prompt:    []acp.ContentBlock{acp.TextBlock(prompt)},
 		})
+		if err != nil {
+			slog.Debug("ACP prompt 失败", "session", sessionID, "err", err)
+		} else {
+			slog.Debug("ACP prompt 完成", "session", sessionID)
+		}
 	}()
 
 	return ch, nil
@@ -92,11 +104,13 @@ func (c *Connection) Prompt(ctx context.Context, sessionID, prompt string) (<-ch
 
 // Cancel 取消正在进行的 prompt。
 func (c *Connection) Cancel(ctx context.Context, sessionID string) error {
+	slog.Debug("ACP cancel", "session", sessionID)
 	return c.conn.Cancel(ctx, acp.CancelNotification{SessionId: acp.SessionId(sessionID)})
 }
 
 // SetConfigOption 设置会话的 config option（如模型选择）。
 func (c *Connection) SetConfigOption(ctx context.Context, sessionID, configID, value string) error {
+	slog.Debug("ACP setSessionConfigOption", "session", sessionID, "config", configID, "value", value)
 	_, err := c.conn.SetSessionConfigOption(ctx, acp.SetSessionConfigOptionRequest{
 		ValueId: &acp.SetSessionConfigOptionValueId{
 			SessionId: acp.SessionId(sessionID),
@@ -107,9 +121,20 @@ func (c *Connection) SetConfigOption(ctx context.Context, sessionID, configID, v
 	return err
 }
 
+// SetSessionMode 切换会话模式（如 ask / agent / edit）。
+func (c *Connection) SetSessionMode(ctx context.Context, sessionID, modeID string) error {
+	slog.Debug("ACP setSessionMode", "session", sessionID, "mode", modeID)
+	_, err := c.conn.SetSessionMode(ctx, acp.SetSessionModeRequest{
+		SessionId: acp.SessionId(sessionID),
+		ModeId:    acp.SessionModeId(modeID),
+	})
+	return err
+}
+
 // CloseSessionByID 关闭单个 ACP session（释放 agent 侧该 session 的资源），
 // 但不停止 agent 进程，连接可继续承载其他 session。
 func (c *Connection) CloseSessionByID(ctx context.Context, sessionID string) error {
+	slog.Debug("ACP closeSession", "session", sessionID)
 	c.client.UnregisterStream(acp.SessionId(sessionID))
 	_, err := c.conn.CloseSession(ctx, acp.CloseSessionRequest{
 		SessionId: acp.SessionId(sessionID),

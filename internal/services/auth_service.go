@@ -138,6 +138,18 @@ func (s *AuthService) Login(account, password, userAgent, ip string) (*AuthResul
 	return s.issueTokens(user, userAgent, ip)
 }
 
+// AutoLoginAsAdmin 为内置 admin 直接签发 token（免登录模式，不校验密码）。
+func (s *AuthService) AutoLoginAsAdmin(userAgent, ip string) (*AuthResult, error) {
+	user, err := s.users.FindByUsername("admin")
+	if err != nil {
+		return nil, ErrInvalidCreds
+	}
+	if user.Status == models.StatusDisabled {
+		return nil, ErrUserDisabled
+	}
+	return s.issueTokens(user, userAgent, ip)
+}
+
 func (s *AuthService) findUserByAccount(account string) (*models.User, error) {
 	if strings.Contains(account, "@") {
 		return s.users.FindByEmail(account)

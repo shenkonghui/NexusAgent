@@ -39,6 +39,9 @@ export interface AgentCommand {
   name: string;
   description: string;
   has_input: boolean;
+  path?: string;
+  scope?: string;
+  kind?: 'command' | 'agent';
 }
 
 // Config option 可选项值
@@ -65,12 +68,26 @@ export interface SessionMode {
   description: string;
 }
 
+// 权限请求选项（ACP RequestPermission）
+export interface PermissionOption {
+  optionId: string;
+  name: string;
+  kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always' | string;
+}
+
+export interface PermissionRequestPayload {
+  request_id: string;
+  tool_call?: { title?: string; toolCallId?: string };
+  options: PermissionOption[];
+}
+
 // Agent Skill（agentskills.io 规范，SKILL.md 格式）
 export interface AgentSkill {
   name: string;
   description: string;
   location: string;
   scope: string; // "project" | "user"
+  path?: string;
 }
 
 // 工作区
@@ -97,7 +114,7 @@ export interface Session {
   workspace?: Workspace;
   last_prompt: string;
   title: string;
-  source: 'manual' | 'scheduled';
+  source: 'manual' | 'scheduled' | 'classify';
   created_at: string;
   closed_at: string | null;
 }
@@ -168,4 +185,24 @@ export interface ApiError {
     code: string;
     message: string;
   };
+}
+
+// 全局笔记
+export interface Note {
+  id: number;
+  title: string;
+  content: string;
+  tags: string[];
+  classify_pending: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NoteSettings {
+  agent_type: string;
+  model_value: string;
+  classify_prompt: string;
+  classify_interval_minutes: number;
+  classify_session_id?: string;
+  classify_db_session_id?: number;
 }

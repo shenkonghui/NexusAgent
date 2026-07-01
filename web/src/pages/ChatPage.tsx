@@ -2,15 +2,18 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useRequireAuth } from '../hooks/useRequireAuth'
-import { getSession, listMessages, cancelSession, listCommands, listModes, listSkills, listConfigOptions, setConfigOption, deleteSession, updateSessionTitle, createSession, resumeSession } from '../api/sessions'
+import { getSession, listMessages, cancelSession, listCommands, listModes, listSkills, listConfigOptions, setConfigOption, setSessionMode, respondPermission, deleteSession, updateSessionTitle, createSession, resumeSession, listSessionExecutions } from '../api/sessions'
 import { getWorkspace } from '../api/workspaces'
 import { listScheduledTasks, listExecutions } from '../api/scheduledTasks'
 import { listAgents, probeAgentConfigs, listAgentCommands, listAgentModes } from '../api/agents'
 import { listSkillsByPath } from '../api/filesystem'
 import { WORKSPACE_STORAGE_KEY, useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
+import { getLastAgentModel, resolveAgentModel, setLastAgentModel } from '../utils/agentModel'
 import { streamPrompt, isTimeoutError } from '../api/sse'
 import { parseDiffsFromMessage } from '../utils/diff'
-import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution, Agent } from '../types'
+import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution, Agent, PermissionRequestPayload } from '../types'
+import { parsePermissionRequest } from '../utils/permission'
+import { formatOptionLabel, fullOptionLabel } from '../utils/selectLabel'
 import SessionSidebar from '../components/SessionSidebar'
 import MessageList from '../components/MessageList'
 import PromptInput from '../components/PromptInput'
@@ -21,11 +24,17 @@ import WorkspacePanel from '../components/WorkspacePanel'
 import ContextStats from '../components/ContextStats'
 import UserMenu from '../components/UserMenu'
 import WorkspaceSelector from '../components/WorkspaceSelector'
+import ModelPicker from '../components/ModelPicker'
+import PermissionDialog from '../components/PermissionDialog'
+import SessionModeSelector from '../components/SessionModeSelector'
+import ConvStatusBar, { type ConvState as ConvStatusState } from '../components/ConvStatusBar'
 import styles from './ChatPage.module.css'
 
 const DEFAULT_AGENT_KEY = 'nexus.default.agent'
 
 type NavigateState = { initialPrompt?: string; createdSession?: Session }
+
+type ConvState = ConvStatusState
 
 export default function ChatPage() {
   const { t, i18n } = useTranslation()
@@ -56,12 +65,16 @@ export default function ChatPage() {
   const [configOptions, setConfigOptions] = useState<ConfigOption[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [sending, setSending] = useState(false)
+  const [convState, setConvState] = useState<ConvState>('idle')
+  const abortRef = useRef<AbortController | null>(null)
   const [showWorkspace, setShowWorkspace] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [lastFailedPrompt, setLastFailedPrompt] = useState('')
   const [retryable, setRetryable] = useState(false)
   const [executions, setExecutions] = useState<Execution[]>([])
+  const [currentModeId, setCurrentModeId] = useState('')
+  const [pendingPermission, setPendingPermission] = useState<PermissionRequestPayload | null>(null)
+  const [permissionResponding, setPermissionResponding] = useState(false)
 
   // 无会话模式下的 agent / 模型选择状态
   const [agents, setAgents] = useState<Agent[]>([])
@@ -88,6 +101,22 @@ export default function ChatPage() {
     return paths.size
   }, [messages])
 
+  // 从消息流中提取当前 session mode
+  useEffect(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]
+      if (msg.kind !== 'current_mode_update') continue
+      try {
+        const data = JSON.parse(msg.raw_json)
+        const modeId = data?.CurrentModeUpdate?.currentModeId || data?.current_mode_update?.currentModeId
+        if (modeId) {
+          setCurrentModeId(String(modeId))
+          return
+        }
+      } catch { /* ignore */ }
+    }
+  }, [messages])
+
   // 加载会话数据（有会话时）；quiet 模式下不阻塞 UI（用于新建会话后的后台刷新）
   const loadData = useCallback(async (opts?: { quiet?: boolean }) => {
     if (!hasSession) return
@@ -104,13 +133,26 @@ export default function ChatPage() {
       } else {
         setAllSessions([])
       }
-      if (sessionResp.data.source === 'scheduled') {
-        loadExecutions(sessionId)
+      if (sessionResp.data.source === 'scheduled' || sessionResp.data.source === 'classify') {
+        loadExecutions(sessionId, sessionResp.data.source)
       } else { setExecutions([]) }
       listCommands(sessionId).then((r) => setCommands(r.data.commands || [])).catch(() => setCommands([]))
-      listModes(sessionId).then((r) => setModes(r.data.modes || [])).catch(() => setModes([]))
+      listModes(sessionId).then((r) => {
+        const modeList = r.data.modes || []
+        setModes(modeList)
+        if (modeList.length > 0) {
+          setCurrentModeId((prev) => prev || modeList[0].id)
+        }
+      }).catch(() => setModes([]))
       listSkills(sessionId).then((r) => setSkills(r.data.skills || [])).catch(() => setSkills([]))
-      listConfigOptions(sessionId).then((r) => setConfigOptions(r.data.config_options || [])).catch(() => setConfigOptions([]))
+      listConfigOptions(sessionId).then((r) => {
+        const opts = r.data.config_options || []
+        setConfigOptions(opts)
+        const modelOpt = opts.find((o) => o.category === 'model')
+        if (modelOpt?.current_value && sessionResp.data.agent_type) {
+          setLastAgentModel(sessionResp.data.agent_type, modelOpt.current_value)
+        }
+      }).catch(() => setConfigOptions([]))
     } catch (err) {
       if (!opts?.quiet) setError(err instanceof Error ? err.message : t('common.failed'))
     } finally { if (!opts?.quiet) setLoading(false) }
@@ -169,12 +211,12 @@ export default function ChatPage() {
       .then((r) => {
         if (!alive) return
         const opts = r.data.config_options || []
-        setProbeConfigs(opts)
-        // 从探测结果中提取模型默认值，用于创建会话时传递
         const modelOpt = opts.find((o) => o.category === 'model')
-        if (modelOpt) {
-          setSelectedModel(modelOpt.current_value || modelOpt.options[0]?.value || '')
-        } else { setSelectedModel('') }
+        const model = resolveAgentModel(selectedAgent, modelOpt)
+        setProbeConfigs(modelOpt && model
+          ? opts.map((o) => (o.id === modelOpt.id ? { ...o, current_value: model } : o))
+          : opts)
+        setSelectedModel(modelOpt ? model : getLastAgentModel(selectedAgent))
       })
       .catch((err) => {
         if (!alive) return
@@ -241,8 +283,13 @@ export default function ChatPage() {
     handleSend(pending)
   }, [activeSession, loading, bootstrapSession])
 
-  async function loadExecutions(dbSessionId: number) {
+  async function loadExecutions(dbSessionId: number, source?: Session['source']) {
     try {
+      if (source === 'classify') {
+        const execResp = await listSessionExecutions(dbSessionId)
+        setExecutions(execResp.data.executions || [])
+        return
+      }
       const tasksResp = await listScheduledTasks()
       const task = (tasksResp.data.tasks || []).find((t) => t.db_session_id === dbSessionId)
       if (task) { const execResp = await listExecutions(task.id); setExecutions(execResp.data.executions || []) }
@@ -256,6 +303,7 @@ export default function ChatPage() {
     try {
       const resp = await createSession(selectedAgent, workspaceId || 0, selectedModel || undefined)
       localStorage.setItem(DEFAULT_AGENT_KEY, selectedAgent)
+      if (selectedModel) setLastAgentModel(selectedAgent, selectedModel)
       navigate(`/workspaces/${resp.data.workspace_id}/sessions/${resp.data.id}`, {
         state: { initialPrompt: prompt, createdSession: resp.data },
       })
@@ -267,18 +315,112 @@ export default function ChatPage() {
 
   async function handleSend(prompt: string) {
     if (!activeSession || activeSession.status !== 'active') return
-    setSending(true); setError(''); setRetryable(false); setLastFailedPrompt('')
+    setConvState('connecting')
+    setError('')
+    setRetryable(false)
+    setLastFailedPrompt('')
+
+    // 乐观展示用户消息，避免发送后界面无反馈
+    const optimisticId = -Date.now()
+    const optimisticMsg: Message = {
+      id: optimisticId,
+      session_id: activeSession.session_id,
+      role: 'user',
+      kind: 'user_message_chunk',
+      content: prompt,
+      raw_json: '',
+      sequence: 0,
+      execution_id: null,
+      created_at: new Date().toISOString(),
+    }
+    setMessages((prev) => [...prev, optimisticMsg])
+
+    const ac = new AbortController()
+    abortRef.current = ac
+    let gotAgentReply = false
+
     await streamPrompt(
-      sessionId, prompt,
-      (msg) => setMessages((prev) => [...prev, msg]),
-      () => { setSending(false); setLastFailedPrompt(''); setRetryable(false); loadData() },
-      (err) => { setSending(false); setError(err.message); if (isTimeoutError(err)) { setLastFailedPrompt(prompt); setRetryable(true) } },
+      sessionId,
+      prompt,
+      (msg) => {
+        if (msg.role !== 'user') gotAgentReply = true
+        if (msg.kind === 'permission_request') {
+          const req = parsePermissionRequest(msg.raw_json)
+          if (req) {
+            setPendingPermission(req)
+            setConvState('waiting_permission')
+          }
+        }
+        if (msg.role === 'user') {
+          setConvState('streaming')
+          setMessages((prev) => {
+            const rest = prev.filter((m) => m.id !== optimisticId)
+            return [...rest, msg]
+          })
+          return
+        }
+        setConvState('streaming')
+        setMessages((prev) => [...prev, msg])
+      },
+      () => {
+        abortRef.current = null
+        setConvState('idle')
+        setPendingPermission(null)
+        setLastFailedPrompt('')
+        setRetryable(false)
+        loadData({ quiet: true })
+      },
+      async (err) => {
+        abortRef.current = null
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
+        if (isTimeoutError(err)) {
+          await recoverFromTimeout(prompt, gotAgentReply)
+          return
+        }
+        setConvState('idle')
+        setError(err.message)
+      },
+      { signal: ac.signal, onActivity: () => setConvState((s) => (s === 'waiting_permission' ? s : 'streaming')) },
     )
   }
 
+  const displayConvState: ConvState = pendingPermission ? 'waiting_permission' : convState
+
+  async function recoverFromTimeout(prompt: string, gotAgentReply: boolean) {
+    setConvState('reconnecting')
+    setError('')
+    try {
+      try { await cancelSession(sessionId) } catch { /* 尽力取消挂起的 prompt */ }
+      const resp = await resumeSession(sessionId)
+      setSession(resp.data)
+      await loadData({ quiet: true })
+      setConvState('idle')
+      if (!gotAgentReply) {
+        setLastFailedPrompt(prompt)
+        setRetryable(true)
+        setError(t('session.timeoutReconnected'))
+      } else {
+        setError(t('session.timeoutReconnected'))
+      }
+    } catch (err) {
+      setConvState('idle')
+      setError(err instanceof Error ? err.message : t('common.failed'))
+      setLastFailedPrompt(prompt)
+      setRetryable(true)
+    }
+  }
+
+  const sending = convState !== 'idle'
+
   async function handleRetry() { if (!lastFailedPrompt) return; setError(''); setRetryable(false); await handleSend(lastFailedPrompt) }
 
-  async function handleCancel() { try { await cancelSession(sessionId); setSending(false) } catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) } }
+  async function handleCancel() {
+    abortRef.current?.abort()
+    abortRef.current = null
+    try { await cancelSession(sessionId) } catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) }
+    setPendingPermission(null)
+    setConvState('idle')
+  }
 
   // 恢复异常状态的会话（error 或 closed）
   async function handleResume() {
@@ -291,9 +433,55 @@ export default function ChatPage() {
     } finally { setResuming(false) }
   }
 
+  async function handleSetMode(modeId: string) {
+    if (!modeId || modeId === currentModeId) return
+    setError('')
+    setCurrentModeId(modeId)
+    try {
+      await setSessionMode(sessionId, modeId)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.failed'))
+      loadData({ quiet: true })
+    }
+  }
+
+  async function handlePermissionRespond(optionId: string) {
+    if (!pendingPermission) return
+    setPermissionResponding(true)
+    setError('')
+    try {
+      await respondPermission(sessionId, pendingPermission.request_id, optionId)
+      setPendingPermission(null)
+      if (convState === 'waiting_permission') setConvState('streaming')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.failed'))
+    } finally {
+      setPermissionResponding(false)
+    }
+  }
+
+  async function handlePermissionCancel() {
+    if (!pendingPermission) return
+    setPermissionResponding(true)
+    setError('')
+    try {
+      await respondPermission(sessionId, pendingPermission.request_id, '', true)
+      setPendingPermission(null)
+      if (convState === 'waiting_permission') setConvState('streaming')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.failed'))
+    } finally {
+      setPermissionResponding(false)
+    }
+  }
+
   async function handleSetConfigOption(configId: string, value: string) {
     setError('')
+    const opt = configOptions.find((o) => o.id === configId)
     setConfigOptions((prev) => prev.map((o) => (o.id === configId ? { ...o, current_value: value } : o)))
+    if (opt?.category === 'model' && activeSession?.agent_type && value) {
+      setLastAgentModel(activeSession.agent_type, value)
+    }
     try { await setConfigOption(sessionId, configId, value) }
     catch (err) {
       setError(err instanceof Error ? err.message : t('common.failed'))
@@ -426,29 +614,21 @@ export default function ChatPage() {
                   : opt.category === 'thought_level' ? '思考级别'
                   : opt.name
                 const isModel = opt.category === 'model'
-                const listId = `list-${opt.id}`
                 return (
                   <div key={opt.id} className={styles.homeConfigItem}>
                     <label className={styles.homeConfigLabel}>{label}</label>
                     {isModel ? (
-                      <>
-                        <input className={styles.homeConfigInput}
-                          list={listId}
-                          value={opt.current_value || ''}
-                          onChange={(e) => {
-                            const val = e.target.value
-                            setProbeConfigs((prev) => prev.map((o) => (o.id === opt.id ? { ...o, current_value: val } : o)))
-                            setSelectedModel(val)
-                          }}
-                          disabled={probing || creating}
-                          placeholder="输入过滤或选择"
-                        />
-                        <datalist id={listId}>
-                          {opt.options.map((v) => (
-                            <option key={v.value} value={v.value}>{v.name}{v.description ? ` — ${v.description}` : ''}</option>
-                          ))}
-                        </datalist>
-                      </>
+                      <ModelPicker
+                        value={selectedModel}
+                        options={opt.options}
+                        onChange={(val) => {
+                          setSelectedModel(val)
+                          setLastAgentModel(selectedAgent, val)
+                          setProbeConfigs((prev) => prev.map((o) => (o.id === opt.id ? { ...o, current_value: val } : o)))
+                        }}
+                        disabled={probing || creating}
+                        placeholder={t('session.selectModel')}
+                      />
                     ) : (
                       <select className={styles.homeConfigSelect}
                         value={opt.current_value || ''}
@@ -456,8 +636,8 @@ export default function ChatPage() {
                         onChange={(ev) => setProbeConfigs((prev) => prev.map((o) => (o.id === opt.id ? { ...o, current_value: ev.target.value } : o)))}
                       >
                         {opt.options.map((v) => (
-                          <option key={v.value} value={v.value}>
-                            {v.name.length > 10 ? v.name.slice(0, 10) + '…' : v.name}
+                          <option key={v.value} value={v.value} title={fullOptionLabel(v.name, v.description)}>
+                            {formatOptionLabel(v.name, v.description, 20)}
                           </option>
                         ))}
                       </select>
@@ -471,7 +651,11 @@ export default function ChatPage() {
                   <label className={styles.homeConfigLabel}>模型</label>
                   <input className={styles.homeConfigInput}
                     type="text" value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setSelectedModel(val)
+                      if (val) setLastAgentModel(selectedAgent, val)
+                    }}
                     placeholder="手动输入模型 ID"
                     disabled={creating}
                   />
@@ -531,6 +715,11 @@ export default function ChatPage() {
               </button>
             )}
             <span className={styles.agentType}>{activeSession?.agent_type || ''}</span>
+            {displayConvState !== 'idle' && (
+              <span className={`${styles.convStatus} ${styles[`conv_${displayConvState}`]}`}>
+                {t(`session.conv_${displayConvState}`)}
+              </span>
+            )}
             {activeSession?.workspace?.cwd && <span className={styles.cwd}>{activeSession.workspace.cwd}</span>}
           </div>
           <div className={styles.actions}>
@@ -543,7 +732,15 @@ export default function ChatPage() {
         </div>
 
         <div className={styles.configBar}>
-          <ModelSelector options={configOptions} onApply={handleSetConfigOption} disabled={sending} />
+          <div className={styles.configOptions}>
+            <SessionModeSelector
+              modes={modes}
+              currentModeId={currentModeId}
+              onChange={handleSetMode}
+              disabled={sending}
+            />
+            <ModelSelector options={configOptions} onApply={handleSetConfigOption} disabled={sending} />
+          </div>
           <div className={styles.statsArea}><ContextStats messages={messages} /></div>
         </div>
 
@@ -556,16 +753,21 @@ export default function ChatPage() {
         )}
 
         <MessageList messages={messages} loading={sending}
-          scheduled={activeSession?.source === 'scheduled'} executions={executions}
+          scheduled={activeSession?.source === 'scheduled' || activeSession?.source === 'classify'} executions={executions}
           sessionId={sessionId} cwd={activeSession?.workspace?.cwd || ''}
         />
 
-        {activeSession?.status === 'active' ? (
-          <PromptInput onSend={handleSend} onCancel={handleCancel}
-            sending={sending} disabled={false}
-            commands={commands} modes={modes} skills={skills} cwd={activeSession?.workspace?.cwd || ''}
-            placeholder={t('session.promptPlaceholder')}
-          />
+        {activeSession?.status === 'active' && activeSession?.source !== 'classify' ? (
+          <>
+            <ConvStatusBar state={displayConvState} />
+            <PromptInput onSend={handleSend} onCancel={handleCancel}
+              sending={sending} disabled={false}
+              commands={commands} modes={modes} skills={skills} cwd={activeSession?.workspace?.cwd || ''}
+              placeholder={sending ? t(`session.conv_${displayConvState === 'idle' ? 'connecting' : displayConvState}`) : t('session.promptPlaceholder')}
+            />
+          </>
+        ) : activeSession?.status === 'active' && activeSession?.source === 'classify' ? (
+          <p className={styles.classifyViewHint}>{t('notes.classifyTaskHint')}</p>
         ) : (
           <div className={styles.recoverBar}>
             <span className={styles.recoverText}>
@@ -586,6 +788,15 @@ export default function ChatPage() {
             onClose={() => setShowWorkspace(false)}
           />
         </div>
+      )}
+
+      {pendingPermission && (
+        <PermissionDialog
+          request={pendingPermission}
+          responding={permissionResponding}
+          onRespond={handlePermissionRespond}
+          onCancel={handlePermissionCancel}
+        />
       )}
 
       

@@ -1,4 +1,4 @@
-import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill } from '../types'
+import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution } from '../types'
 import { apiFetch } from './client'
 
 // 创建会话（可选 model_value 指定初始模型，可选 workspace_id）
@@ -9,8 +9,8 @@ export function createSession(agentType: string, workspaceId?: number, modelValu
   })
 }
 
-// 获取会话列表（可选 source 过滤：manual / scheduled）
-export function listSessions(source?: 'manual' | 'scheduled'): Promise<{ data: { sessions: Session[] } }> {
+// 获取会话列表（可选 source 过滤：manual / scheduled / classify）
+export function listSessions(source?: 'manual' | 'scheduled' | 'classify'): Promise<{ data: { sessions: Session[] } }> {
   const qs = source ? `?source=${source}` : ''
   return apiFetch(`/sessions${qs}`)
 }
@@ -50,6 +50,11 @@ export function listMessages(id: number): Promise<{ data: { messages: Message[] 
   return apiFetch(`/sessions/${id}/messages`)
 }
 
+// 获取会话执行块（定时任务 / 笔记分类）
+export function listSessionExecutions(id: number): Promise<{ data: { executions: Execution[] } }> {
+  return apiFetch(`/sessions/${id}/executions`)
+}
+
 // 获取会话可用的 slash command
 export function listCommands(id: number): Promise<{ data: { commands: AgentCommand[] } }> {
   return apiFetch(`/sessions/${id}/commands`)
@@ -75,5 +80,26 @@ export function setConfigOption(id: number, configId: string, value: string): Pr
   return apiFetch(`/sessions/${id}/config-options`, {
     method: 'POST',
     body: JSON.stringify({ config_id: configId, value }),
+  })
+}
+
+// 切换会话模式（ask / agent / edit 等）
+export function setSessionMode(id: number, modeId: string): Promise<void> {
+  return apiFetch(`/sessions/${id}/mode`, {
+    method: 'POST',
+    body: JSON.stringify({ mode_id: modeId }),
+  })
+}
+
+// 响应 Agent 权限请求（编辑文件、运行命令等）
+export function respondPermission(
+  id: number,
+  requestId: string,
+  optionId: string,
+  cancelled = false,
+): Promise<void> {
+  return apiFetch(`/sessions/${id}/permissions/${encodeURIComponent(requestId)}/respond`, {
+    method: 'POST',
+    body: JSON.stringify({ option_id: optionId, cancelled }),
   })
 }

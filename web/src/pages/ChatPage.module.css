@@ -89,6 +89,16 @@
   background: var(--bg-muted);
   border-bottom: 1px solid var(--border);
   gap: 12px;
+  min-height: 44px;
+}
+
+.configOptions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .statsArea {
@@ -369,6 +379,39 @@
   color: var(--danger);
 }
 
+.convStatus {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-weight: 500;
+  animation: convPulse 1.5s ease-in-out infinite;
+}
+
+.conv_connecting {
+  background: var(--warning-bg, rgba(234, 179, 8, 0.15));
+  color: var(--warning, #ca8a04);
+}
+
+.conv_streaming {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--accent, #3b82f6);
+}
+
+.conv_reconnecting {
+  background: var(--warning-bg, rgba(234, 179, 8, 0.15));
+  color: var(--warning, #ca8a04);
+}
+
+.conv_waiting_permission {
+  background: var(--warning-bg, rgba(234, 179, 8, 0.15));
+  color: var(--warning, #ca8a04);
+}
+
+@keyframes convPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+
 .sessionPrompt {
   font-size: 12px;
   color: var(--text-secondary);
@@ -404,6 +447,14 @@
 .listDeleteBtn:hover {
   background: var(--danger);
   color: var(--text-on-accent);
+}
+
+.classifyViewHint {
+  padding: 12px 24px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 /* ====== 会话恢复栏 ====== */

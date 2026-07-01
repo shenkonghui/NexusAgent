@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage'
 import ChatPage from './pages/ChatPage'
 import SettingsPage from './pages/SettingsPage'
 import ScheduledTasksPage from './pages/ScheduledTasksPage'
+import NotesPage from './pages/NotesPage'
 import ProfilePage from './pages/ProfilePage'
 import SessionRedirect from './components/SessionRedirect'
 
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="/workspaces/:wid/sessions/:sid" element={<ChatPage />} />
           <Route path="/sessions/:id" element={<SessionRedirect />} />
           <Route path="/scheduled-tasks" element={<ScheduledTasksPage />} />
+          <Route path="/notes" element={<NotesPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

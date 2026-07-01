@@ -88,6 +88,22 @@ func (r *Router) CachedCommands(agentType string, cwd string) []acpsdk.Available
 	return r.service.CachedCommands(agentType, cwd)
 }
 
+// ListConfiguredCommands 扫描指定 cwd 下配置的 slash command。
+func (r *Router) ListConfiguredCommands(cwd string) []acp.SlashCommand {
+	if r.service == nil {
+		return nil
+	}
+	return r.service.ListConfiguredCommands(cwd)
+}
+
+// ListConfiguredCommandsForSession 扫描会话工作区下配置的 slash command。
+func (r *Router) ListConfiguredCommandsForSession(sessionID string) ([]acp.SlashCommand, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.ListConfiguredCommandsForSession(sessionID)
+}
+
 // CachedModes 返回指定 agent 类型缓存的 session mode，委托 service。
 func (r *Router) CachedModes(agentType string) []acpsdk.SessionMode {
 	if r.service == nil {
@@ -126,6 +142,22 @@ func (r *Router) SetConfigOption(ctx context.Context, sessionID, configID, value
 		return errors.New("service 未配置")
 	}
 	return r.service.SetConfigOption(ctx, sessionID, configID, value)
+}
+
+// SetSessionMode 切换会话模式，委托 service。
+func (r *Router) SetSessionMode(ctx context.Context, sessionID, modeID string) error {
+	if r.service == nil {
+		return errors.New("service 未配置")
+	}
+	return r.service.SetSessionMode(ctx, sessionID, modeID)
+}
+
+// RespondPermission 提交权限请求响应，委托 service。
+func (r *Router) RespondPermission(sessionID, requestID, optionID string, cancelled bool) error {
+	if r.service == nil {
+		return errors.New("service 未配置")
+	}
+	return r.service.RespondPermission(sessionID, requestID, optionID, cancelled)
 }
 
 // UpdateTitle 更新会话标题，委托 service。

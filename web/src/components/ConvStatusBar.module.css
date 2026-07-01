@@ -1,0 +1,40 @@
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  font-size: 13px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-muted);
+}
+
+.bar_connecting,
+.bar_reconnecting {
+  color: var(--warning, #ca8a04);
+}
+
+.bar_streaming {
+  color: var(--accent, #3b82f6);
+}
+
+.bar_waiting_permission {
+  color: var(--warning, #ca8a04);
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.text {
+  font-weight: 500;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

@@ -35,6 +35,7 @@ type AgentConfigProber interface {
 // AgentCommandLister 返回指定 agent 类型缓存的 slash command。
 type AgentCommandLister interface {
 	CachedCommands(agentType string, cwd string) []acpsdk.AvailableCommand
+	ListConfiguredCommands(cwd string) []acplocal.SlashCommand
 }
 
 // AgentModeLister 返回指定 agent 类型缓存的 session mode。
@@ -238,14 +239,8 @@ func (h *AgentHandler) Commands(c *gin.Context) {
 		return
 	}
 	cmds := h.cmdLister.CachedCommands(agentType, strings.TrimSpace(c.Query("path")))
-	items := make([]commandItem, 0, len(cmds))
-	for _, cmd := range cmds {
-		items = append(items, commandItem{
-			Name:        cmd.Name,
-			Description: cmd.Description,
-			HasInput:    cmd.Input != nil,
-		})
-	}
+	configured := h.cmdLister.ListConfiguredCommands(strings.TrimSpace(c.Query("path")))
+	items := buildCommandItems(cmds, configured)
 	Success(c, http.StatusOK, gin.H{"commands": items})
 }
 

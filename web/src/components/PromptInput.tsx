@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback, type FormEvent, type KeyboardEvent } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { AgentCommand, SessionMode, AgentSkill } from '../types'
 import { listFiles, type FileEntry } from '../api/filesystem'
 import styles from './PromptInput.module.css'
@@ -9,43 +10,34 @@ interface PromptInputProps {
   disabled?: boolean
   sending?: boolean
   placeholder?: string
-  /** 嵌入表单时使用：隐藏发送按钮，Enter 换行而非提交 */
   embedded?: boolean
-  /** 受控模式：外部管理输入文本 */
   value?: string
   onValueChange?: (text: string) => void
   rows?: number
   commands?: AgentCommand[]
-  /** ACP 会话模式（如 plan/act） */
   modes?: SessionMode[]
-  /** Agent Skills（agentskills.io 规范） */
   skills?: AgentSkill[]
-  /** 会话工作目录，用于 @ 文件引用浏览 */
   cwd?: string
 }
 
-// 补全项类型
-type MentionType = 'command' | 'skill' | 'file'
+type MentionType = 'command' | 'skill' | 'mode' | 'file'
 
-// 统一补全项
 interface MentionItem {
   type: MentionType
-  label: string       // 显示名称
-  desc: string         // 描述
-  insertText: string   // 插入文本（不含触发符）
-  icon: string
-  isDir?: boolean      // 文件项是否为目录（目录可继续浏览）
-  filePath?: string    // 文件项的完整路径
+  label: string
+  desc: string
+  insertText: string
+  path: string
+  kindLabel: string
+  isDir?: boolean
+  filePath?: string
 }
 
-// 检测光标位置的触发符：返回触发类型和查询文本
 function detectTrigger(text: string, cursorPos: number): { type: MentionType | null; query: string; startPos: number } {
-  // 从光标向前查找最近的 / 或 @（且前面是空格或行首）
   for (let i = cursorPos - 1; i >= 0; i--) {
     const ch = text[i]
     if (ch === ' ' || ch === '\n') break
     if (ch === '/' || ch === '@') {
-      // 触发符前必须是空格、行首或无内容
       if (i === 0 || text[i - 1] === ' ' || text[i - 1] === '\n') {
         return { type: ch === '/' ? 'command' : 'file', query: text.slice(i + 1, cursorPos), startPos: i }
       }
@@ -53,6 +45,14 @@ function detectTrigger(text: string, cursorPos: number): { type: MentionType | n
     }
   }
   return { type: null, query: '', startPos: -1 }
+}
+
+function matchesSlashQuery(fields: string[], query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  const tokens = q.split('/').filter(Boolean)
+  const haystack = fields.join(' ').toLowerCase()
+  return tokens.every((token) => haystack.includes(token))
 }
 
 export default function PromptInput({
@@ -70,6 +70,7 @@ export default function PromptInput({
   skills = [],
   cwd = '',
 }: PromptInputProps) {
+  const { t } = useTranslation()
   const [internalText, setInternalText] = useState('')
   const isControlled = controlledValue !== undefined
   const text = isControlled ? controlledValue : internalText
@@ -81,62 +82,66 @@ export default function PromptInput({
   const [cursorPos, setCursorPos] = useState(0)
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([])
   const [fileLoading, setFileLoading] = useState(false)
-  const [fileBrowsePath, setFileBrowsePath] = useState('')  // @ 文件浏览当前路径
+  const [fileBrowsePath, setFileBrowsePath] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // 检测当前触发状态
   const trigger = useMemo(() => detectTrigger(text, cursorPos), [text, cursorPos])
 
-  // 构建 / 菜单的补全项（commands + modes + skills）
   const slashItems = useMemo<MentionItem[]>(() => {
     if (trigger.type !== 'command') return []
-    const query = trigger.query.toLowerCase()
+    const query = trigger.query
     const items: MentionItem[] = []
 
-    // commands
     for (const cmd of commands) {
-      if (query === '' || cmd.name.toLowerCase().includes(query)) {
-        items.push({
-          type: 'command',
-          label: `/${cmd.name}`,
-          desc: cmd.description,
-          insertText: `/${cmd.name} `,
-          icon: '⚡',
-        })
-      }
+      const path = cmd.path || cmd.name
+      const kindLabel = cmd.kind === 'agent' ? t('prompt.slashKindAgent') : t('prompt.slashKindCommand')
+      if (!matchesSlashQuery([cmd.name, path, cmd.description, kindLabel], query)) continue
+      items.push({
+        type: 'command',
+        label: path.includes('/') ? path : `/${cmd.name}`,
+        path,
+        desc: cmd.description,
+        insertText: `/${cmd.name} `,
+        kindLabel,
+      })
     }
-    // modes (ACP 会话模式)
-    for (const mode of modes) {
-      const name = mode.name.toLowerCase()
-      const id = mode.id.toLowerCase()
-      if (query === '' || name.includes(query) || id.includes(query)) {
-        items.push({
-          type: 'skill',
-          label: mode.name,
-          desc: mode.description || '模式',
-          insertText: `/${mode.id} `,
-          icon: '🎯',
-        })
-      }
-    }
-    // skills (agentskills.io)
-    for (const skill of skills) {
-      const name = skill.name.toLowerCase()
-      if (query === '' || name.includes(query)) {
-        items.push({
-          type: 'skill',
-          label: skill.name,
-          desc: skill.description,
-          insertText: `/${skill.name} `,
-          icon: '🧩',
-        })
-      }
-    }
-    return items
-  }, [trigger, commands, modes, skills])
 
-  // @ 文件补全项
+    for (const mode of modes) {
+      const path = mode.id
+      if (!matchesSlashQuery([mode.name, mode.id, mode.description || '', t('prompt.slashKindMode')], query)) continue
+      items.push({
+        type: 'mode',
+        label: mode.name,
+        path,
+        desc: mode.description || t('prompt.slashKindMode'),
+        insertText: `/${mode.id} `,
+        kindLabel: t('prompt.slashKindMode'),
+      })
+    }
+
+    for (const skill of skills) {
+      const path = skill.path || skill.name
+      if (!matchesSlashQuery([skill.name, path, skill.description, t('prompt.slashKindSkill')], query)) continue
+      items.push({
+        type: 'skill',
+        label: path.includes('/') ? path : skill.name,
+        path,
+        desc: skill.description,
+        insertText: `/${skill.name} `,
+        kindLabel: t('prompt.slashKindSkill'),
+      })
+    }
+
+    items.sort((a, b) => {
+      const kindOrder = { command: 0, skill: 1, mode: 2, file: 3 }
+      const ka = kindOrder[a.type] - kindOrder[b.type]
+      if (ka !== 0) return ka
+      return a.path.localeCompare(b.path)
+    })
+    return items
+  }, [trigger, commands, modes, skills, t])
+
   const fileItems = useMemo<MentionItem[]>(() => {
     if (trigger.type !== 'file') return []
     const query = trigger.query.toLowerCase()
@@ -145,21 +150,18 @@ export default function PromptInput({
       .map((e) => ({
         type: 'file' as MentionType,
         label: e.name,
-        desc: e.is_dir ? '目录' : '文件',
-        insertText: e.is_dir ? '' : '',  // 目录不直接插入，而是浏览
-        icon: e.is_dir ? '📁' : '📄',
+        path: e.name,
+        desc: e.is_dir ? t('prompt.fileDir') : t('prompt.fileFile'),
+        insertText: '',
+        kindLabel: t('prompt.slashKindFile'),
         isDir: e.is_dir,
         filePath: e.path,
       }))
-  }, [trigger, fileEntries])
+  }, [trigger, fileEntries, t])
 
-  // 当前活跃的补全列表
   const activeItems = trigger.type === 'command' ? slashItems : trigger.type === 'file' ? fileItems : []
-  const showMenu = trigger.type === 'command'
-    ? activeItems.length > 0
-    : trigger.type === 'file' && !!cwd
+  const showMenu = trigger.type === 'command' || (trigger.type === 'file' && !!cwd)
 
-  // 加载文件列表（@ 触发时）
   const loadFileEntries = useCallback(async (path: string, query: string) => {
     if (!path) return
     setFileLoading(true)
@@ -174,14 +176,10 @@ export default function PromptInput({
     }
   }, [])
 
-  // @ 结束时不保留上次浏览路径
   useEffect(() => {
-    if (trigger.type !== 'file') {
-      setFileBrowsePath('')
-    }
+    if (trigger.type !== 'file') setFileBrowsePath('')
   }, [trigger.type])
 
-  // @ 触发时加载文件（debounce）
   useEffect(() => {
     if (trigger.type !== 'file' || !cwd) {
       setFileEntries([])
@@ -197,19 +195,16 @@ export default function PromptInput({
     }
   }, [trigger.type, trigger.query, cwd, fileBrowsePath, loadFileEntries])
 
-  // 补全列表变化时重置选中
   useEffect(() => {
     setSelectedIdx(0)
-  }, [activeItems.length])
+  }, [activeItems.length, trigger.query])
 
-  // 插入补全项
   function applyMention(item: MentionItem) {
     if (trigger.type === null) return
     const before = text.slice(0, trigger.startPos)
     const after = text.slice(cursorPos)
 
     if (item.type === 'file' && item.isDir) {
-      // 目录：浏览进入该目录，不插入文本
       loadFileEntries(item.filePath || '', '')
       return
     }
@@ -243,7 +238,6 @@ export default function PromptInput({
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    // 补全菜单导航
     if (showMenu && activeItems.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -260,17 +254,16 @@ export default function PromptInput({
         applyMention(activeItems[selectedIdx])
         return
       }
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        // 清除触发符关闭菜单
-        const before = text.slice(0, trigger.startPos)
-        const after = text.slice(cursorPos)
-        setText(before + after)
-        return
-      }
     }
 
-    // 普通 Enter 发送（嵌入模式 Enter 换行）
+    if (showMenu && e.key === 'Escape') {
+      e.preventDefault()
+      const before = text.slice(0, trigger.startPos)
+      const after = text.slice(cursorPos)
+      setText(before + after)
+      return
+    }
+
     if (e.key === 'Enter' && !e.shiftKey && !embedded) {
       e.preventDefault()
       handleSubmit(e as unknown as FormEvent)
@@ -286,12 +279,12 @@ export default function PromptInput({
     setCursorPos(e.currentTarget.selectionStart ?? 0)
   }
 
-  // 菜单标题
   const menuTitle = trigger.type === 'command'
-    ? '命令 / 模式（↑↓ 选择，Enter/Tab 确认）'
+    ? t('prompt.slashMenuTitle')
     : trigger.type === 'file'
-      ? `文件引用 — ${fileBrowsePath || cwd}（↑↓ 选择，Enter/Tab 确认，📁 进入目录）`
+      ? t('prompt.fileMenuTitle', { path: fileBrowsePath || cwd })
       : ''
+
   return (
     <div className={`${styles.container} ${embedded ? styles.embedded : ''}`}>
       <form className={styles.form} onSubmit={handleSubmit}>
@@ -311,13 +304,13 @@ export default function PromptInput({
           {showMenu && (
             <div className={styles.commandMenu}>
               <div className={styles.commandMenuHeader}>{menuTitle}</div>
-              {fileLoading && <div className={styles.loadingHint}>加载中...</div>}
-              {!fileLoading && trigger.type === 'file' && activeItems.length === 0 && (
-                <div className={styles.loadingHint}>暂无匹配文件</div>
+              {fileLoading && <div className={styles.loadingHint}>{t('common.loading')}</div>}
+              {!fileLoading && activeItems.length === 0 && (
+                <div className={styles.loadingHint}>{t('prompt.slashNoMatch')}</div>
               )}
               {activeItems.map((item, idx) => (
                 <div
-                  key={`${item.type}-${item.label}-${idx}`}
+                  key={`${item.type}-${item.path}-${idx}`}
                   className={`${styles.commandItem} ${idx === selectedIdx ? styles.commandItemActive : ''}`}
                   onMouseEnter={() => setSelectedIdx(idx)}
                   onMouseDown={(e) => {
@@ -325,8 +318,10 @@ export default function PromptInput({
                     applyMention(item)
                   }}
                 >
-                  <span className={styles.itemIcon}>{item.icon}</span>
-                  <span className={styles.commandName}>{item.label}</span>
+                  <span className={`${styles.itemKind} ${styles[`kind_${item.type}`]}`}>{item.kindLabel}</span>
+                  <div className={styles.itemMain}>
+                    <span className={styles.commandName}>{item.label}</span>
+                  </div>
                   <span className={styles.commandDesc}>{item.desc}</span>
                 </div>
               ))}
@@ -335,7 +330,7 @@ export default function PromptInput({
         </div>
         {!embedded && (sending && onCancel ? (
           <button className={styles.cancelBtn} type="button" onClick={onCancel}>
-            取消
+            {t('session.cancelPrompt')}
           </button>
         ) : (
           <button
@@ -343,7 +338,7 @@ export default function PromptInput({
             type="submit"
             disabled={disabled || sending || !text.trim()}
           >
-            发送
+            {t('prompt.send')}
           </button>
         ))}
       </form>

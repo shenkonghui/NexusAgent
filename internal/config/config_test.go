@@ -62,6 +62,9 @@ func TestValidate_OK(t *testing.T) {
 	if cfg.Server.Mode != "debug" {
 		t.Errorf("Mode 默认值 = %q, 期望 debug", cfg.Server.Mode)
 	}
+	if cfg.Logging.Level != "info" {
+		t.Errorf("Logging.Level 默认值 = %q, 期望 info", cfg.Logging.Level)
+	}
 }
 
 func TestLoad_WebDist_EnvOverride(t *testing.T) {
@@ -216,6 +219,17 @@ func TestValidate_RulesUserDirsDefault(t *testing.T) {
 	wantProject := []string{".cursor/rules", "CLAUDE.md"}
 	if len(cfg.Agents.Rules.ProjectDirs) != len(wantProject) {
 		t.Fatalf("Rules.ProjectDirs = %v, 期望 %v", cfg.Agents.Rules.ProjectDirs, wantProject)
+	}
+}
+
+func TestLoad_LogLevel_EnvOverride(t *testing.T) {
+	t.Setenv("LOG_LEVEL", "debug")
+	cfg, err := Load("testdata/config_test.yaml")
+	if err != nil {
+		t.Fatalf("Load 错误: %v", err)
+	}
+	if cfg.Logging.Level != "debug" {
+		t.Errorf("Logging.Level 未被环境变量覆盖: %q", cfg.Logging.Level)
 	}
 }
 

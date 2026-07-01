@@ -127,7 +127,7 @@ func main() {
 
 	noteRepo := repository.NewNoteRepository(db)
 	noteSettingsRepo := repository.NewNoteSettingsRepository(db)
-	noteClassifier := services.NewNoteClassifier(noteSettingsRepo, noteRepo, acpSvc)
+	noteClassifier := services.NewNoteClassifier(noteSettingsRepo, noteRepo, agentRouter)
 	noteClassifyWorker := services.NewNoteClassifyWorker(noteClassifier)
 	noteClassifyWorker.Start()
 	noteH := handlers.NewNoteHandler(noteRepo, noteSettingsRepo)

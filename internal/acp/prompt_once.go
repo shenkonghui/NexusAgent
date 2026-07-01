@@ -1,0 +1,106 @@
+package acp
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/coder/acp-go-sdk"
+)
+
+const promptOnceTimeout = 60 * time.Second
+
+// RunPromptOnce 在临时 ACP 会话中发送 prompt 并收集 assistant 文本，不落库。
+func (s *Service) RunPromptOnce(ctx context.Context, agentType, modelValue, prompt string) (string, error) {
+	if _, err := s.GetBackend(agentType); err != nil {
+		return "", err
+	}
+	conn, err := s.ensureConnection(ctx, agentType)
+	if err != nil {
+		return "", err
+	}
+	cwd := s.probeCwd()
+	sessionID, configOptions, _, err := conn.NewSession(ctx, cwd, s.skillAdditionalDirs(cwd))
+	if err != nil {
+		return "", fmt.Errorf("创建临时会话: %w", err)
+	}
+	defer func() { _ = conn.CloseSessionByID(ctx, sessionID) }()
+
+	if modelValue != "" {
+		if err := applyModelOption(ctx, conn, sessionID, configOptions, modelValue); err != nil {
+			return "", fmt.Errorf("设置模型: %w", err)
+		}
+	}
+
+	sid := acp.SessionId(sessionID)
+	permCh := conn.Client().RegisterPermissionWaiter(sid)
+	defer conn.Client().UnregisterPermissionWaiter(sid)
+	go autoCancelPermissions(conn, permCh)
+
+	updates, err := conn.Prompt(ctx, sessionID, prompt)
+	if err != nil {
+		return "", err
+	}
+
+	runCtx, cancel := context.WithTimeout(ctx, promptOnceTimeout)
+	defer cancel()
+
+	var sb strings.Builder
+	for {
+		select {
+		case u, ok := <-updates:
+			if !ok {
+				return strings.TrimSpace(sb.String()), nil
+			}
+			if u.AgentMessageChunk != nil && u.AgentMessageChunk.Content.Text != nil {
+				sb.WriteString(u.AgentMessageChunk.Content.Text.Text)
+			}
+		case <-runCtx.Done():
+			if sb.Len() > 0 {
+				return strings.TrimSpace(sb.String()), nil
+			}
+			return "", fmt.Errorf("agent 响应超时")
+		}
+	}
+}
+
+func autoCancelPermissions(conn *Connection, permCh <-chan PermissionNotify) {
+	for pn := range permCh {
+		_ = conn.Client().RespondPermission(pn.RequestID, "", true)
+	}
+}
+
+func applyModelOption(ctx context.Context, conn *Connection, sessionID string, opts []acp.SessionConfigOption, modelValue string) error {
+	for _, opt := range opts {
+		if opt.Select == nil || opt.Select.Category == nil || string(*opt.Select.Category) != "model" {
+			continue
+		}
+		valid := modelInOptions(modelValue, opt.Select.Options)
+		if !valid {
+			return fmt.Errorf("模型值 %s 不在可用列表中", modelValue)
+		}
+		return conn.SetConfigOption(ctx, sessionID, string(opt.Select.Id), modelValue)
+	}
+	return nil
+}
+
+func modelInOptions(modelValue string, options acp.SessionConfigSelectOptions) bool {
+	if options.Ungrouped != nil {
+		for _, o := range *options.Ungrouped {
+			if string(o.Value) == modelValue {
+				return true
+			}
+		}
+	}
+	if options.Grouped != nil {
+		for _, g := range *options.Grouped {
+			for _, o := range g.Options {
+				if string(o.Value) == modelValue {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}

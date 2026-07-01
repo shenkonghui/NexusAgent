@@ -17,7 +17,14 @@ type Config struct {
 	JWT      JWTConfig      `yaml:"jwt"`
 	Auth     AuthConfig     `yaml:"auth"`
 	Password PasswordConfig `yaml:"password"`
+	Logging  LoggingConfig  `yaml:"logging"`
 	Agents   AgentsConfig   `yaml:"agents"`
+}
+
+// LoggingConfig 控制应用与 ACP 交互日志输出。
+type LoggingConfig struct {
+	// Level 日志等级：debug | info | warn | error。debug 时输出每次 agent 交互详情。
+	Level string `yaml:"level"`
 }
 
 type AuthConfig struct {
@@ -60,7 +67,7 @@ type SkillsConfig struct {
 	ProjectDirs []string `yaml:"project_dirs"`
 }
 
-// CommandsConfig 配置 Slash Command 扫描目录（Claude Code 规范：*.md 即命令）。
+// CommandsConfig 配置 Slash Command 扫描目录（Claude Code 规范：递归 *.md，支持子目录与符号链接）。
 type CommandsConfig struct {
 	// UserDirs 用户级 commands 根目录，默认 ~/.claude/commands。
 	UserDirs []string `yaml:"user_dirs"`
@@ -141,11 +148,17 @@ func (c *Config) applyEnv() {
 	if v := os.Getenv("SERVER_MODE"); v != "" {
 		c.Server.Mode = v
 	}
+	if v := os.Getenv("LOG_LEVEL"); v != "" {
+		c.Logging.Level = v
+	}
 }
 
 func (c *Config) Validate() error {
 	if c.Server.Mode == "" {
 		c.Server.Mode = "debug"
+	}
+	if c.Logging.Level == "" {
+		c.Logging.Level = "info"
 	}
 	if c.Server.WebDist == "" {
 		c.Server.WebDist = "./web/dist"

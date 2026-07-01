@@ -210,6 +210,7 @@ func (h *FileSystemHandler) Skills(c *gin.Context) {
 			Description: s.Description,
 			Location:    s.Location,
 			Scope:       s.Scope,
+			Path:        s.Path,
 		})
 	}
 	Success(c, http.StatusOK, gin.H{"skills": items})
@@ -220,6 +221,7 @@ type slashCommandItem struct {
 	Description string `json:"description"`
 	Location    string `json:"location"`
 	Scope       string `json:"scope"`
+	Path        string `json:"path"`
 }
 
 // Commands GET /api/v1/filesystem/commands?path=...
@@ -244,6 +246,7 @@ func (h *FileSystemHandler) Commands(c *gin.Context) {
 			Description: cmd.Description,
 			Location:    cmd.Location,
 			Scope:       cmd.Scope,
+			Path:        cmd.Path,
 		})
 	}
 	Success(c, http.StatusOK, gin.H{"commands": items})

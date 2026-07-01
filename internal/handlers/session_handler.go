@@ -17,14 +17,8 @@ import (
 	"nexusagent/internal/agent"
 	"nexusagent/internal/middleware"
 	"nexusagent/internal/models"
+	"nexusagent/internal/repository"
 )
-
-// commandItem 是对外暴露的 slash command 描述。
-type commandItem struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	HasInput    bool   `json:"has_input"`
-}
 
 // SessionStore 暴露会话相关业务能力（*agent.Router 实现该接口）。
 type SessionStore interface {
@@ -37,13 +31,17 @@ type SessionStore interface {
 	ResumeSession(ctx context.Context, sessionID string) (*models.Session, error)
 	ListMessages(sessionID string) ([]models.Message, error)
 	ListCommands(sessionID string) ([]acp.AvailableCommand, error)
+	ListConfiguredCommandsForSession(sessionID string) ([]acplocal.SlashCommand, error)
 	ListConfigOptions(sessionID string) ([]acp.SessionConfigOption, error)
 	ListModes(sessionID string) ([]acp.SessionMode, error)
 	ListSkills(sessionID string) ([]acplocal.Skill, error)
 	SetConfigOption(ctx context.Context, sessionID, configID, value string) error
+	SetSessionMode(ctx context.Context, sessionID, modeID string) error
+	RespondPermission(sessionID, requestID, optionID string, cancelled bool) error
 	UpdateTitle(dbSessionID uint, title string) error
 	Prompt(ctx context.Context, sessionID, prompt string) (<-chan models.Message, error)
 	GetWorkspaceCwd(workspaceID uint) (string, error)
+	ListExecutions(sessionID string) ([]repository.ExecutionAggregate, error)
 }
 
 // SessionHandler 处理会话相关请求。
@@ -219,6 +217,23 @@ func (h *SessionHandler) Messages(c *gin.Context) {
 	Success(c, http.StatusOK, gin.H{"messages": msgs})
 }
 
+// Executions GET /api/v1/sessions/:id/executions — 会话内按 execution_id 聚合的执行块（定时任务/笔记分类）。
+func (h *SessionHandler) Executions(c *gin.Context) {
+	sess, ok := h.loadOwnedSession(c)
+	if !ok {
+		return
+	}
+	execs, err := h.store.ListExecutions(sess.SessionID)
+	if err != nil {
+		writeSessionError(c, err)
+		return
+	}
+	if execs == nil {
+		execs = []repository.ExecutionAggregate{}
+	}
+	Success(c, http.StatusOK, gin.H{"executions": execs})
+}
+
 // Cancel POST /api/v1/sessions/:id/cancel
 func (h *SessionHandler) Cancel(c *gin.Context) {
 	sess, ok := h.loadOwnedSession(c)
@@ -262,14 +277,8 @@ func (h *SessionHandler) Commands(c *gin.Context) {
 		writeSessionError(c, err)
 		return
 	}
-	items := make([]commandItem, 0, len(cmds))
-	for _, cmd := range cmds {
-		items = append(items, commandItem{
-			Name:        cmd.Name,
-			Description: cmd.Description,
-			HasInput:    cmd.Input != nil,
-		})
-	}
+	configured, _ := h.store.ListConfiguredCommandsForSession(sess.SessionID)
+	items := buildCommandItems(cmds, configured)
 	Success(c, http.StatusOK, gin.H{"commands": items})
 }
 
@@ -312,6 +321,7 @@ type skillItem struct {
 	Description string `json:"description"`
 	Location    string `json:"location"`
 	Scope       string `json:"scope"`
+	Path        string `json:"path"`
 }
 
 // Skills GET /api/v1/sessions/:id/skills — 返回会话工作目录下发现的 Agent Skills。
@@ -332,6 +342,7 @@ func (h *SessionHandler) Skills(c *gin.Context) {
 			Description: s.Description,
 			Location:    s.Location,
 			Scope:       s.Scope,
+			Path:        s.Path,
 		})
 	}
 	Success(c, http.StatusOK, gin.H{"skills": items})
@@ -432,6 +443,68 @@ func (h *SessionHandler) SetConfigOption(c *gin.Context) {
 		return
 	}
 	if err := h.store.SetConfigOption(c.Request.Context(), sess.SessionID, req.ConfigID, req.Value); err != nil {
+		writeSessionError(c, err)
+		return
+	}
+	Success(c, http.StatusOK, struct{}{})
+}
+
+type setModeRequest struct {
+	ModeID string `json:"mode_id" binding:"required"`
+}
+
+// SetMode POST /api/v1/sessions/:id/mode — 切换会话模式（ask / agent / edit 等）。
+func (h *SessionHandler) SetMode(c *gin.Context) {
+	sess, ok := h.loadOwnedSession(c)
+	if !ok {
+		return
+	}
+	var req setModeRequest
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.ModeID) == "" {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "mode_id 不能为空")
+		return
+	}
+	if sess.Status != models.SessionStatusActive {
+		Fail(c, http.StatusConflict, "SESSION_NOT_ACTIVE", "会话不在活跃状态")
+		return
+	}
+	if err := h.store.SetSessionMode(c.Request.Context(), sess.SessionID, req.ModeID); err != nil {
+		writeSessionError(c, err)
+		return
+	}
+	Success(c, http.StatusOK, struct{}{})
+}
+
+type respondPermissionRequest struct {
+	OptionID  string `json:"option_id"`
+	Cancelled bool   `json:"cancelled"`
+}
+
+// RespondPermission POST /api/v1/sessions/:id/permissions/:requestId/respond
+func (h *SessionHandler) RespondPermission(c *gin.Context) {
+	sess, ok := h.loadOwnedSession(c)
+	if !ok {
+		return
+	}
+	requestID := strings.TrimSpace(c.Param("requestId"))
+	if requestID == "" {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "缺少 requestId")
+		return
+	}
+	var req respondPermissionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数无效")
+		return
+	}
+	if !req.Cancelled && strings.TrimSpace(req.OptionID) == "" {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "option_id 不能为空")
+		return
+	}
+	if err := h.store.RespondPermission(sess.SessionID, requestID, req.OptionID, req.Cancelled); err != nil {
+		if errors.Is(err, acplocal.ErrPermissionNotFound) {
+			Fail(c, http.StatusNotFound, "PERMISSION_NOT_FOUND", "权限请求不存在或已过期")
+			return
+		}
 		writeSessionError(c, err)
 		return
 	}

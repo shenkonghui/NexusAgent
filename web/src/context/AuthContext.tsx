@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
 import type { User } from '../types'
 import * as authApi from '../api/auth'
+import LoadingSpinner from '../components/LoadingSpinner'
 
 // 认证状态
 interface AuthState {
@@ -38,6 +39,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             localStorage.removeItem('refresh_token')
           }
         }
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
         try {
           const resp = await authApi.autoLogin()
           localStorage.setItem('access_token', resp.access_token)
@@ -85,6 +88,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value: AuthContextValue = { user, loading, login, register, logout, refreshUser }
+
+  if (loading) {
+    return <LoadingSpinner />
+  }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

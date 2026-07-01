@@ -2,6 +2,10 @@ server:
   port: 8080
   mode: debug
   web_dist: ./web/dist
+logging:
+  # 日志等级：debug | info | warn | error
+  # debug 时会输出每次与 agent 的交互（prompt、session update、ACP 请求等）
+  level: info
 database:
   path: ./data/nexus.db
 jwt:
@@ -30,7 +34,7 @@ agents:
       - .claude/skills
       - .agents/skills
   commands:
-    # Slash Command 目录（Claude Code 规范：递归扫描 *.md，文件名即命令名）
+    # Slash Command 目录（Claude Code 规范：递归扫描 *.md，支持子目录与符号链接目录，文件名即命令名）
     user_dirs:
       - ~/.claude/commands
     project_dirs:

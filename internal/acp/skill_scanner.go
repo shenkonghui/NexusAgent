@@ -14,6 +14,7 @@ type Skill struct {
 	Description string `json:"description"`
 	Location    string `json:"location"` // SKILL.md 的绝对路径
 	Scope       string `json:"scope"`    // "project" | "user"
+	Path        string `json:"path"`     // 相对扫描根目录的展示路径，如 group/my-skill
 }
 
 type skillScanDir struct {
@@ -113,6 +114,30 @@ func SkillAdditionalDirectories(cwd string, userDirs, projectSubdirs []string) [
 	return dirs
 }
 
+// displayPathUnderRoot 返回 fullPath 相对 scanRoot 的路径（用于 UI 多级展示）。
+func displayPathUnderRoot(fullPath, scanRoot string) string {
+	fullPath = filepath.Clean(fullPath)
+	scanRoot = filepath.Clean(scanRoot)
+	rel, err := filepath.Rel(scanRoot, fullPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return filepath.ToSlash(filepath.Base(fullPath))
+	}
+	return filepath.ToSlash(rel)
+}
+
+func commandDisplayPath(filePath, scanRoot string) string {
+	rel := displayPathUnderRoot(filePath, scanRoot)
+	ext := filepath.Ext(rel)
+	if ext != "" {
+		rel = strings.TrimSuffix(rel, ext)
+	}
+	return rel
+}
+
+func skillDisplayPath(skillMDPath, scanRoot string) string {
+	return displayPathUnderRoot(filepath.Dir(skillMDPath), scanRoot)
+}
+
 // ScanSkills 扫描工作区与用户配置的 skills 目录（递归子目录）。
 // userDirs 为绝对路径；projectSubdirs 为相对 cwd 的子目录。
 func ScanSkills(cwd string, userDirs, projectSubdirs []string) []Skill {
@@ -122,14 +147,14 @@ func ScanSkills(cwd string, userDirs, projectSubdirs []string) []Skill {
 	var skills []Skill
 
 	for _, dir := range scanDirs {
-		scanSkillsUnder(dir.Path, dir.Scope, seen, &skills)
+		scanSkillsUnder(dir.Path, dir.Path, dir.Scope, seen, &skills)
 	}
 
 	return skills
 }
 
 // scanSkillsUnder 递归扫描目录树，发现含 SKILL.md 的子目录。
-func scanSkillsUnder(root, scope string, seen map[string]bool, skills *[]Skill) {
+func scanSkillsUnder(root, scanRoot, scope string, seen map[string]bool, skills *[]Skill) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return
@@ -158,12 +183,13 @@ func scanSkillsUnder(root, scope string, seen map[string]bool, skills *[]Skill) 
 						Description: parsed.Description,
 						Location:    skillPath,
 						Scope:       scope,
+						Path:        skillDisplayPath(skillPath, scanRoot),
 					})
 				}
 			}
 		}
 
-		scanSkillsUnder(entryPath, scope, seen, skills)
+		scanSkillsUnder(entryPath, scanRoot, scope, seen, skills)
 	}
 }
 

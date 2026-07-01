@@ -7,9 +7,10 @@ const (
 	SessionStatusClosed = "closed"
 	SessionStatusError  = "error"
 
-	// 会话来源：手动创建或定时任务创建
+	// 会话来源：手动创建、定时任务或笔记自动分类
 	SessionSourceManual    = "manual"
 	SessionSourceScheduled = "scheduled"
+	SessionSourceClassify  = "classify"
 )
 
 type Session struct {

@@ -72,10 +72,49 @@
   gap: 8px;
   padding: 8px 12px;
   cursor: pointer;
+  min-width: 0;
 }
 
 .commandItemActive {
   background: var(--accent-subtle);
+}
+
+.itemKind {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.kind_command {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.kind_skill {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.kind_mode {
+  background: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+}
+
+.kind_file {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.itemMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .itemIcon {
@@ -88,9 +127,11 @@
 .commandName {
   font-size: 13px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--text-primary);
   font-family: 'IBM Plex Mono', 'Monaco', 'Menlo', monospace;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .commandDesc {
@@ -99,7 +140,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-left: auto;
+  max-width: 40%;
+  flex-shrink: 1;
 }
 
 .loadingHint {

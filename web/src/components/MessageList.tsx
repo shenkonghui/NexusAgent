@@ -45,8 +45,38 @@ function groupMessages(messages: Message[]): Message[] {
 
 function filterDisplay(messages: Message[]): Message[] {
   return groupMessages(messages).filter(
-    (msg) => msg.content.trim() !== '' || msg.kind === 'plan',
+    (msg) => (msg.content.trim() !== '' || msg.kind === 'plan') && msg.kind !== 'permission_request',
   )
+}
+
+function findLastUserIndex(messages: Message[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') return i
+  }
+  return -1
+}
+
+function isCollapsibleMessage(msg: Message): boolean {
+  return msg.kind === 'agent_thought_chunk' || msg.role === 'tool'
+}
+
+function bubbleCollapseState(
+  msg: Message,
+  idx: number,
+  lastUserIdx: number,
+  loading: boolean,
+  lastThoughtKey: string | number | null,
+  key: string | number,
+) {
+  const inCurrentTurn = idx > lastUserIdx
+  const collapsible = isCollapsibleMessage(msg)
+  const isLastThoughtStreaming =
+    !!loading &&
+    inCurrentTurn &&
+    msg.kind === 'agent_thought_chunk' &&
+    key === lastThoughtKey
+  const forceCollapsed = collapsible && (!inCurrentTurn || !loading)
+  return { defaultOpen: isLastThoughtStreaming, forceCollapsed }
 }
 
 interface ExecutionBlock {
@@ -198,17 +228,17 @@ function ExecutionBlockView({
           {status === 'failed' && errorMsg && (
             <div className={styles.execError}>{t('status.error')}：{errorMsg}</div>
           )}
-          {displayMessages.map((msg) => {
+          {displayMessages.map((msg, idx) => {
             const key = msg.id || msg.sequence
-            const isLastThoughtStreaming =
-              !!loading &&
-              msg.kind === 'agent_thought_chunk' &&
-              key === lastThoughtKey
+            const { defaultOpen, forceCollapsed } = bubbleCollapseState(
+              msg, idx, findLastUserIndex(displayMessages), loading, lastThoughtKey, key,
+            )
             return (
               <MessageBubble
                 key={key}
                 message={msg}
-                defaultOpen={isLastThoughtStreaming}
+                defaultOpen={defaultOpen}
+                forceCollapsed={forceCollapsed}
                 sessionId={sessionId}
                 cwd={cwd}
               />
@@ -236,6 +266,7 @@ function PlainList({
   const { t } = useTranslation()
   const endRefObj = endRef as React.RefObject<HTMLDivElement> | undefined
   const displayMessages = filterDisplay(messages)
+  const lastUserIdx = findLastUserIndex(displayMessages)
 
   let lastThoughtKey: string | number | null = null
   for (let i = displayMessages.length - 1; i >= 0; i--) {
@@ -252,17 +283,17 @@ function PlainList({
           <p>{t('chat.noMessages')}</p>
         </div>
       )}
-      {displayMessages.map((msg) => {
+      {displayMessages.map((msg, idx) => {
         const key = msg.id || msg.sequence
-        const isLastThoughtStreaming =
-          !!loading &&
-          msg.kind === 'agent_thought_chunk' &&
-          key === lastThoughtKey
+        const { defaultOpen, forceCollapsed } = bubbleCollapseState(
+          msg, idx, lastUserIdx, !!loading, lastThoughtKey, key,
+        )
         return (
           <MessageBubble
             key={key}
             message={msg}
-            defaultOpen={isLastThoughtStreaming}
+            defaultOpen={defaultOpen}
+            forceCollapsed={forceCollapsed}
             sessionId={sessionId}
             cwd={cwd}
           />

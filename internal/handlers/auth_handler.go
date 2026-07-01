@@ -25,7 +25,7 @@ func (h *AuthHandler) AutoLogin(c *gin.Context) {
 		Fail(c, http.StatusForbidden, "AUTO_LOGIN_DISABLED", "自动登录未启用")
 		return
 	}
-	result, err := h.svc.Login("admin", "123456", c.Request.UserAgent(), c.ClientIP())
+	result, err := h.svc.AutoLoginAsAdmin(c.Request.UserAgent(), c.ClientIP())
 	if err != nil {
 		h.writeAuthError(c, err)
 		return

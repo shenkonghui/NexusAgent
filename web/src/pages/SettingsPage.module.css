@@ -24,6 +24,47 @@
   height: 100%;
 }
 
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.settingsNav {
+  width: 168px;
+  flex-shrink: 0;
+  padding: 16px 12px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.navItem {
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.navItem:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.navItemActive {
+  background: var(--bg-muted);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .header {
   display: flex;
   align-items: center;
@@ -72,7 +113,79 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-width: 500px;
+  max-width: 640px;
+}
+
+.sectionHint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.saveNoteBtn {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 8px 20px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.saveNoteBtn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.saveNoteBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.classifyTaskLink {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 14px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.classifyTaskLink:hover {
+  text-decoration: underline;
+}
+
+.inlineRow {
+  display: flex;
+  gap: 8px;
+}
+
+.inlineRow .input {
+  flex: 1;
+}
+
+.secondaryBtn {
+  padding: 10px 16px;
+  border: 1px solid var(--accent);
+  background: var(--bg-surface);
+  color: var(--accent);
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.secondaryBtn:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.secondaryBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .defaultRow {

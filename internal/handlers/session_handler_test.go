@@ -18,6 +18,7 @@ import (
 	"nexusagent/internal/agent"
 	"nexusagent/internal/middleware"
 	"nexusagent/internal/models"
+	"nexusagent/internal/repository"
 )
 
 // fakeSessionStore 是内存版 SessionStore，用于隔离真实 ACP 子进程。
@@ -116,7 +117,15 @@ func (f *fakeSessionStore) ListMessages(sessionID string) ([]models.Message, err
 	return f.messages[sessionID], nil
 }
 
+func (f *fakeSessionStore) ListExecutions(_ string) ([]repository.ExecutionAggregate, error) {
+	return nil, nil
+}
+
 func (f *fakeSessionStore) ListCommands(_ string) ([]acp.AvailableCommand, error) {
+	return nil, nil
+}
+
+func (f *fakeSessionStore) ListConfiguredCommandsForSession(_ string) ([]acplocal.SlashCommand, error) {
 	return nil, nil
 }
 
@@ -133,6 +142,14 @@ func (f *fakeSessionStore) ListSkills(_ string) ([]acplocal.Skill, error) {
 }
 
 func (f *fakeSessionStore) SetConfigOption(_ context.Context, _, _, _ string) error {
+	return nil
+}
+
+func (f *fakeSessionStore) SetSessionMode(_ context.Context, _, _ string) error {
+	return nil
+}
+
+func (f *fakeSessionStore) RespondPermission(_, _, _ string, _ bool) error {
 	return nil
 }
 
@@ -503,8 +520,15 @@ func (s *commandsFakeStore) ResumeSession(context.Context, string) (*models.Sess
 	return nil, nil
 }
 func (s *commandsFakeStore) ListMessages(string) ([]models.Message, error) { return nil, nil }
+func (s *commandsFakeStore) ListExecutions(string) ([]repository.ExecutionAggregate, error) {
+	return nil, nil
+}
 func (s *commandsFakeStore) ListCommands(_ string) ([]acp.AvailableCommand, error) {
 	return s.cmds, nil
+}
+
+func (s *commandsFakeStore) ListConfiguredCommandsForSession(_ string) ([]acplocal.SlashCommand, error) {
+	return nil, nil
 }
 
 func (s *commandsFakeStore) ListConfigOptions(_ string) ([]acp.SessionConfigOption, error) {
@@ -522,6 +546,8 @@ func (s *commandsFakeStore) ListSkills(_ string) ([]acplocal.Skill, error) {
 func (s *commandsFakeStore) SetConfigOption(_ context.Context, _, _, _ string) error {
 	return nil
 }
+func (s *commandsFakeStore) SetSessionMode(_ context.Context, _, _ string) error { return nil }
+func (s *commandsFakeStore) RespondPermission(_, _, _ string, _ bool) error     { return nil }
 func (s *commandsFakeStore) UpdateTitle(_ uint, _ string) error { return nil }
 func (s *commandsFakeStore) Prompt(context.Context, string, string) (<-chan models.Message, error) {
 	return nil, nil

@@ -3,32 +3,32 @@ package acp
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/coder/acp-go-sdk"
+
+	"nexusagent/internal/logging"
 )
 
-// Client 实现 acp.Client 接口，自动批准权限请求并按 sessionID 路由 session update。
-//
-// 多 session 共享同一条 ACP 连接时，agent 推回的 SessionNotification 携带
-// SessionId，Client 据此分发到对应 session 的 stream channel，
-// 避免不同会话的流式输出互相串扰。
+// Client 实现 acp.Client 接口，处理权限交互并按 sessionID 路由 session update。
 type Client struct {
 	mu      sync.Mutex
 	streams map[acp.SessionId]chan acp.SessionUpdate
+	perm    *permissionBroker
 }
 
 // NewClient 创建一个新的 Client。
 func NewClient() *Client {
 	return &Client{
 		streams: make(map[acp.SessionId]chan acp.SessionUpdate),
+		perm:    newPermissionBroker(),
 	}
 }
 
 // RegisterStream 为指定 session 注册一个 update stream，返回只读 channel。
-// 同一 sessionID 重复注册会覆盖旧 stream（旧 stream 不会被关闭，调用方需自行处理）。
 func (c *Client) RegisterStream(sessionID acp.SessionId, bufSize int) chan acp.SessionUpdate {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -38,44 +38,46 @@ func (c *Client) RegisterStream(sessionID acp.SessionId, bufSize int) chan acp.S
 }
 
 // UnregisterStream 注销并关闭指定 session 的 stream。
-// 后续该 session 的 update 会被安全丢弃。
 func (c *Client) UnregisterStream(sessionID acp.SessionId) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if ch, ok := c.streams[sessionID]; ok {
 		delete(c.streams, sessionID)
-		// 安全关闭：仅在没有其他持有者时关闭。
-		// 由于 UnregisterStream 只在 prompt goroutine 结束时调用，且 stream 仅由该 goroutine 持有，
-		// 关闭是安全的。
 		close(ch)
 	}
 }
 
-// RequestPermission 自动批准所有权限请求。
+// RegisterPermissionWaiter 注册权限请求监听（Prompt 流期间调用）。
+func (c *Client) RegisterPermissionWaiter(sessionID acp.SessionId) chan PermissionNotify {
+	return c.perm.registerWaiter(sessionID)
+}
+
+// UnregisterPermissionWaiter 注销权限请求监听。
+func (c *Client) UnregisterPermissionWaiter(sessionID acp.SessionId) {
+	c.perm.unregisterWaiter(sessionID)
+}
+
+// RespondPermission 提交用户对权限请求的响应。
+func (c *Client) RespondPermission(requestID, optionID string, cancelled bool) error {
+	return c.perm.respond(requestID, optionID, cancelled)
+}
+
+// CancelPermissions 取消 session 所有挂起的权限请求。
+func (c *Client) CancelPermissions(sessionID acp.SessionId) {
+	c.perm.cancelSession(sessionID)
+}
+
+// RequestPermission 等待用户在前端选择权限选项；无活跃 Prompt 流时自动批准。
 func (c *Client) RequestPermission(ctx context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
-	for _, o := range params.Options {
-		if o.Kind == acp.PermissionOptionKindAllowOnce || o.Kind == acp.PermissionOptionKindAllowAlways {
-			return acp.RequestPermissionResponse{
-				Outcome: acp.RequestPermissionOutcome{
-					Selected: &acp.RequestPermissionOutcomeSelected{OptionId: o.OptionId},
-				},
-			}, nil
-		}
+	toolTitle := ""
+	if params.ToolCall.Title != nil {
+		toolTitle = *params.ToolCall.Title
 	}
-	if len(params.Options) > 0 {
-		return acp.RequestPermissionResponse{
-			Outcome: acp.RequestPermissionOutcome{
-				Selected: &acp.RequestPermissionOutcomeSelected{OptionId: params.Options[0].OptionId},
-			},
-		}, nil
-	}
-	return acp.RequestPermissionResponse{
-		Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}},
-	}, nil
+	slog.Debug("ACP requestPermission", "session", params.SessionId, "tool", toolTitle)
+	return c.perm.request(ctx, params)
 }
 
 // SessionUpdate 将 update 按 SessionId 路由到对应 session 的 stream。
-// 若该 session 未注册 stream（未在 prompt 中或已关闭），update 被安全丢弃。
 func (c *Client) SessionUpdate(ctx context.Context, params acp.SessionNotification) error {
 	c.mu.Lock()
 	ch, ok := c.streams[params.SessionId]
@@ -83,6 +85,9 @@ func (c *Client) SessionUpdate(ctx context.Context, params acp.SessionNotificati
 	if !ok {
 		return nil
 	}
+	kind, _ := extractKindRole(params.Update)
+	content := extractContent(params.Update)
+	slog.Debug("ACP sessionUpdate", "session", params.SessionId, "kind", kind, "content_len", len(content), "preview", logging.Preview(content, 80))
 	select {
 	case ch <- params.Update:
 	case <-ctx.Done():

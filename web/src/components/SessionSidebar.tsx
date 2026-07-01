@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import i18n from '../i18n'
@@ -6,6 +6,7 @@ import { formatTimeAgo } from '../utils/time'
 import type { Session, ScheduledTask, AgentStatus } from '../types'
 import { listScheduledTasks } from '../api/scheduledTasks'
 import { listAgentStatus } from '../api/agents'
+import { listSessions } from '../api/sessions'
 import styles from './SessionSidebar.module.css'
 
 interface SessionSidebarProps {
@@ -88,7 +89,28 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
     return () => { alive = false; clearInterval(timer) }
   }, [])
 
+  useEffect(() => {
+    let alive = true
+    listSessions()
+      .then((r) => {
+        if (!alive) return
+        const ids = new Set((r.data.sessions || []).map((s) => s.id))
+        setFavorites((prev) => {
+          const next = prev.filter((id) => ids.has(id))
+          if (next.length !== prev.length) saveFavorites(next)
+          return next.length !== prev.length ? next : prev
+        })
+      })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [])
+
   const manualSessions = sessions.filter((s) => !s.source || s.source === 'manual')
+  const classifySession = sessions.find((s) => s.source === 'classify')
+  const favoriteSessions = useMemo(
+    () => sessions.filter((s) => favorites.includes(s.id)),
+    [sessions, favorites],
+  )
   const recentTask = [...tasks]
     .filter((t) => t.last_run_at)
     .sort((a, b) => (a.last_run_at! < b.last_run_at! ? 1 : -1))[0]
@@ -138,33 +160,29 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
           <button type="button" className={styles.groupHeader} onClick={() => toggleGroup('favorites')}>
             <span className={styles.groupArrow}>{collapsed.favorites ? '▶' : '▼'}</span>
             <span className={styles.groupTitle}>⭐ {t('session.favGroup')}</span>
-            <span className={styles.groupCount}>{favorites.length}</span>
+            <span className={styles.groupCount}>{favoriteSessions.length}</span>
           </button>
           {!collapsed.favorites && (
             <div className={styles.groupList}>
-              {favorites.length === 0 ? (
+              {favoriteSessions.length === 0 ? (
                 <p className={styles.empty}>{t('session.noFavorites')}</p>
               ) : (
-                favorites.map((fid) => {
-                  const session = sessions.find((s) => s.id === fid)
-                  if (!session) return null
-                  return (
-                    <div key={session.id} className={`${styles.item} ${currentId === session.id ? styles.itemActive : ''}`}>
-                      <Link to={`/sessions/${session.id}`} className={styles.itemLink}>
-                        <div className={styles.itemRow}>
-                          <span className={styles.itemTitle}>{session.title || session.agent_type}</span>
-                          <span className={styles.itemTime}>{formatTimeAgo(session.created_at, t)}</span>
-                        </div>
-                      </Link>
-                      <div className={styles.itemActions}>
-                        <button type="button" className={styles.favBtnActive}
-                          title={t('session.favorited')}
-                          onClick={(e) => toggleFavorite(session.id, e)}
-                        >★</button>
+                favoriteSessions.map((session) => (
+                  <div key={session.id} className={`${styles.item} ${currentId === session.id ? styles.itemActive : ''}`}>
+                    <Link to={`/sessions/${session.id}`} className={styles.itemLink}>
+                      <div className={styles.itemRow}>
+                        <span className={styles.itemTitle}>{session.title || session.agent_type}</span>
+                        <span className={styles.itemTime}>{formatTimeAgo(session.created_at, t)}</span>
                       </div>
+                    </Link>
+                    <div className={styles.itemActions}>
+                      <button type="button" className={styles.favBtnActive}
+                        title={t('session.favorited')}
+                        onClick={(e) => toggleFavorite(session.id, e)}
+                      >★</button>
                     </div>
-                  )
-                })
+                  </div>
+                ))
               )}
             </div>
           )}
@@ -225,7 +243,14 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
                               title={t('common.delete')} aria-label={t('common.delete')}
                               onClick={(e) => {
                                 e.preventDefault(); e.stopPropagation()
-                                if (window.confirm(t('session.deleteConfirm'))) onDelete(session.id)
+                                if (window.confirm(t('session.deleteConfirm'))) {
+                                  setFavorites((prev) => {
+                                    const next = prev.filter((fid) => fid !== session.id)
+                                    saveFavorites(next)
+                                    return next
+                                  })
+                                  onDelete(session.id)
+                                }
                               }}
                             >×</button>
                           )}
@@ -314,6 +339,19 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
           <span className={styles.navIcon}>⏰</span>
           <span>{t('nav.scheduledTasks')}</span>
         </Link>
+        <Link to="/notes" className={`${styles.navItem} ${location.pathname === '/notes' ? styles.navItemActive : ''}`}>
+          <span className={styles.navIcon}>📝</span>
+          <span>{t('nav.notes')}</span>
+        </Link>
+        {classifySession && (
+          <Link
+            to={`/sessions/${classifySession.id}`}
+            className={`${styles.navItem} ${location.pathname === `/sessions/${classifySession.id}` ? styles.navItemActive : ''}`}
+          >
+            <span className={styles.navIcon}>🏷️</span>
+            <span>{t('notes.classifyTask')}</span>
+          </Link>
+        )}
         <div className={styles.langRow} ref={langRef}>
           <button type="button" className={`${styles.navItem} ${styles.langBtn}`}
             onClick={() => setShowLangMenu((v) => !v)}
