@@ -19,6 +19,7 @@ import (
 	"nexusagent/internal/config"
 	"nexusagent/internal/database"
 	"nexusagent/internal/handlers"
+	"nexusagent/internal/logging"
 	"nexusagent/internal/repository"
 	"nexusagent/internal/router"
 	"nexusagent/internal/services"
@@ -26,6 +27,19 @@ import (
 
 // ldflags 注入
 var version = "dev"
+
+func stopWithTimeout(name string, timeout time.Duration, stop func()) {
+	done := make(chan struct{})
+	go func() {
+		stop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(timeout):
+		log.Printf("%s 退出超时，继续关闭", name)
+	}
+}
 
 func main() {
 	// 命令行参数（桌面客户端模式）
@@ -50,6 +64,10 @@ func main() {
 	}
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("配置校验失败: %v", err)
+	}
+	logging.Setup(cfg.Logging.Level)
+	if cfg.Auth.AutoLogin {
+		log.Printf("auth.auto_login 已启用：前端将自动以 admin 身份登录")
 	}
 
 	// --data-dir 覆盖数据库路径与会话工作区
@@ -107,7 +125,14 @@ func main() {
 	}
 	schedTaskH := handlers.NewScheduledTaskHandler(schedTaskRepo, execRepo, schedulerSvc, agentRouter, agentRouter)
 
-	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
+	noteRepo := repository.NewNoteRepository(db)
+	noteSettingsRepo := repository.NewNoteSettingsRepository(db)
+	noteClassifier := services.NewNoteClassifier(noteSettingsRepo, noteRepo, acpSvc)
+	noteClassifyWorker := services.NewNoteClassifyWorker(noteClassifier)
+	noteClassifyWorker.Start()
+	noteH := handlers.NewNoteHandler(noteRepo, noteSettingsRepo)
+
+	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	srv := &http.Server{Addr: addr, Handler: engine}
@@ -131,9 +156,10 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("服务正在关闭...")
+
 	go func() {
-		<-quit
-		log.Println("强制退出...")
+		time.Sleep(5 * time.Second)
+		log.Println("关闭超时，强制退出...")
 		os.Exit(1)
 	}()
 
@@ -143,8 +169,9 @@ func main() {
 		log.Printf("HTTP 服务关闭超时: %v", err)
 	}
 
-	schedulerSvc.Stop()
 	acpSvc.StopHealthCheck()
+	noteClassifyWorker.Stop()
+	stopWithTimeout("定时任务调度器", 3*time.Second, schedulerSvc.Stop)
 	os.Exit(0)
 }
 

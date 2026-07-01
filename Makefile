@@ -6,10 +6,10 @@ LDFLAGS := -ldflags="-s -w -X main.version=$(VERSION)"
 # 一键启动前后端开发服务器
 # 用法: make dev
 dev: backend-stop
-	@trap 'kill 0 2>/dev/null' INT TERM EXIT; \
-	$(MAKE) backend & \
-	$(MAKE) frontend & \
-	wait
+	@bash -c 'set -m; trap "kill 0 2>/dev/null" INT TERM; \
+		go run ./cmd/server & \
+		(cd web && npm run dev) & \
+		wait'
 
 # 启动后端 (Go, :8080)
 backend:
