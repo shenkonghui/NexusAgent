@@ -148,6 +148,7 @@
 .groupHeader {
   display: flex;
   align-items: center;
+  gap: 6px;
   width: 100%;
   padding: 6px 8px;
   background: transparent;
@@ -166,10 +167,14 @@
 }
 
 .groupArrow {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 12px;
   font-size: 9px;
   color: var(--text-muted);
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .groupTitle {

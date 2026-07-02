@@ -158,9 +158,9 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
         {/* 收藏任务 */}
         <div className={styles.group}>
           <button type="button" className={styles.groupHeader} onClick={() => toggleGroup('favorites')}>
-            <span className={styles.groupArrow}>{collapsed.favorites ? '▶' : '▼'}</span>
             <span className={styles.groupTitle}>⭐ {t('session.favGroup')}</span>
             <span className={styles.groupCount}>{favoriteSessions.length}</span>
+            <span className={styles.groupArrow}>{collapsed.favorites ? '▶' : '▼'}</span>
           </button>
           {!collapsed.favorites && (
             <div className={styles.groupList}>
@@ -190,7 +190,6 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
 
         <div className={styles.group}>
           <button type="button" className={styles.groupHeader} onClick={() => toggleGroup('manual')}>
-            <span className={styles.groupArrow}>{collapsed.manual ? '▶' : '▼'}</span>
             <span className={styles.groupTitle}>📝 {t('session.title')}</span>
             <span className={styles.groupCount}>{manualSessions.length}</span>
             <span
@@ -199,6 +198,7 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
               onClick={(e) => { e.stopPropagation(); navigate('/new') }}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); navigate('/new') } }}
             >+</span>
+            <span className={styles.groupArrow}>{collapsed.manual ? '▶' : '▼'}</span>
           </button>
           {!collapsed.manual && (
             <div className={styles.groupList}>
@@ -266,7 +266,6 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
 
         <div className={styles.group}>
           <button type="button" className={styles.groupHeader} onClick={() => toggleGroup('scheduled')}>
-            <span className={styles.groupArrow}>{collapsed.scheduled ? '▶' : '▼'}</span>
             <span className={styles.groupTitle}>📅 {t('nav.scheduledTasks')}</span>
             <span className={styles.groupCount}>{tasks.length}</span>
             <span
@@ -275,6 +274,7 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
               onClick={handleNewScheduledTask}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleNewScheduledTask(e) }}
             >+</span>
+            <span className={styles.groupArrow}>{collapsed.scheduled ? '▶' : '▼'}</span>
           </button>
           {!collapsed.scheduled && (
             <div className={styles.groupList}>

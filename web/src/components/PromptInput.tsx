@@ -1,7 +1,8 @@
 import { useState, useMemo, useRef, useEffect, useCallback, type FormEvent, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { AgentCommand, SessionMode, AgentSkill } from '../types'
+import type { AgentCommand, SessionMode, AgentSkill, Note } from '../types'
 import { listFiles, type FileEntry } from '../api/filesystem'
+import { listNotes, listNoteTags } from '../api/notes'
 import styles from './PromptInput.module.css'
 
 interface PromptInputProps {
@@ -20,9 +21,21 @@ interface PromptInputProps {
   cwd?: string
 }
 
-type MentionType = 'command' | 'skill' | 'mode' | 'file'
+type TriggerType = 'slash' | 'mention' | null
+type MentionCategory = 'command' | 'skill' | 'file' | 'note'
+type MentionType = MentionCategory | 'mode' | 'tag'
+type NavigateAction = 'back' | 'file-up' | 'tag-up'
 
-interface MentionItem {
+interface CategoryRow {
+  kind: 'category'
+  category: MentionCategory
+  label: string
+  desc: string
+  kindLabel: string
+}
+
+interface ItemRow {
+  kind: 'item'
   type: MentionType
   label: string
   desc: string
@@ -31,15 +44,18 @@ interface MentionItem {
   kindLabel: string
   isDir?: boolean
   filePath?: string
+  navigate?: NavigateAction
 }
 
-function detectTrigger(text: string, cursorPos: number): { type: MentionType | null; query: string; startPos: number } {
+type MenuRow = CategoryRow | ItemRow
+
+function detectTrigger(text: string, cursorPos: number): { type: TriggerType; query: string; startPos: number } {
   for (let i = cursorPos - 1; i >= 0; i--) {
     const ch = text[i]
     if (ch === ' ' || ch === '\n') break
     if (ch === '/' || ch === '@') {
       if (i === 0 || text[i - 1] === ' ' || text[i - 1] === '\n') {
-        return { type: ch === '/' ? 'command' : 'file', query: text.slice(i + 1, cursorPos), startPos: i }
+        return { type: ch === '/' ? 'slash' : 'mention', query: text.slice(i + 1, cursorPos), startPos: i }
       }
       break
     }
@@ -47,12 +63,77 @@ function detectTrigger(text: string, cursorPos: number): { type: MentionType | n
   return { type: null, query: '', startPos: -1 }
 }
 
-function matchesSlashQuery(fields: string[], query: string): boolean {
+function matchesQuery(fields: string[], query: string): boolean {
   const q = query.trim().toLowerCase()
   if (!q) return true
   const tokens = q.split('/').filter(Boolean)
   const haystack = fields.join(' ').toLowerCase()
   return tokens.every((token) => haystack.includes(token))
+}
+
+function backRow(desc: string, kindLabel: string, navigate: NavigateAction): ItemRow {
+  return { kind: 'item', type: 'command', label: '..', path: '..', desc, insertText: '', kindLabel, navigate }
+}
+
+function buildSlashItems(
+  query: string,
+  commands: AgentCommand[],
+  modes: SessionMode[],
+  skills: AgentSkill[],
+  t: (key: string) => string,
+): ItemRow[] {
+  const items: ItemRow[] = []
+
+  for (const cmd of commands) {
+    const path = cmd.path || cmd.name
+    const kindLabel = cmd.kind === 'agent' ? t('prompt.slashKindAgent') : t('prompt.slashKindCommand')
+    if (!matchesQuery([cmd.name, path, cmd.description, kindLabel], query)) continue
+    items.push({
+      kind: 'item',
+      type: 'command',
+      label: path.includes('/') ? path : `/${cmd.name}`,
+      path,
+      desc: cmd.description,
+      insertText: `/${cmd.name} `,
+      kindLabel,
+    })
+  }
+
+  for (const mode of modes) {
+    const path = mode.id
+    if (!matchesQuery([mode.name, mode.id, mode.description || '', t('prompt.slashKindMode')], query)) continue
+    items.push({
+      kind: 'item',
+      type: 'mode',
+      label: mode.name,
+      path,
+      desc: mode.description || t('prompt.slashKindMode'),
+      insertText: `/${mode.id} `,
+      kindLabel: t('prompt.slashKindMode'),
+    })
+  }
+
+  for (const skill of skills) {
+    const path = skill.path || skill.name
+    if (!matchesQuery([skill.name, path, skill.description, t('prompt.slashKindSkill')], query)) continue
+    items.push({
+      kind: 'item',
+      type: 'skill',
+      label: path.includes('/') ? path : skill.name,
+      path,
+      desc: skill.description,
+      insertText: `/${skill.name} `,
+      kindLabel: t('prompt.slashKindSkill'),
+    })
+  }
+
+  items.sort((a, b) => {
+    const kindOrder = { command: 0, skill: 1, mode: 2, file: 3, note: 4, tag: 5 }
+    const ka = kindOrder[a.type] - kindOrder[b.type]
+    if (ka !== 0) return ka
+    return a.path.localeCompare(b.path)
+  })
+  return items
 }
 
 export default function PromptInput({
@@ -80,87 +161,191 @@ export default function PromptInput({
   }
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [cursorPos, setCursorPos] = useState(0)
+  const [mentionCategory, setMentionCategory] = useState<MentionCategory | null>(null)
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([])
   const [fileLoading, setFileLoading] = useState(false)
   const [fileBrowsePath, setFileBrowsePath] = useState('')
+  const [fileParentPath, setFileParentPath] = useState('')
+  const [noteTags, setNoteTags] = useState<string[]>([])
+  const [notes, setNotes] = useState<Note[]>([])
+  const [noteBrowseTag, setNoteBrowseTag] = useState('')
+  const [notesLoading, setNotesLoading] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const trigger = useMemo(() => detectTrigger(text, cursorPos), [text, cursorPos])
+  const fileNavigating = !!cwd && !!fileBrowsePath && fileBrowsePath !== cwd
 
-  const slashItems = useMemo<MentionItem[]>(() => {
-    if (trigger.type !== 'command') return []
-    const query = trigger.query
-    const items: MentionItem[] = []
-
-    for (const cmd of commands) {
-      const path = cmd.path || cmd.name
-      const kindLabel = cmd.kind === 'agent' ? t('prompt.slashKindAgent') : t('prompt.slashKindCommand')
-      if (!matchesSlashQuery([cmd.name, path, cmd.description, kindLabel], query)) continue
-      items.push({
-        type: 'command',
-        label: path.includes('/') ? path : `/${cmd.name}`,
-        path,
-        desc: cmd.description,
-        insertText: `/${cmd.name} `,
-        kindLabel,
-      })
-    }
-
-    for (const mode of modes) {
-      const path = mode.id
-      if (!matchesSlashQuery([mode.name, mode.id, mode.description || '', t('prompt.slashKindMode')], query)) continue
-      items.push({
-        type: 'mode',
-        label: mode.name,
-        path,
-        desc: mode.description || t('prompt.slashKindMode'),
-        insertText: `/${mode.id} `,
-        kindLabel: t('prompt.slashKindMode'),
-      })
-    }
-
-    for (const skill of skills) {
-      const path = skill.path || skill.name
-      if (!matchesSlashQuery([skill.name, path, skill.description, t('prompt.slashKindSkill')], query)) continue
-      items.push({
-        type: 'skill',
-        label: path.includes('/') ? path : skill.name,
-        path,
-        desc: skill.description,
-        insertText: `/${skill.name} `,
-        kindLabel: t('prompt.slashKindSkill'),
-      })
-    }
-
-    items.sort((a, b) => {
-      const kindOrder = { command: 0, skill: 1, mode: 2, file: 3 }
-      const ka = kindOrder[a.type] - kindOrder[b.type]
-      if (ka !== 0) return ka
-      return a.path.localeCompare(b.path)
-    })
-    return items
+  const slashItems = useMemo<ItemRow[]>(() => {
+    if (trigger.type !== 'slash') return []
+    return buildSlashItems(trigger.query, commands, modes, skills, t)
   }, [trigger, commands, modes, skills, t])
 
-  const fileItems = useMemo<MentionItem[]>(() => {
-    if (trigger.type !== 'file') return []
-    const query = trigger.query.toLowerCase()
-    return fileEntries
-      .filter((e) => query === '' || e.name.toLowerCase().includes(query))
-      .map((e) => ({
-        type: 'file' as MentionType,
-        label: e.name,
-        path: e.name,
-        desc: e.is_dir ? t('prompt.fileDir') : t('prompt.fileFile'),
-        insertText: '',
-        kindLabel: t('prompt.slashKindFile'),
-        isDir: e.is_dir,
-        filePath: e.path,
-      }))
-  }, [trigger, fileEntries, t])
+  const rootCategories = useMemo<CategoryRow[]>(() => {
+    if (trigger.type !== 'mention') return []
+    const query = trigger.query
+    const cats: CategoryRow[] = []
 
-  const activeItems = trigger.type === 'command' ? slashItems : trigger.type === 'file' ? fileItems : []
-  const showMenu = trigger.type === 'command' || (trigger.type === 'file' && !!cwd)
+    if (commands.length > 0 && matchesQuery([t('prompt.slashKindCommand'), 'command'], query)) {
+      cats.push({
+        kind: 'category',
+        category: 'command',
+        label: t('prompt.slashKindCommand'),
+        desc: t('prompt.categoryCommandDesc', { count: commands.length }),
+        kindLabel: t('prompt.categoryLabel'),
+      })
+    }
+    if (skills.length > 0 && matchesQuery([t('prompt.slashKindSkill'), 'skill'], query)) {
+      cats.push({
+        kind: 'category',
+        category: 'skill',
+        label: t('prompt.slashKindSkill'),
+        desc: t('prompt.categorySkillDesc', { count: skills.length }),
+        kindLabel: t('prompt.categoryLabel'),
+      })
+    }
+    if (cwd && matchesQuery([t('prompt.slashKindFile'), 'file', 'dir'], query)) {
+      cats.push({
+        kind: 'category',
+        category: 'file',
+        label: t('prompt.slashKindFile'),
+        desc: t('prompt.categoryFileDesc'),
+        kindLabel: t('prompt.categoryLabel'),
+      })
+    }
+    if (matchesQuery([t('prompt.slashKindNote'), 'note', 'tag'], query)) {
+      cats.push({
+        kind: 'category',
+        category: 'note',
+        label: t('prompt.slashKindNote'),
+        desc: t('prompt.categoryNoteDesc'),
+        kindLabel: t('prompt.categoryLabel'),
+      })
+    }
+    return cats
+  }, [trigger, commands.length, skills.length, cwd, t])
+
+  const mentionItems = useMemo<MenuRow[]>(() => {
+    if (trigger.type !== 'mention' || !mentionCategory) return []
+    const query = trigger.query
+
+    if (mentionCategory === 'command') {
+      const items: MenuRow[] = [backRow(t('prompt.categoryBack'), t('prompt.slashKindCommand'), 'back')]
+      for (const cmd of commands) {
+        const path = cmd.path || cmd.name
+        const kindLabel = cmd.kind === 'agent' ? t('prompt.slashKindAgent') : t('prompt.slashKindCommand')
+        if (!matchesQuery([cmd.name, path, cmd.description], query)) continue
+        items.push({
+          kind: 'item',
+          type: 'command',
+          label: path.includes('/') ? path : `/${cmd.name}`,
+          path,
+          desc: cmd.description,
+          insertText: `/${cmd.name} `,
+          kindLabel,
+        })
+      }
+      return items
+    }
+
+    if (mentionCategory === 'skill') {
+      const items: MenuRow[] = [backRow(t('prompt.categoryBack'), t('prompt.slashKindSkill'), 'back')]
+      for (const skill of skills) {
+        const path = skill.path || skill.name
+        if (!matchesQuery([skill.name, path, skill.description], query)) continue
+        items.push({
+          kind: 'item',
+          type: 'skill',
+          label: path.includes('/') ? path : skill.name,
+          path,
+          desc: skill.description,
+          insertText: `/${skill.name} `,
+          kindLabel: t('prompt.slashKindSkill'),
+        })
+      }
+      return items
+    }
+
+    if (mentionCategory === 'file') {
+      const items: MenuRow[] = [backRow(t('prompt.categoryBack'), t('prompt.slashKindFile'), 'back')]
+      if (fileNavigating && fileParentPath) {
+        items.push({
+          kind: 'item',
+          type: 'file',
+          label: '..',
+          path: '..',
+          desc: t('prompt.fileDirUp'),
+          insertText: '',
+          kindLabel: t('prompt.slashKindFile'),
+          navigate: 'file-up',
+          filePath: fileParentPath,
+        })
+      }
+      const q = query.toLowerCase()
+      for (const e of fileEntries) {
+        if (q !== '' && !e.name.toLowerCase().includes(q)) continue
+        items.push({
+          kind: 'item',
+          type: 'file',
+          label: e.name,
+          path: e.name,
+          desc: e.is_dir ? t('prompt.fileDir') : t('prompt.fileFile'),
+          insertText: '',
+          kindLabel: t('prompt.slashKindFile'),
+          isDir: e.is_dir,
+          filePath: e.path,
+        })
+      }
+      return items
+    }
+
+    if (mentionCategory === 'note') {
+      if (noteBrowseTag) {
+        const items: MenuRow[] = [backRow(t('prompt.noteTagBack'), t('prompt.slashKindTag'), 'tag-up')]
+        for (const note of notes) {
+          if (!matchesQuery([note.title, ...note.tags, String(note.id)], query)) continue
+          items.push({
+            kind: 'item',
+            type: 'note',
+            label: note.title || t('prompt.noteUntitled'),
+            path: String(note.id),
+            desc: note.tags.length ? note.tags.map((tag) => `#${tag}`).join(' ') : t('prompt.noteNoTag'),
+            insertText: `@note:${note.id} `,
+            kindLabel: t('prompt.slashKindNote'),
+          })
+        }
+        return items
+      }
+
+      const items: MenuRow[] = [backRow(t('prompt.categoryBack'), t('prompt.slashKindNote'), 'back')]
+      for (const tag of noteTags) {
+        if (!matchesQuery([tag, `#${tag}`], query)) continue
+        items.push({
+          kind: 'item',
+          type: 'tag',
+          label: `#${tag}`,
+          path: tag,
+          desc: t('prompt.noteTagDesc'),
+          insertText: '',
+          kindLabel: t('prompt.slashKindTag'),
+        })
+      }
+      return items
+    }
+
+    return []
+  }, [
+    trigger, mentionCategory, commands, skills, fileEntries, fileNavigating,
+    fileParentPath, noteTags, notes, noteBrowseTag, t,
+  ])
+
+  const activeRows: MenuRow[] = trigger.type === 'slash'
+    ? slashItems
+    : trigger.type === 'mention'
+      ? (mentionCategory ? mentionItems : rootCategories)
+      : []
+
+  const showMenu = trigger.type === 'slash' || trigger.type === 'mention'
 
   const loadFileEntries = useCallback(async (path: string, query: string) => {
     if (!path) return
@@ -169,6 +354,7 @@ export default function PromptInput({
       const resp = await listFiles(path, query)
       setFileEntries(resp.data.entries)
       setFileBrowsePath(resp.data.current_path)
+      setFileParentPath(resp.data.parent_path)
     } catch {
       setFileEntries([])
     } finally {
@@ -176,42 +362,111 @@ export default function PromptInput({
     }
   }, [])
 
+  const loadNoteData = useCallback(async (tag?: string) => {
+    setNotesLoading(true)
+    try {
+      const [tagsResp, notesResp] = await Promise.all([
+        tag ? Promise.resolve(null) : listNoteTags(),
+        listNotes(tag),
+      ])
+      if (tagsResp) setNoteTags(tagsResp.data.tags || [])
+      setNotes(notesResp.data.notes || [])
+    } catch {
+      if (!tag) setNoteTags([])
+      setNotes([])
+    } finally {
+      setNotesLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
-    if (trigger.type !== 'file') setFileBrowsePath('')
+    if (trigger.type !== 'mention') {
+      setMentionCategory(null)
+      setFileBrowsePath('')
+      setNoteBrowseTag('')
+    }
   }, [trigger.type])
 
   useEffect(() => {
-    if (trigger.type !== 'file' || !cwd) {
+    if (trigger.type !== 'mention' || mentionCategory !== 'file' || !cwd) {
       setFileEntries([])
       return
     }
     const basePath = fileBrowsePath || cwd
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      loadFileEntries(basePath, trigger.query)
+      loadFileEntries(basePath, fileNavigating ? trigger.query : '')
     }, 200)
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [trigger.type, trigger.query, cwd, fileBrowsePath, loadFileEntries])
+  }, [trigger.type, trigger.query, mentionCategory, cwd, fileBrowsePath, fileNavigating, loadFileEntries])
+
+  useEffect(() => {
+    if (trigger.type !== 'mention' || mentionCategory !== 'note') return
+    loadNoteData(noteBrowseTag || undefined)
+  }, [trigger.type, mentionCategory, noteBrowseTag, loadNoteData])
 
   useEffect(() => {
     setSelectedIdx(0)
-  }, [activeItems.length, trigger.query])
+  }, [activeRows.length, trigger.query, mentionCategory, noteBrowseTag, fileBrowsePath])
 
-  function applyMention(item: MentionItem) {
-    if (trigger.type === null) return
+  function goBack() {
+    if (noteBrowseTag) {
+      setNoteBrowseTag('')
+      return
+    }
+    if (mentionCategory === 'file' && fileNavigating) {
+      loadFileEntries(fileParentPath || cwd, '')
+      return
+    }
+    if (mentionCategory) {
+      setMentionCategory(null)
+      setFileBrowsePath('')
+      return
+    }
     const before = text.slice(0, trigger.startPos)
     const after = text.slice(cursorPos)
+    setText(before + after)
+  }
 
-    if (item.type === 'file' && item.isDir) {
-      loadFileEntries(item.filePath || '', '')
+  function applyRow(row: MenuRow) {
+    if (trigger.type === null) return
+
+    if (row.kind === 'category') {
+      setMentionCategory(row.category)
+      setSelectedIdx(0)
+      if (row.category === 'file') setFileBrowsePath('')
+      if (row.category === 'note') setNoteBrowseTag('')
       return
     }
 
-    const insertText = item.type === 'file' && item.filePath
-      ? `@${item.filePath} `
-      : item.insertText
+    if (row.navigate === 'back') {
+      goBack()
+      return
+    }
+    if (row.navigate === 'file-up') {
+      loadFileEntries(row.filePath || cwd, '')
+      return
+    }
+    if (row.navigate === 'tag-up') {
+      setNoteBrowseTag('')
+      return
+    }
+    if (row.type === 'file' && row.isDir) {
+      loadFileEntries(row.filePath || '', '')
+      return
+    }
+    if (row.type === 'tag') {
+      setNoteBrowseTag(row.path)
+      return
+    }
+
+    const before = text.slice(0, trigger.startPos)
+    const after = text.slice(cursorPos)
+    const insertText = row.type === 'file' && row.filePath
+      ? `@${row.filePath} `
+      : row.insertText
 
     const newText = before + insertText + after
     setText(newText)
@@ -238,29 +493,27 @@ export default function PromptInput({
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (showMenu && activeItems.length > 0) {
+    if (showMenu && activeRows.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
-        setSelectedIdx((i) => (i + 1) % activeItems.length)
+        setSelectedIdx((i) => (i + 1) % activeRows.length)
         return
       }
       if (e.key === 'ArrowUp') {
         e.preventDefault()
-        setSelectedIdx((i) => (i - 1 + activeItems.length) % activeItems.length)
+        setSelectedIdx((i) => (i - 1 + activeRows.length) % activeRows.length)
         return
       }
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
         e.preventDefault()
-        applyMention(activeItems[selectedIdx])
+        applyRow(activeRows[selectedIdx])
         return
       }
     }
 
     if (showMenu && e.key === 'Escape') {
       e.preventDefault()
-      const before = text.slice(0, trigger.startPos)
-      const after = text.slice(cursorPos)
-      setText(before + after)
+      goBack()
       return
     }
 
@@ -279,11 +532,24 @@ export default function PromptInput({
     setCursorPos(e.currentTarget.selectionStart ?? 0)
   }
 
-  const menuTitle = trigger.type === 'command'
+  const menuTitle = trigger.type === 'slash'
     ? t('prompt.slashMenuTitle')
-    : trigger.type === 'file'
-      ? t('prompt.fileMenuTitle', { path: fileBrowsePath || cwd })
-      : ''
+    : !mentionCategory
+      ? t('prompt.mentionMenuTitle')
+      : mentionCategory === 'command'
+        ? t('prompt.commandMenuTitle')
+        : mentionCategory === 'skill'
+          ? t('prompt.skillMenuTitle')
+          : mentionCategory === 'file'
+            ? t('prompt.fileMenuTitle', { path: fileBrowsePath || cwd })
+            : noteBrowseTag
+              ? t('prompt.noteMenuTitle', { tag: noteBrowseTag })
+              : t('prompt.noteTagMenuTitle')
+
+  const menuLoading = trigger.type === 'mention' && (
+    (mentionCategory === 'file' && fileLoading) ||
+    (mentionCategory === 'note' && notesLoading)
+  )
 
   return (
     <div className={`${styles.container} ${embedded ? styles.embedded : ''}`}>
@@ -304,27 +570,32 @@ export default function PromptInput({
           {showMenu && (
             <div className={styles.commandMenu}>
               <div className={styles.commandMenuHeader}>{menuTitle}</div>
-              {fileLoading && <div className={styles.loadingHint}>{t('common.loading')}</div>}
-              {!fileLoading && activeItems.length === 0 && (
+              {menuLoading && <div className={styles.loadingHint}>{t('common.loading')}</div>}
+              {!menuLoading && activeRows.length === 0 && (
                 <div className={styles.loadingHint}>{t('prompt.slashNoMatch')}</div>
               )}
-              {activeItems.map((item, idx) => (
-                <div
-                  key={`${item.type}-${item.path}-${idx}`}
-                  className={`${styles.commandItem} ${idx === selectedIdx ? styles.commandItemActive : ''}`}
-                  onMouseEnter={() => setSelectedIdx(idx)}
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    applyMention(item)
-                  }}
-                >
-                  <span className={`${styles.itemKind} ${styles[`kind_${item.type}`]}`}>{item.kindLabel}</span>
-                  <div className={styles.itemMain}>
-                    <span className={styles.commandName}>{item.label}</span>
+              {activeRows.map((row, idx) => {
+                const isCategory = row.kind === 'category'
+                const kindClass = isCategory ? styles.kind_category : styles[`kind_${row.kind === 'item' ? row.type : ''}`]
+                const kindLabel = row.kindLabel
+                return (
+                  <div
+                    key={isCategory ? `cat-${row.category}` : `item-${row.type}-${row.path}-${row.navigate || ''}-${idx}`}
+                    className={`${styles.commandItem} ${idx === selectedIdx ? styles.commandItemActive : ''}`}
+                    onMouseEnter={() => setSelectedIdx(idx)}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      applyRow(row)
+                    }}
+                  >
+                    <span className={`${styles.itemKind} ${kindClass}`}>{kindLabel}</span>
+                    <div className={styles.itemMain}>
+                      <span className={styles.commandName}>{row.label}</span>
+                    </div>
+                    <span className={styles.commandDesc}>{row.desc}</span>
                   </div>
-                  <span className={styles.commandDesc}>{item.desc}</span>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>

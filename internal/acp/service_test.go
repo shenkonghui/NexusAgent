@@ -2,6 +2,8 @@ package acp
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"gorm.io/gorm"
@@ -22,6 +24,7 @@ func setupACPTestDB(t *testing.T) *gorm.DB {
 	db.Exec("DELETE FROM refresh_tokens")
 	db.Exec("DELETE FROM sessions")
 	db.Exec("DELETE FROM messages")
+	db.Exec("DELETE FROM workspaces")
 	return db
 }
 
@@ -208,19 +211,58 @@ func TestService_ResumeSession_Closed_NoBackend(t *testing.T) {
 	}
 }
 
+func TestService_ResumeSession_PersistentCwdNotExists(t *testing.T) {
+	db := setupACPTestDB(t)
+	repo := repository.NewSessionRepository(db)
+	wsRepo := repository.NewWorkspaceRepository(db)
+	missingDir := filepath.Join(t.TempDir(), "missing-persistent")
+	ws := &models.Workspace{
+		UserID: 1, Name: "项目", Cwd: missingDir,
+		Mode: models.WorkspaceModePersistent,
+	}
+	if err := wsRepo.Create(ws); err != nil {
+		t.Fatalf("创建 workspace 失败: %v", err)
+	}
+	wid := ws.ID
+	_ = repo.Create(&models.Session{
+		SessionID: "closed-resume-3", AgentType: "claude-code", Cwd: missingDir,
+		Status: models.SessionStatusError, WorkspaceID: &wid,
+	})
+
+	skills, commands, rules := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
+	_, err := svc.ResumeSession(context.Background(), "closed-resume-3")
+	if err == nil {
+		t.Error("persistent 工作目录不存在时期望返回错误")
+	}
+}
+
 func TestService_ResumeSession_CwdNotExists(t *testing.T) {
 	db := setupACPTestDB(t)
 	repo := repository.NewSessionRepository(db)
+	wsRepo := repository.NewWorkspaceRepository(db)
+	tempDir := filepath.Join(t.TempDir(), "missing-resume")
+	ws := &models.Workspace{
+		UserID: 1, Name: "默认", Cwd: tempDir,
+		Mode: models.WorkspaceModeTemporary, TempDir: tempDir,
+	}
+	if err := wsRepo.Create(ws); err != nil {
+		t.Fatalf("创建 workspace 失败: %v", err)
+	}
+	wid := ws.ID
 	_ = repo.Create(&models.Session{
-		SessionID: "closed-resume-2", AgentType: "claude-code", Cwd: "/this/path/does/not/exist",
-		Status: models.SessionStatusError, WorkspaceMode: "",
+		SessionID: "closed-resume-2", AgentType: "claude-code", Cwd: tempDir,
+		Status: models.SessionStatusError, WorkspaceID: &wid,
 	})
 
 	skills, commands, rules := testDiscoveryConfig(t)
 	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
 	_, err := svc.ResumeSession(context.Background(), "closed-resume-2")
 	if err == nil {
-		t.Error("期望工作目录不存在时返回错误")
+		t.Error("期望后端未注册时重开返回错误")
+	}
+	if _, statErr := os.Stat(tempDir); statErr != nil {
+		t.Errorf("temporary 工作目录应已重建: %v", statErr)
 	}
 }
 
@@ -235,9 +277,22 @@ func TestService_DeleteSession_RemovesSessionAndMessages(t *testing.T) {
 	db := setupACPTestDB(t)
 	repo := repository.NewSessionRepository(db)
 	msgRepo := repository.NewMessageRepository(db)
+	wsRepo := repository.NewWorkspaceRepository(db)
+	tempDir := filepath.Join(t.TempDir(), "keep-after-delete")
+	if err := os.MkdirAll(tempDir, 0o755); err != nil {
+		t.Fatalf("创建目录: %v", err)
+	}
+	ws := &models.Workspace{
+		UserID: 1, Name: "默认", Cwd: tempDir,
+		Mode: models.WorkspaceModeTemporary, TempDir: tempDir,
+	}
+	if err := wsRepo.Create(ws); err != nil {
+		t.Fatalf("创建 workspace 失败: %v", err)
+	}
+	wid := ws.ID
 	sess := &models.Session{
-		SessionID: "delete-1", AgentType: "claude-code", Cwd: "/tmp",
-		Status: models.SessionStatusClosed, WorkspaceMode: "",
+		SessionID: "delete-1", AgentType: "claude-code", Cwd: tempDir,
+		Status: models.SessionStatusClosed, WorkspaceID: &wid,
 	}
 	if err := repo.Create(sess); err != nil {
 		t.Fatalf("创建会话失败: %v", err)
@@ -260,6 +315,9 @@ func TestService_DeleteSession_RemovesSessionAndMessages(t *testing.T) {
 	msgs, _ := msgRepo.FindByDBSessionID(sess.ID)
 	if len(msgs) != 0 {
 		t.Errorf("期望消息已删除，实际 %d 条", len(msgs))
+	}
+	if _, err := os.Stat(tempDir); err != nil {
+		t.Errorf("删除会话后工作区目录应保留: %v", err)
 	}
 }
 

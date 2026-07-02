@@ -8,6 +8,7 @@ import SessionSidebar from '../components/SessionSidebar'
 import UserMenu from '../components/UserMenu'
 import ErrorBanner from '../components/ErrorBanner'
 import LoadingSpinner from '../components/LoadingSpinner'
+import MarkdownContent from '../components/MarkdownContent'
 import { formatTimeAgo } from '../utils/time'
 import styles from './NotesPage.module.css'
 
@@ -230,7 +231,7 @@ function NoteCard({
   const [editing, setEditing] = useState(false)
   const [editContent, setEditContent] = useState(note.content)
   const [saving, setSaving] = useState(false)
-  const contentRef = useRef<HTMLPreElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
   const editRef = useRef<HTMLTextAreaElement>(null)
   const [truncated, setTruncated] = useState(false)
 
@@ -350,9 +351,9 @@ function NoteCard({
         </>
       ) : (
         <>
-          <pre
+          <div
             ref={contentRef}
-            className={`${styles.noteContent} ${expanded ? '' : styles.noteContentCollapsed}`}
+            className={`${styles.noteContent} markdown-body ${expanded ? '' : styles.noteContentCollapsed}`}
             onClick={() => { if (truncated || expanded) setExpanded((v) => !v) }}
             role={(truncated || expanded) ? 'button' : undefined}
             tabIndex={(truncated || expanded) ? 0 : undefined}
@@ -363,8 +364,8 @@ function NoteCard({
               }
             }}
           >
-            {note.content}
-          </pre>
+            <MarkdownContent content={note.content} />
+          </div>
           {(truncated || expanded) && (
             <button
               type="button"

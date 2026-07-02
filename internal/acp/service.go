@@ -475,6 +475,7 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 
 	var ws *Workspace
 	var dbWS *models.Workspace
+	createdDefaultWS := false
 	if workspaceID > 0 {
 		var err error
 		dbWS, err = s.workspaces.FindByID(workspaceID)
@@ -485,6 +486,9 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 			return nil, errors.New("无权访问该工作区")
 		}
 		ws = &Workspace{Mode: dbWS.Mode, Cwd: dbWS.Cwd, TempDir: dbWS.TempDir}
+		if err := EnsureWorkspaceDir(dbWS.Mode, dbWS.Cwd); err != nil {
+			return nil, err
+		}
 	} else {
 		var err error
 		dbWS, err = s.workspaces.FindDefaultByUserID(userID)
@@ -506,21 +510,33 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 			}
 			dbWS = newWS
 			ws = tempWs
+			createdDefaultWS = true
 		} else {
 			ws = &Workspace{Mode: dbWS.Mode, Cwd: dbWS.Cwd, TempDir: dbWS.TempDir}
+			if err := EnsureWorkspaceDir(dbWS.Mode, dbWS.Cwd); err != nil {
+				return nil, err
+			}
 		}
 		workspaceID = dbWS.ID
 	}
 
+	rollbackNewDefaultWS := func() {
+		if !createdDefaultWS || dbWS == nil {
+			return
+		}
+		_ = s.workspaces.Delete(dbWS.ID)
+		_ = ws.Cleanup()
+	}
+
 	conn, err := s.ensureConnection(ctx, agentType)
 	if err != nil {
-		_ = ws.Cleanup()
+		rollbackNewDefaultWS()
 		return nil, err
 	}
 
 	sessionID, configOptions, modes, err := conn.NewSession(ctx, ws.Cwd, s.skillAdditionalDirs(ws.Cwd))
 	if err != nil {
-		_ = ws.Cleanup()
+		rollbackNewDefaultWS()
 		return nil, fmt.Errorf("创建 ACP 会话: %w", err)
 	}
 	slog.Debug("agent 会话已创建", "agent", agentType, "session", sessionID, "cwd", ws.Cwd)
@@ -537,7 +553,7 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 	}
 	if err := s.sessions.Create(session); err != nil {
 		_ = conn.CloseSessionByID(ctx, sessionID)
-		_ = ws.Cleanup()
+		rollbackNewDefaultWS()
 		return nil, fmt.Errorf("会话落库: %w", err)
 	}
 	session.Workspace = *dbWS
@@ -753,8 +769,7 @@ func (s *Service) DeleteSession(ctx context.Context, sessionID string) error {
 		}
 	}
 
-	ws := &Workspace{Mode: session.WorkspaceMode, TempDir: session.TempDir}
-	_ = ws.Cleanup()
+	// 工作区目录由 workspace 生命周期管理，删除单个会话时不清理目录。
 
 	// 先删消息再删会话，避免孤儿消息
 	if err := s.messages.DeleteByDBSessionID(session.ID); err != nil {
@@ -1188,16 +1203,18 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 
 	// 从 workspace 获取 cwd
 	cwd := session.Cwd
+	wsMode := ""
 	if session.WorkspaceID != nil {
 		if ws, wsErr := s.workspaces.FindByID(*session.WorkspaceID); wsErr == nil {
 			cwd = ws.Cwd
+			wsMode = ws.Mode
 		}
 	}
 	if cwd == "" {
 		return nil, errors.New("恢复会话需要工作目录，请提供有效的 workspace")
 	}
-	if !dirExists(cwd) {
-		return nil, fmt.Errorf("工作目录不存在: %s", cwd)
+	if err := EnsureWorkspaceDir(wsMode, cwd); err != nil {
+		return nil, err
 	}
 
 	// 复用共享连接（不存在则自动建立）
@@ -1442,7 +1459,14 @@ func (s *Service) UpdateWorkspace(id uint, updates map[string]interface{}) error
 }
 
 func (s *Service) DeleteWorkspace(id uint) error {
-	return s.workspaces.Delete(id)
+	ws, err := s.workspaces.FindByID(id)
+	if err != nil {
+		return err
+	}
+	if err := s.workspaces.Delete(id); err != nil {
+		return err
+	}
+	return (&Workspace{Mode: ws.Mode, Cwd: ws.Cwd, TempDir: ws.TempDir}).Cleanup()
 }
 
 func (s *Service) WorkspaceSessionCount(workspaceID uint) (int64, error) {

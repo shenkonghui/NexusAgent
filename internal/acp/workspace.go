@@ -51,12 +51,35 @@ func NewTemporaryWorkspace(baseDir, prefix string) (*Workspace, error) {
 	}, nil
 }
 
-// Cleanup 清理工作区。temporary 模式删除临时目录，external 模式不做任何操作。
+// Cleanup 清理工作区。temporary 模式删除临时目录，persistent 模式不做任何操作。
+// 仅在删除工作区时调用，删除单个会话时不应清理共享工作区目录。
 func (w *Workspace) Cleanup() error {
-	if w.Mode == models.WorkspaceModeTemporary && w.TempDir != "" {
-		return os.RemoveAll(w.TempDir)
+	if w.Mode != models.WorkspaceModeTemporary {
+		return nil
 	}
-	return nil
+	dir := w.TempDir
+	if dir == "" {
+		dir = w.Cwd
+	}
+	if dir == "" {
+		return nil
+	}
+	return os.RemoveAll(dir)
+}
+
+// EnsureWorkspaceDir 确保工作区目录存在。
+// temporary 模式下若目录被误删则自动重建；persistent 模式目录不存在则返回错误。
+func EnsureWorkspaceDir(mode, cwd string) error {
+	if cwd == "" {
+		return fmt.Errorf("工作目录路径为空")
+	}
+	if dirExists(cwd) {
+		return nil
+	}
+	if mode == models.WorkspaceModeTemporary {
+		return os.MkdirAll(cwd, 0o755)
+	}
+	return fmt.Errorf("工作目录不存在: %s", cwd)
 }
 
 // dirExists 判断目录是否存在。

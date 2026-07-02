@@ -199,8 +199,18 @@ pre,
   border: none;
 }
 
+.markdown-body pre {
+  margin: 8px 0;
+  padding: 12px;
+  overflow-x: auto;
+  background-color: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 6px;
+  white-space: pre;
+}
+
 .markdown-body {
-  white-space: pre-wrap;
+  line-height: 1.6;
 }
 
 .markdown-body th {

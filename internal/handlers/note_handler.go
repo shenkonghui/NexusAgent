@@ -332,7 +332,6 @@ func (h *NoteHandler) Update(c *gin.Context) {
 	n.Title = title
 	n.Content = content
 	n.Tags = tagsToJSON(tags)
-	n.ClassifyPending = h.shouldEnqueueClassify(n.UserID)
 	if err := h.repo.Update(n); err != nil {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", "更新笔记失败")
 		return

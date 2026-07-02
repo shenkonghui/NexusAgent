@@ -109,6 +109,21 @@
   color: #f59e0b;
 }
 
+.kind_note {
+  background: rgba(236, 72, 153, 0.15);
+  color: #ec4899;
+}
+
+.kind_tag {
+  background: rgba(14, 165, 233, 0.15);
+  color: #0ea5e9;
+}
+
+.kind_category {
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+}
+
 .itemMain {
   flex: 1;
   min-width: 0;

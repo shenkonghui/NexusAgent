@@ -87,7 +87,7 @@ type WorkspaceConfig struct {
 	DefaultMode   string `yaml:"default_mode"`
 	TempDirPrefix string `yaml:"temp_dir_prefix"`
 	// SessionDir 是 temporary 模式会话工作区的存放根目录。
-	// 默认 ~/.nextAgent/session，由程序在删除会话时清理，不依赖系统清理临时目录。
+	// 默认 ~/.nextAgent/session，仅在删除工作区时清理，不依赖系统清理临时目录。
 	SessionDir string `yaml:"session_dir"`
 }
 

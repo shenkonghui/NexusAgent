@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"nexusagent/internal/models"
 )
 
 func TestNewExternalWorkspace(t *testing.T) {
@@ -78,5 +80,37 @@ func TestExternalWorkspace_Cleanup_NoDelete(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		t.Error("persistent 模式 Cleanup 不应删除目录")
+	}
+}
+
+func TestEnsureWorkspaceDir_RecreatesTemporary(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing-temp")
+	if err := EnsureWorkspaceDir(models.WorkspaceModeTemporary, dir); err != nil {
+		t.Fatalf("EnsureWorkspaceDir 错误: %v", err)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("temporary 目录应被重建: %v", err)
+	}
+}
+
+func TestEnsureWorkspaceDir_PersistentMissing(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "missing-persistent")
+	err := EnsureWorkspaceDir(models.WorkspaceModePersistent, dir)
+	if err == nil {
+		t.Fatal("persistent 目录不存在时期望返回错误")
+	}
+}
+
+func TestWorkspace_CleanupUsesCwdWhenTempDirEmpty(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "temp-only-cwd")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("创建目录: %v", err)
+	}
+	w := &Workspace{Mode: models.WorkspaceModeTemporary, Cwd: dir}
+	if err := w.Cleanup(); err != nil {
+		t.Fatalf("Cleanup 错误: %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Error("Cleanup 应删除 Cwd 指向的 temporary 目录")
 	}
 }
