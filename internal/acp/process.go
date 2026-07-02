@@ -16,8 +16,12 @@ type Process struct {
 }
 
 // NewProcess 启动指定后端的 agent 子进程。
-func NewProcess(backend Backend) (*Process, error) {
+// workDir 非空时设为子进程工作目录，使 agent 工具调用与 ACP session cwd 一致。
+func NewProcess(backend Backend, workDir string) (*Process, error) {
 	cmd := exec.Command(backend.Command(), backend.Args()...)
+	if workDir != "" {
+		cmd.Dir = workDir
+	}
 	cmd.Env = append(cmd.Environ(), backend.Env()...)
 
 	stdin, err := cmd.StdinPipe()

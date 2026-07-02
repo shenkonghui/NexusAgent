@@ -16,7 +16,7 @@ func (s *Service) RunPromptOnce(ctx context.Context, agentType, modelValue, prom
 	if _, err := s.GetBackend(agentType); err != nil {
 		return "", err
 	}
-	conn, err := s.ensureConnection(ctx, agentType)
+	conn, err := s.ensureConnection(ctx, agentType, s.probeCwd())
 	if err != nil {
 		return "", err
 	}

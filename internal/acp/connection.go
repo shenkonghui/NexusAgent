@@ -21,8 +21,8 @@ type Connection struct {
 }
 
 // NewConnection 启动 agent 进程并建立 ACP 连接。
-func NewConnection(backend Backend) (*Connection, error) {
-	proc, err := NewProcess(backend)
+func NewConnection(backend Backend, workDir string) (*Connection, error) {
+	proc, err := NewProcess(backend, workDir)
 	if err != nil {
 		return nil, err
 	}

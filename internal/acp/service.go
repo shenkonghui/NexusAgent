@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -42,9 +43,9 @@ const (
 
 // Service 是 ACP 客户端高层服务，串联后端、连接、工作区与持久化。
 //
-// 连接池模型：每个 agent 类型共享一条 ACP 连接（一个 agent 进程），
+// 连接池模型：每个 agent 类型 + 工作目录共享一条 ACP 连接（一个 agent 进程），
 // 多个会话通过 SessionId 在同一条连接上多路复用。
-// sessionAgent 维护 sessionID → agentType 的路由，用于定位所属连接。
+// sessionPoolKey 维护 sessionID → 连接池键 的路由，用于定位所属连接。
 //
 // 连接生命周期由后台健康检查 goroutine 管理：
 //   - 进程退出后标记 disconnected，定时任务自动重连
@@ -54,12 +55,12 @@ type Service struct {
 	messages  *repository.MessageRepository
 	workspaces *repository.WorkspaceRepository
 	backends map[string]Backend
-	// pool 按 agentType 共享一条 Connection（一个 agent 进程承载多个 session）。
+	// pool 按 agentType+cwd 共享一条 Connection（进程 cwd 与 ACP session cwd 对齐）。
 	pool map[string]*Connection
-	// states 记录每个 agentType 的连接状态（connecting/connected/disconnected）。
+	// states 记录每个连接池键的状态（connecting/connected/disconnected）。
 	states map[string]string
-	// sessionAgent 记录 sessionID → agentType 路由，用于定位所属连接。
-	sessionAgent map[string]string
+	// sessionPoolKey 记录 sessionID → 连接池键，用于定位所属连接。
+	sessionPoolKey map[string]string
 	commands     map[string][]acp.AvailableCommand
 	configs      map[string][]acp.SessionConfigOption
 	modes        map[string][]acp.SessionMode
@@ -94,7 +95,7 @@ func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig, skillsConfig confi
 		backends:     make(map[string]Backend),
 		pool:         make(map[string]*Connection),
 		states:       make(map[string]string),
-		sessionAgent: make(map[string]string),
+		sessionPoolKey: make(map[string]string),
 		commands:     make(map[string][]acp.AvailableCommand),
 		configs:      make(map[string][]acp.SessionConfigOption),
 		modes:        make(map[string][]acp.SessionMode),
@@ -111,6 +112,30 @@ func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig, skillsConfig confi
 	}
 }
 
+// connectionKey 生成 agent 连接池键（agentType + 绝对 cwd）。
+func connectionKey(agentType, cwd string) string {
+	abs, err := filepath.Abs(cwd)
+	if err != nil || abs == "" {
+		abs = cwd
+	}
+	return agentType + "\x00" + abs
+}
+
+func splitConnectionKey(key string) (agentType, cwd string) {
+	if i := strings.IndexByte(key, '\x00'); i >= 0 {
+		return key[:i], key[i+1:]
+	}
+	return key, ""
+}
+
+func (s *Service) agentTypeForSession(sessionID string) (string, bool) {
+	session, err := s.GetSession(sessionID)
+	if err != nil {
+		return "", false
+	}
+	return session.AgentType, true
+}
+
 // RegisterBackend 注册一个 agent 后端。
 func (s *Service) RegisterBackend(b Backend) {
 	s.mu.Lock()
@@ -122,38 +147,38 @@ func (s *Service) RegisterBackend(b Backend) {
 // 若该类型已有连接，先关闭旧连接（停止旧进程），下次使用时按新配置重建。
 func (s *Service) ReplaceBackend(b Backend) {
 	s.mu.Lock()
-	oldConn, ok := s.pool[b.Name()]
-	if ok {
-		delete(s.pool, b.Name())
-	}
+	s.closeConnectionsForAgentLocked(b.Name())
 	s.backends[b.Name()] = b
-	s.states[b.Name()] = connStateDisconnected
 	delete(s.probeCache, b.Name())
 	delete(s.agentCommands, b.Name())
 	delete(s.agentModes, b.Name())
 	s.mu.Unlock()
-
-	if ok {
-		_ = oldConn.Close()
-	}
 }
 
 // UnregisterBackend 注销一个 agent 后端，并关闭对应的共享连接。
 func (s *Service) UnregisterBackend(name string) {
 	s.mu.Lock()
-	oldConn, ok := s.pool[name]
-	if ok {
-		delete(s.pool, name)
-	}
+	s.closeConnectionsForAgentLocked(name)
 	delete(s.backends, name)
-	delete(s.states, name)
 	delete(s.probeCache, name)
 	delete(s.agentCommands, name)
 	delete(s.agentModes, name)
 	s.mu.Unlock()
+}
 
-	if ok {
-		_ = oldConn.Close()
+func (s *Service) closeConnectionsForAgentLocked(agentType string) {
+	var toClose []*Connection
+	for key, conn := range s.pool {
+		at, _ := splitConnectionKey(key)
+		if at != agentType {
+			continue
+		}
+		delete(s.pool, key)
+		delete(s.states, key)
+		toClose = append(toClose, conn)
+	}
+	for _, conn := range toClose {
+		_ = conn.Close()
 	}
 }
 
@@ -168,16 +193,17 @@ func (s *Service) GetBackend(name string) (Backend, error) {
 	return b, nil
 }
 
-// ensureConnection 获取或创建指定 agentType 的共享连接。
+// ensureConnection 获取或创建指定 agentType + cwd 的共享连接。
 // 若池中连接已断开（Done() 已关闭），自动清理并重建。
 // 状态流转：disconnected → connecting → connected（或 connecting → disconnected 失败）。
-func (s *Service) ensureConnection(ctx context.Context, agentType string) (*Connection, error) {
+func (s *Service) ensureConnection(ctx context.Context, agentType, cwd string) (*Connection, error) {
 	if s.shuttingDown.Load() {
 		return nil, context.Canceled
 	}
+	key := connectionKey(agentType, cwd)
 	// 快速路径：池中有存活连接
 	s.mu.RLock()
-	conn, ok := s.pool[agentType]
+	conn, ok := s.pool[key]
 	if ok {
 		select {
 		case <-conn.Done():
@@ -192,7 +218,7 @@ func (s *Service) ensureConnection(ctx context.Context, agentType string) (*Conn
 	// 慢路径：需要建立连接。先抢锁设置 connecting 状态，避免并发重复建连。
 	s.mu.Lock()
 	// 再次检查：可能其他 goroutine 已建好
-	if existing, ok2 := s.pool[agentType]; ok2 {
+	if existing, ok2 := s.pool[key]; ok2 {
 		select {
 		case <-existing.Done():
 		default:
@@ -201,24 +227,24 @@ func (s *Service) ensureConnection(ctx context.Context, agentType string) (*Conn
 		}
 	}
 	// 已有 connecting 状态的 goroutine 在跑？等待它完成（这里简单处理：直接返回错误让调用方重试）
-	if s.states[agentType] == connStateConnecting {
+	if s.states[key] == connStateConnecting {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("agent %s 正在连接中，请稍后重试", agentType)
 	}
-	s.states[agentType] = connStateConnecting
+	s.states[key] = connStateConnecting
 	// 清理已断开的旧连接
-	if oldConn, ok2 := s.pool[agentType]; ok2 {
-		delete(s.pool, agentType)
-		s.markAgentSessionsErrorLocked(agentType)
+	if oldConn, ok2 := s.pool[key]; ok2 {
+		delete(s.pool, key)
+		s.markSessionsErrorForPoolKeyLocked(key)
 		_ = oldConn.Close()
 	}
 	s.mu.Unlock()
 
 	// 在锁外执行耗时的进程启动与握手
-	conn, err := s.buildConnection(ctx, agentType)
+	conn, err := s.buildConnection(ctx, agentType, cwd)
 	if err != nil {
 		s.mu.Lock()
-		s.states[agentType] = connStateDisconnected
+		s.states[key] = connStateDisconnected
 		s.mu.Unlock()
 		return nil, err
 	}
@@ -229,7 +255,7 @@ func (s *Service) ensureConnection(ctx context.Context, agentType string) (*Conn
 
 	s.mu.Lock()
 	// 并发场景：可能已有其他 goroutine 先建好，复用之并关闭多余的
-	if existing, ok2 := s.pool[agentType]; ok2 {
+	if existing, ok2 := s.pool[key]; ok2 {
 		select {
 		case <-existing.Done():
 		default:
@@ -238,21 +264,21 @@ func (s *Service) ensureConnection(ctx context.Context, agentType string) (*Conn
 			return existing, nil
 		}
 	}
-	s.pool[agentType] = conn
-	s.states[agentType] = connStateConnected
+	s.pool[key] = conn
+	s.states[key] = connStateConnected
 	s.mu.Unlock()
 
-	go s.watchConnection(agentType, conn)
+	go s.watchConnection(key, conn)
 	return conn, nil
 }
 
 // buildConnection 执行实际的进程启动与 ACP 握手（无锁，可阻塞）。
-func (s *Service) buildConnection(ctx context.Context, agentType string) (*Connection, error) {
+func (s *Service) buildConnection(ctx context.Context, agentType, cwd string) (*Connection, error) {
 	backend, err := s.GetBackend(agentType)
 	if err != nil {
 		return nil, err
 	}
-	newConn, err := NewConnection(backend)
+	newConn, err := NewConnection(backend, cwd)
 	if err != nil {
 		return nil, fmt.Errorf("建立共享连接: %w", err)
 	}
@@ -266,15 +292,16 @@ func (s *Service) buildConnection(ctx context.Context, agentType string) (*Conne
 // watchConnection 监控共享连接，进程退出时标记 disconnected。
 // 不立即将会话标记为 error——由健康检查任务自动重连，重连成功后会话可继续使用。
 // 仅当重连持续失败超过阈值时，才将会话标记为 error。
-func (s *Service) watchConnection(agentType string, conn *Connection) {
+func (s *Service) watchConnection(poolKey string, conn *Connection) {
 	<-conn.Done()
+	agentType, _ := splitConnectionKey(poolKey)
 	s.logWarn("agent 进程退出，标记为 disconnected", agentType)
 
 	s.mu.Lock()
 	// 仅当池中仍是该连接时才清理（避免清理已被重建替换的新连接）
-	if cur, ok := s.pool[agentType]; ok && cur == conn {
-		delete(s.pool, agentType)
-		s.states[agentType] = connStateDisconnected
+	if cur, ok := s.pool[poolKey]; ok && cur == conn {
+		delete(s.pool, poolKey)
+		s.states[poolKey] = connStateDisconnected
 		// 连接断开后清空探测缓存，重连时重新探测
 		delete(s.probeCache, agentType)
 	}
@@ -282,14 +309,14 @@ func (s *Service) watchConnection(agentType string, conn *Connection) {
 	// 健康检查 goroutine 会自动尝试重连
 }
 
-// markAgentSessionsErrorLocked 将指定 agentType 下所有活跃会话标记为 error，
-// 并清理对应的 sessionAgent 路由。调用方需持有 s.mu 写锁。
-func (s *Service) markAgentSessionsErrorLocked(agentType string) {
-	for sid, at := range s.sessionAgent {
-		if at != agentType {
+// markSessionsErrorForPoolKeyLocked 将指定连接池键下所有活跃会话标记为 error，
+// 并清理对应的 sessionPoolKey 路由。调用方需持有 s.mu 写锁。
+func (s *Service) markSessionsErrorForPoolKeyLocked(poolKey string) {
+	for sid, key := range s.sessionPoolKey {
+		if key != poolKey {
 			continue
 		}
-		delete(s.sessionAgent, sid)
+		delete(s.sessionPoolKey, sid)
 		delete(s.commands, sid)
 		delete(s.configs, sid)
 		delete(s.modes, sid)
@@ -313,7 +340,7 @@ func (s *Service) PreconnectAllAsync() {
 	for _, agentType := range types {
 		go func(at string) {
 			slog.Info("开始预连接 agent", "agent", at)
-			if _, err := s.ensureConnection(s.hcCtx, at); err != nil {
+			if _, err := s.ensureConnection(s.hcCtx, at, s.probeCwd()); err != nil {
 				slog.Error("预连接 agent 失败", "agent", at, "err", err)
 				return
 			}
@@ -383,28 +410,29 @@ func (s *Service) healthCheckLoop() {
 	}
 }
 
-// checkAndReconnect 检查所有 backend 的连接状态，对断开的尝试重连。
+// checkAndReconnect 检查所有连接池键的状态，对断开的尝试重连。
 func (s *Service) checkAndReconnect(delays map[string]time.Duration) {
 	s.mu.RLock()
-	types := make([]string, 0, len(s.backends))
-	for name := range s.backends {
-		types = append(types, name)
+	keys := make([]string, 0, len(s.states))
+	for key := range s.states {
+		keys = append(keys, key)
 	}
 	s.mu.RUnlock()
 
-	for _, agentType := range types {
+	for _, key := range keys {
 		if s.hcCtx.Err() != nil {
 			return
 		}
-		s.checkAgent(agentType, delays)
+		s.checkConnectionKey(key, delays)
 	}
 }
 
-// checkAgent 检查单个 agent 的连接状态，必要时重连。
-func (s *Service) checkAgent(agentType string, delays map[string]time.Duration) {
+// checkConnectionKey 检查单个连接池键的状态，必要时重连。
+func (s *Service) checkConnectionKey(poolKey string, delays map[string]time.Duration) {
+	agentType, cwd := splitConnectionKey(poolKey)
 	s.mu.RLock()
-	state := s.states[agentType]
-	conn, hasConn := s.pool[agentType]
+	state := s.states[poolKey]
+	conn, hasConn := s.pool[poolKey]
 	s.mu.RUnlock()
 
 	// 已连接且存活 → 重置退避
@@ -413,13 +441,13 @@ func (s *Service) checkAgent(agentType string, delays map[string]time.Duration) 
 		case <-conn.Done():
 			// 连接已断开但状态未更新（watchConnection 可能还没跑到）
 			s.mu.Lock()
-			if cur, ok := s.pool[agentType]; ok && cur == conn {
-				delete(s.pool, agentType)
-				s.states[agentType] = connStateDisconnected
+			if cur, ok := s.pool[poolKey]; ok && cur == conn {
+				delete(s.pool, poolKey)
+				s.states[poolKey] = connStateDisconnected
 			}
 			s.mu.Unlock()
 		default:
-			delays[agentType] = 0
+			delays[poolKey] = 0
 			return
 		}
 	}
@@ -430,31 +458,31 @@ func (s *Service) checkAgent(agentType string, delays map[string]time.Duration) 
 	}
 
 	// disconnected → 尝试重连（带退避）
-	delay, ok := delays[agentType]
+	delay, ok := delays[poolKey]
 	if !ok || delay == 0 {
 		delay = reconnectBaseDelay
 	}
 
-	slog.Info("尝试重连 agent", "agent", agentType, "delay", delay)
+	slog.Info("尝试重连 agent", "agent", agentType, "cwd", cwd, "delay", delay)
 	select {
 	case <-s.hcCtx.Done():
 		return
 	case <-time.After(delay):
 	}
 
-	if _, err := s.ensureConnection(s.hcCtx, agentType); err != nil {
-		slog.Error("重连 agent 失败", "agent", agentType, "err", err)
+	if _, err := s.ensureConnection(s.hcCtx, agentType, cwd); err != nil {
+		slog.Error("重连 agent 失败", "agent", agentType, "cwd", cwd, "err", err)
 		// 指数退避，上限 reconnectMaxDelay
 		next := delay * 2
 		if next > reconnectMaxDelay {
 			next = reconnectMaxDelay
 		}
-		delays[agentType] = next
+		delays[poolKey] = next
 		return
 	}
 
-	slog.Info("重连 agent 成功", "agent", agentType)
-	delays[agentType] = 0
+	slog.Info("重连 agent 成功", "agent", agentType, "cwd", cwd)
+	delays[poolKey] = 0
 	s.prefetchProbeConfig(s.hcCtx, agentType)
 }
 
@@ -528,7 +556,7 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 		_ = ws.Cleanup()
 	}
 
-	conn, err := s.ensureConnection(ctx, agentType)
+	conn, err := s.ensureConnection(ctx, agentType, ws.Cwd)
 	if err != nil {
 		rollbackNewDefaultWS()
 		return nil, err
@@ -539,7 +567,7 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 		rollbackNewDefaultWS()
 		return nil, fmt.Errorf("创建 ACP 会话: %w", err)
 	}
-	slog.Debug("agent 会话已创建", "agent", agentType, "session", sessionID, "cwd", ws.Cwd)
+	slog.Info("agent 会话已创建", "agent", agentType, "session", sessionID, "cwd", ws.Cwd)
 
 	wid := dbWS.ID
 	session := &models.Session{
@@ -558,8 +586,9 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 	}
 	session.Workspace = *dbWS
 
+	poolKey := connectionKey(agentType, ws.Cwd)
 	s.mu.Lock()
-	s.sessionAgent[sessionID] = agentType
+	s.sessionPoolKey[sessionID] = poolKey
 	if len(configOptions) > 0 {
 		s.configs[sessionID] = configOptions
 	}
@@ -580,15 +609,15 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 	return session, nil
 }
 
-// connForSession 通过 sessionAgent 路由查找 session 所属的共享连接。
+// connForSession 通过 sessionPoolKey 路由查找 session 所属的共享连接。
 func (s *Service) connForSession(sessionID string) (*Connection, bool) {
 	s.mu.RLock()
-	agentType, ok := s.sessionAgent[sessionID]
+	poolKey, ok := s.sessionPoolKey[sessionID]
 	if !ok {
 		s.mu.RUnlock()
 		return nil, false
 	}
-	conn, ok := s.pool[agentType]
+	conn, ok := s.pool[poolKey]
 	s.mu.RUnlock()
 	if !ok {
 		return nil, false
@@ -621,11 +650,12 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 	conn, ok := s.connForSession(sessionID)
 	if !ok {
 		// 共享连接已断开但会话 DB 状态仍为 active：尝试自动恢复连接
-		slog.Warn("会话连接丢失，尝试自动恢复", "session", sessionID, "agent", session.AgentType)
-		if recConn, recErr := s.ensureConnection(ctx, session.AgentType); recErr == nil {
+		cwd := sessionCwd(session, s.workspaces)
+		slog.Warn("会话连接丢失，尝试自动恢复", "session", sessionID, "agent", session.AgentType, "cwd", cwd)
+		if recConn, recErr := s.ensureConnection(ctx, session.AgentType, cwd); recErr == nil {
 			// 恢复会话路由
 			s.mu.Lock()
-			s.sessionAgent[sessionID] = session.AgentType
+			s.sessionPoolKey[sessionID] = connectionKey(session.AgentType, cwd)
 			s.mu.Unlock()
 			conn = recConn
 		} else {
@@ -722,26 +752,26 @@ func (s *Service) CancelSession(ctx context.Context, sessionID string) error {
 	return conn.Cancel(ctx, sessionID)
 }
 
-// detachSession 从路由表与缓存中移除 session，返回 agentType 与是否存在连接。
+// detachSession 从路由表与缓存中移除 session，返回连接池键与是否存在连接。
 func (s *Service) detachSession(sessionID string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	agentType, ok := s.sessionAgent[sessionID]
+	poolKey, ok := s.sessionPoolKey[sessionID]
 	if ok {
-		delete(s.sessionAgent, sessionID)
+		delete(s.sessionPoolKey, sessionID)
 	}
 	delete(s.commands, sessionID)
 	delete(s.configs, sessionID)
 	delete(s.modes, sessionID)
-	return agentType, ok
+	return poolKey, ok
 }
 
-// hasActiveSession 判断指定 agentType 是否还有活跃 session 路由。
-func (s *Service) hasActiveSession(agentType string) bool {
+// hasActiveSessionForPoolKey 判断指定连接池键是否还有活跃 session 路由。
+func (s *Service) hasActiveSessionForPoolKey(poolKey string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	for _, at := range s.sessionAgent {
-		if at == agentType {
+	for _, key := range s.sessionPoolKey {
+		if key == poolKey {
 			return true
 		}
 	}
@@ -755,14 +785,15 @@ func (s *Service) DeleteSession(ctx context.Context, sessionID string) error {
 		return err
 	}
 
-	agentType, hadConn := s.detachSession(sessionID)
+	poolKey, hadConn := s.detachSession(sessionID)
 	if hadConn {
-		conn, connOK := s.pool[agentType]
+		conn, connOK := s.pool[poolKey]
 		if connOK {
 			_ = conn.CloseSessionByID(ctx, sessionID)
-			if !s.hasActiveSession(agentType) {
+			if !s.hasActiveSessionForPoolKey(poolKey) {
 				s.mu.Lock()
-				delete(s.pool, agentType)
+				delete(s.pool, poolKey)
+				delete(s.states, poolKey)
 				s.mu.Unlock()
 				_ = conn.Close()
 			}
@@ -856,7 +887,7 @@ func (s *Service) captureCommands(sessionID string, u acp.SessionUpdate) {
 		cmds := u.AvailableCommandsUpdate.AvailableCommands
 		s.mu.Lock()
 		s.commands[sessionID] = cmds
-		if agentType, ok := s.sessionAgent[sessionID]; ok && len(cmds) > 0 {
+		if agentType, ok := s.agentTypeForSession(sessionID); ok && len(cmds) > 0 {
 			s.agentCommands[agentType] = cmds
 		}
 		s.mu.Unlock()
@@ -1053,11 +1084,11 @@ func (s *Service) probeCwd() string {
 
 // probeConfigViaSession 创建临时 ACP session 读取 ConfigOptions，不写入数据库、不发送 prompt。
 func (s *Service) probeConfigViaSession(ctx context.Context, agentType string) ([]acp.SessionConfigOption, error) {
-	conn, err := s.ensureConnection(ctx, agentType)
+	probeCwd := s.probeCwd()
+	conn, err := s.ensureConnection(ctx, agentType, probeCwd)
 	if err != nil {
 		return nil, err
 	}
-	probeCwd := s.probeCwd()
 	sessionID, configOptions, modes, err := conn.NewSession(ctx, probeCwd, s.skillAdditionalDirs(probeCwd))
 	if err != nil {
 		return nil, fmt.Errorf("探测 NewSession: %w", err)
@@ -1218,7 +1249,7 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 	}
 
 	// 复用共享连接（不存在则自动建立）
-	conn, err := s.ensureConnection(ctx, session.AgentType)
+	conn, err := s.ensureConnection(ctx, session.AgentType, cwd)
 	if err != nil {
 		return nil, fmt.Errorf("恢复会话-建立连接: %w", err)
 	}
@@ -1249,12 +1280,13 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 	}
 
 	// 清理旧 sessionID 路由，建立新路由
+	poolKey := connectionKey(session.AgentType, cwd)
 	s.mu.Lock()
-	delete(s.sessionAgent, sessionID)
+	delete(s.sessionPoolKey, sessionID)
 	delete(s.commands, sessionID)
 	delete(s.configs, sessionID)
 	delete(s.modes, sessionID)
-	s.sessionAgent[newSessionID] = session.AgentType
+	s.sessionPoolKey[newSessionID] = poolKey
 	if len(configOptions) > 0 {
 		s.configs[newSessionID] = configOptions
 	}
@@ -1336,34 +1368,41 @@ type AgentStatus struct {
 }
 
 // ListAgentStatus 返回所有已注册后端的连接状态与活跃会话数。
-// status=connected 表示该 agent 类型的共享 ACP 连接已建立且进程存活。
+// status=connected 表示该 agent 类型至少有一条 ACP 连接已建立且进程存活。
 func (s *Service) ListAgentStatus() []AgentStatus {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// 统计每个 agentType 的活跃 session 数
 	counts := make(map[string]int, len(s.backends))
-	for _, at := range s.sessionAgent {
-		counts[at]++
+	for _, poolKey := range s.sessionPoolKey {
+		agentType, _ := splitConnectionKey(poolKey)
+		counts[agentType]++
+	}
+
+	agentState := make(map[string]string, len(s.backends))
+	for poolKey, state := range s.states {
+		agentType, _ := splitConnectionKey(poolKey)
+		if state == connStateConnected {
+			if conn, ok := s.pool[poolKey]; ok {
+				select {
+				case <-conn.Done():
+					continue
+				default:
+					agentState[agentType] = connStateConnected
+				}
+			}
+			continue
+		}
+		if state == connStateConnecting && agentState[agentType] != connStateConnected {
+			agentState[agentType] = connStateConnecting
+		}
 	}
 
 	out := make([]AgentStatus, 0, len(s.backends))
 	for name := range s.backends {
-		state := s.states[name]
+		state := agentState[name]
 		if state == "" {
 			state = connStateDisconnected
-		}
-		// 若状态显示 connected 但实际连接已断开，修正为 disconnected
-		if state == connStateConnected {
-			if conn, ok := s.pool[name]; ok {
-				select {
-				case <-conn.Done():
-					state = connStateDisconnected
-				default:
-				}
-			} else {
-				state = connStateDisconnected
-			}
 		}
 		out = append(out, AgentStatus{
 			AgentType:   name,
