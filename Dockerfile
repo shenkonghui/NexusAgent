@@ -54,7 +54,7 @@ COPY --from=web-builder /app/web/dist /app/web/dist
 COPY config.yaml /app/config.yaml
 
 # 数据持久化目录
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data/session
 VOLUME ["/app/data"]
 
 # 显式指定 npm 缓存目录，便于通过 docker volume 持久化。

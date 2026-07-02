@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -278,13 +279,23 @@ func (s *Service) buildConnection(ctx context.Context, agentType, cwd string) (*
 	if err != nil {
 		return nil, err
 	}
+	if cwd != "" {
+		if err := os.MkdirAll(cwd, 0o755); err != nil {
+			return nil, fmt.Errorf("创建工作目录 %s: %w", cwd, err)
+		}
+	}
 	newConn, err := NewConnection(backend, cwd)
 	if err != nil {
 		return nil, fmt.Errorf("建立共享连接: %w", err)
 	}
-	if _, err := newConn.Initialize(ctx); err != nil {
+	initResp, err := newConn.Initialize(ctx)
+	if err != nil {
 		_ = newConn.Close()
 		return nil, fmt.Errorf("ACP 握手: %w", err)
+	}
+	if err := newConn.AuthenticateIfRequired(ctx, initResp); err != nil {
+		_ = newConn.Close()
+		return nil, fmt.Errorf("ACP 认证: %w", err)
 	}
 	return newConn, nil
 }

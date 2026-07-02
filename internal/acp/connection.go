@@ -53,8 +53,39 @@ func (c *Connection) Initialize(ctx context.Context) (acp.InitializeResponse, er
 	if err != nil {
 		return acp.InitializeResponse{}, fmt.Errorf("ACP initialize: %w", err)
 	}
-	slog.Debug("ACP initialize 完成", "protocol", resp.ProtocolVersion)
+	slog.Debug("ACP initialize 完成", "protocol", resp.ProtocolVersion, "auth_methods", len(resp.AuthMethods))
 	return resp, nil
+}
+
+// authMethodID 从 Initialize 返回的认证方式中提取 methodId。
+func authMethodID(m acp.AuthMethod) string {
+	switch {
+	case m.Agent != nil:
+		return m.Agent.Id
+	case m.EnvVar != nil:
+		return m.EnvVar.Id
+	case m.Terminal != nil:
+		return m.Terminal.Id
+	default:
+		return ""
+	}
+}
+
+// AuthenticateIfRequired 若 agent 在 initialize 中声明了 authMethods，则自动完成认证。
+func (c *Connection) AuthenticateIfRequired(ctx context.Context, initResp acp.InitializeResponse) error {
+	if len(initResp.AuthMethods) == 0 {
+		return nil
+	}
+	methodID := authMethodID(initResp.AuthMethods[0])
+	if methodID == "" {
+		return fmt.Errorf("agent 未提供有效的认证方法 ID")
+	}
+	slog.Info("ACP authenticate", "method", methodID)
+	if _, err := c.conn.Authenticate(ctx, acp.AuthenticateRequest{MethodId: methodID}); err != nil {
+		return fmt.Errorf("ACP authenticate: %w", err)
+	}
+	slog.Info("ACP authenticate 完成", "method", methodID)
+	return nil
 }
 
 // NewSession 在当前连接上创建新的 ACP session，返回 session ID、初始 config options 和初始 modes。

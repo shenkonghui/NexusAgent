@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -20,6 +21,7 @@ import (
 	"nexusagent/internal/database"
 	"nexusagent/internal/handlers"
 	"nexusagent/internal/logging"
+	"nexusagent/internal/models"
 	"nexusagent/internal/repository"
 	"nexusagent/internal/router"
 	"nexusagent/internal/services"
@@ -101,7 +103,8 @@ func main() {
 	agentCfgRepo := repository.NewAgentConfigRepository(db)
 	registrar := agent.NewRegistrar(agentRegistry, acpSvc)
 
-	// 1. 从 ACP registry JSON 加载所有 agent（同步到 DB，默认禁用）
+	// 1. 默认仅启用 Claude Code，其余 agent 从 registry 同步但默认禁用
+	seedDefaultClaudeCodeAgent(agentCfgRepo, cfg.Agents.ClaudeCode)
 	loadRegistryAgents(agentCfgRepo)
 
 	// 2. 从数据库加载用户启用的 agent 配置
@@ -197,6 +200,38 @@ func openDefaultBrowser(url string) {
 		return
 	}
 	_ = cmd.Start()
+}
+
+const defaultClaudeCodeType = "claude-code"
+
+// seedDefaultClaudeCodeAgent 首次启动时写入默认启用的 Claude Code 配置。
+func seedDefaultClaudeCodeAgent(repo *repository.AgentConfigRepository, cc config.ClaudeCodeConfig) {
+	if _, err := repo.FindByType(defaultClaudeCodeType); err == nil {
+		return
+	}
+	argsJSON := ""
+	if len(cc.Args) > 0 {
+		b, err := json.Marshal(cc.Args)
+		if err != nil {
+			log.Printf("编码 Claude Code args 失败: %v", err)
+			return
+		}
+		argsJSON = string(b)
+	}
+	enabled := true
+	cfg := &models.AgentConfig{
+		Type:        defaultClaudeCodeType,
+		DisplayName: "Claude Code",
+		Description: "Anthropic Claude Code via ACP",
+		Command:     cc.Command,
+		Args:        argsJSON,
+		APIKeyEnv:   cc.APIKeyEnv,
+		Timeout:     cc.Timeout.String(),
+		Enabled:     &enabled,
+	}
+	if err := repo.Create(cfg); err != nil {
+		log.Printf("写入默认 Claude Code agent 失败: %v", err)
+	}
 }
 
 // loadRegistryAgents 从内嵌的 registry.json 加载所有 agent，写入数据库并注册到内存。

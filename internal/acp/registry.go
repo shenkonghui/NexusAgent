@@ -217,7 +217,7 @@ func (ra *RegistryAgent) ToAgentConfig() (models.AgentConfig, error) {
 		argsJSON = string(b)
 	}
 
-	enabled := true
+	enabled := false
 	return models.AgentConfig{
 		Type:        ra.ID,
 		DisplayName: ra.Name,

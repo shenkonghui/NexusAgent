@@ -108,6 +108,50 @@ The configuration file is `config.yaml`. Environment variable overrides:
 
 Agent commands, arguments, and API keys can be managed dynamically in the Settings page — changes take effect immediately.
 
+## Agent Integration
+
+### Enabling an Agent
+
+1. Open **Settings → Agent** and enable the target agent (Claude Code is enabled by default on first launch; other agents from the [ACP Registry](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json) are synced but disabled)
+2. Configure required environment variables (e.g. `ANTHROPIC_API_KEY` for Claude Code)
+3. The backend registers the agent immediately and completes connection **asynchronously in the background**
+
+### Background Authentication
+
+After enabling an agent, NexusAgent automatically performs these steps in the background (`PreconnectAllAsync` + health-check reconnect), with no manual action in the UI:
+
+1. **Start subprocess**: run the configured `npx` / `uvx` or binary distribution command
+2. **ACP handshake**: call `initialize` to negotiate capabilities
+3. **ACP authentication**: if the agent returns `authMethods` in the handshake response, call `authenticate` automatically (API-key auth is injected via `api_key_env` into the subprocess environment)
+4. **Config probe**: cache available models, modes, and commands
+5. **Health check**: poll connection status every 30 seconds and auto-reconnect on failure
+
+Connection status (connected / connecting / disconnected) is shown in the sidebar. Check backend logs on failure (agent stderr is forwarded to the server console).
+
+### Distribution Types & Binaries
+
+| Type | Launch | Prerequisites |
+|------|--------|---------------|
+| `npx` | `npm exec --include=optional --yes <package>` | Node.js / npm (included in Docker image) |
+| `uvx` | `uvx <package>` | [uv](https://github.com/astral-sh/uv) installed on host |
+| `binary` | Download platform archive from Registry | Auto-downloaded to `~/.nexusagent/binaries/<agent>-<version>/` on first enable |
+
+**Binary distribution notes:**
+
+- Downloads match the current OS/arch (e.g. `darwin-aarch64`, `linux-x86_64`); connection fails if Registry has no entry for your platform
+- Ensure the binary is executable; check logs for `安装 binary agent 失败` on download/extract errors
+- In Docker, binary cache lives at `~/.nexusagent/binaries/` inside the container — mount this path to avoid re-downloads
+- Alpine containers use musl libc; some glibc-built binaries may not run — prefer host deployment or npx distribution
+
+**Verify before enabling:**
+
+```bash
+# npx example (Claude Code)
+npm exec --include=optional --yes @zed-industries/claude-code-acp@latest -- --help
+
+# After enabling: click "Fetch Config" in Settings, or confirm sidebar shows "connected"
+```
+
 Workspace directory policy:
 
 - **temporary**: Cleaned up only when the entire workspace is deleted; deleting a single session does not remove the shared directory; missing dirs are recreated on session resume

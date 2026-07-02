@@ -117,6 +117,50 @@ ANTHROPIC_API_KEY=sk-xxx make docker-up-d
 
 Agent 的连接命令、参数、API Key 等可在前端「设置」页面动态管理，修改后实时生效。
 
+## Agent 接入
+
+### 启用流程
+
+1. 打开「设置 → Agent」，在列表中启用目标 Agent（首次启动默认仅启用 Claude Code，其余 Agent 从 [ACP Registry](https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json) 同步但默认禁用）
+2. 配置所需环境变量（如 Claude Code 需要 `ANTHROPIC_API_KEY`）
+3. 保存后后端立即注册该 Agent，并在**后台异步**完成连接
+
+### 后台认证
+
+启用 Agent 后，NexusAgent 会在后台自动执行以下步骤（`PreconnectAllAsync` + 健康检查重连），无需在前端手动操作：
+
+1. **启动子进程**：按配置执行 `npx` / `uvx` 或 binary 分发命令
+2. **ACP 握手**：调用 `initialize` 协商协议能力
+3. **ACP 认证**：若 Agent 在握手响应中返回 `authMethods`，自动调用 `authenticate` 完成认证（API Key 类认证通过 `api_key_env` 注入子进程环境变量）
+4. **配置探测**：缓存可用模型、模式与命令列表
+5. **健康检查**：每 30 秒检测连接状态，断线自动重连
+
+侧边栏会实时展示各 Agent 的连接状态（已连接 / 连接中 / 已断开）。连接失败时查看后端日志（agent 子进程 stderr 会输出到服务端控制台）。
+
+### 分发类型与二进制
+
+| 分发类型 | 启动方式 | 前置条件 |
+|---------|---------|---------|
+| `npx` | `npm exec --include=optional --yes <package>` | 需 Node.js / npm；Docker 镜像已内置 |
+| `uvx` | `uvx <package>` | 宿主机需安装 [uv](https://github.com/astral-sh/uv) |
+| `binary` | 从 Registry 下载平台对应压缩包 | 首次启用时自动下载到 `~/.nexusagent/binaries/<agent>-<version>/` |
+
+**binary 分发 Agent 注意事项：**
+
+- 下载按当前 OS/架构（如 `darwin-aarch64`、`linux-x86_64`）自动选择；Registry 未提供当前平台条目时会连接失败
+- 确保二进制有执行权限；下载失败或解压后找不到可执行文件时，查看日志中 `安装 binary agent 失败` 相关错误
+- Docker 部署时 binary 缓存在容器内 `~/.nexusagent/binaries/`，如需避免重复下载可挂载该目录
+- Alpine 容器使用 musl libc，部分 binary 分发包（基于 glibc 编译）可能无法运行，建议在宿主机直接部署或使用 npx 分发
+
+**启用前验证二进制可用：**
+
+```bash
+# npx 类型（以 Claude Code 为例）
+npm exec --include=optional --yes @zed-industries/claude-code-acp@latest -- --help
+
+# 启用后在设置页点击「获取配置」，或观察侧边栏连接状态变为「已连接」
+```
+
 工作区目录策略：
 
 - **temporary**：临时工作区，仅在删除整个工作区时清理目录；删除单个会话不会删除共享目录；目录被误删时恢复会话会自动重建

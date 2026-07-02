@@ -10,7 +10,7 @@ services:
       - "8080:8080"
     volumes:
       # 持久化 SQLite 数据库与上传文件
-      - nexusagent-data:/app/data
+      - ./data:/app/data
       # 持久化 npm/npx 缓存，容器重启后 npx 调用 claude-code-acp 无需重新下载
       - nexusagent-npm-cache:/root/.npm
       # 如需覆盖默认配置，可挂载自己的 config.yaml
@@ -37,5 +37,4 @@ services:
       start_period: 10s
 
 volumes:
-  nexusagent-data:
   nexusagent-npm-cache:
