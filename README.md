@@ -12,6 +12,9 @@ A multi-Agent orchestration and conversation platform based on the [Agent Client
 - **File Browsing & Editing**: Browse directories, view and edit files within the session workspace (CodeMirror with multi-language syntax highlighting).
 - **Terminal**: WebSocket-based xterm terminal for direct session workspace interaction.
 - **Scheduled Tasks**: Cron-driven task scheduling with automatic session creation and prompt execution. View execution history.
+- **Notes**: Quick capture with `#tag` parsing, tag filtering, Markdown rendering, and optional Agent-based auto-classification.
+- **Prompt Input Enhancements**: `/` completes commands, skills, and modes; `@` provides hierarchical references to commands, skills, workspace files, and notes (browse by tag).
+- **Skills & Commands Discovery**: Scans `SKILL.md` and slash command files under workspace and user directories for autocomplete.
 - **Health Check & Auto-Reconnect**: Background agent connection health monitoring with automatic reconnection on failure. Real-time status badges in the sidebar.
 - **User Authentication**: JWT-based auth with registration, login, password change, and profile management.
 - **Theme Toggle**: Light and dark theme support.
@@ -23,7 +26,7 @@ A multi-Agent orchestration and conversation platform based on the [Agent Client
 | Layer | Technology |
 |-------|-----------|
 | Backend | Go 1.25 · Gin · GORM · SQLite · JWT |
-| Frontend | React 18 · TypeScript · Vite · CodeMirror · xterm.js |
+| Frontend | React 18 · TypeScript · Vite · CodeMirror · xterm.js · react-markdown |
 | Protocol | Agent Client Protocol (ACP) |
 
 ## Project Structure
@@ -104,6 +107,28 @@ The configuration file is `config.yaml`. Environment variable overrides:
 | `jwt.secret` | `JWT_SECRET` | JWT signing secret (change in production!) |
 
 Agent commands, arguments, and API keys can be managed dynamically in the Settings page — changes take effect immediately.
+
+Workspace directory policy:
+
+- **temporary**: Cleaned up only when the entire workspace is deleted; deleting a single session does not remove the shared directory; missing dirs are recreated on session resume
+- **persistent**: Directory must exist beforehand; cleanup happens when the workspace is deleted
+
+## Prompt Input
+
+The chat input supports two completion modes (↑↓ select, Enter confirm, Esc go back or close):
+
+| Trigger | Description |
+|---------|-------------|
+| `/` | Flat list of commands, skills, and modes |
+| `@` | Hierarchical picker: choose type first (Command / Skill / File / Note), then pick an item |
+
+`@` navigation:
+
+1. **Command / Skill**: Insert `/name` (backend expands local command / skill file content)
+2. **File**: Browse the session workspace; enter subdirectories; insert `@/absolute/path` for files
+3. **Note**: Pick a tag, then a note; insert `@note:{id}`
+
+The Notes page (`/notes`) supports quick capture, tag filtering, Markdown preview, and inline editing.
 
 ## Makefile Commands
 

@@ -12,6 +12,9 @@
 - **文件浏览与编辑**：在会话工作区内浏览目录、查看与编辑文件（集成 CodeMirror，支持多语言语法高亮）
 - **终端交互**：基于 WebSocket 的 xterm 终端，可直接操作会话工作区
 - **定时任务**：支持 cron 表达式调度，自动创建会话并发送 prompt，可查看历史执行记录
+- **笔记**：快速记录想法，支持 `#标签` 解析、按标签筛选、Markdown 渲染；可配置 Agent 自动分类任务
+- **Prompt 输入增强**：`/` 补全 command / skill / mode；`@` 分级引用 Command、Skill、工作区文件与笔记（按标签浏览）
+- **Skills & Commands 发现**：扫描工作区与用户目录下的 `SKILL.md` 与 slash command 文件，在输入框中补全
 - **连接健康检查与自动重连**：后台定期检测各 Agent 连接状态，断线自动重连；侧边栏实时展示连接状态
 - **用户认证**：JWT 鉴权，支持注册 / 登录 / 密码修改 / 个人资料
 - **主题切换**：内置亮色 / 暗色主题
@@ -24,7 +27,7 @@
 | 层 | 技术 |
 |------|------|
 | 后端 | Go 1.25 · Gin · GORM · SQLite · JWT |
-| 前端 | React 18 · TypeScript · Vite · CodeMirror · xterm.js |
+| 前端 | React 18 · TypeScript · Vite · CodeMirror · xterm.js · react-markdown |
 | 协议 | Agent Client Protocol (ACP) |
 
 ## 项目结构
@@ -113,6 +116,28 @@ ANTHROPIC_API_KEY=sk-xxx make docker-up-d
 | `agents.workspace.session_dir` | `AGENTS_WORKSPACE_SESSION_DIR` | 会话工作区根目录 |
 
 Agent 的连接命令、参数、API Key 等可在前端「设置」页面动态管理，修改后实时生效。
+
+工作区目录策略：
+
+- **temporary**：临时工作区，仅在删除整个工作区时清理目录；删除单个会话不会删除共享目录；目录被误删时恢复会话会自动重建
+- **persistent**：持久工作区，目录需事先存在，删除工作区时才会清理关联记录
+
+## Prompt 输入
+
+对话输入框支持两种补全方式（↑↓ 选择，Enter 确认，Esc 返回上一级或关闭）：
+
+| 触发符 | 说明 |
+|--------|------|
+| `/` | 平铺列表，筛选 command、skill、mode |
+| `@` | 分级选择：先选类型（Command / Skill / File / Note），再进入具体项 |
+
+`@` 分级导航：
+
+1. **Command / Skill**：进入对应列表，选中后插入 `/name`（后端会展开本地 command / skill 文件内容）
+2. **File**：浏览会话工作区目录，目录可继续进入，选中文件后插入 `@/绝对路径`
+3. **Note**：先选标签，再选笔记，插入 `@note:{id}`
+
+笔记页（`/notes`）支持快速输入、标签筛选、Markdown 预览与 inline 编辑。
 
 ## 常用命令
 

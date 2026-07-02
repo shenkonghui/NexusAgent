@@ -337,3 +337,14 @@ interface Workspace {
 | 删除 workspace 时其下有活跃 Session | 先取消活跃 Session，再级联删除 |
 | temporary workspace 的 cwd 被外部删除 | 后台重新创建临时目录 |
 | 用户无 workspace 时创建 Session | 自动创建默认 temporary workspace |
+
+## 8. 实现补充（2026-07）
+
+相对原设计有以下调整：
+
+| 项 | 原设计 | 当前实现 |
+|----|--------|----------|
+| PromptInput 与 cwd | 不再接收 cwd | 仍传入 `activeSession.workspace.cwd`，用于 `@` 文件浏览 |
+| 删除 Session | 清理工作区目录 | **不**清理共享工作区目录；仅删除 workspace 时调用 `Cleanup()` |
+| temporary 目录丢失 | 后台重新创建 | `EnsureWorkspaceDir`：恢复会话时自动 `MkdirAll` |
+| persistent 目录丢失 | — | 恢复会话返回错误，提示目录不存在 |

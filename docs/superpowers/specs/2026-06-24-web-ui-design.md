@@ -71,10 +71,12 @@ web/                           # 前端项目根目录（独立于 Go 后端）
       LoginPage.tsx            # 登录/注册页
       SessionsPage.tsx         # 会话列表 + 新建会话
       ChatPage.tsx             # 聊天界面（单会话）
+      NotesPage.tsx            # 笔记页
     components/
       MessageList.tsx          # 消息列表渲染（区分 user/assistant/tool）
       MessageBubble.tsx        # 单条消息气泡
-      PromptInput.tsx          # prompt 输入框 + 发送按钮
+      PromptInput.tsx          # prompt 输入框 + / 与 @ 补全
+      MarkdownContent.tsx      # 笔记 Markdown 渲染
       SessionSidebar.tsx       # 会话列表侧边栏
       AgentSelector.tsx        # agent 类型选择器
       ErrorBanner.tsx          # 错误提示横幅
@@ -114,6 +116,31 @@ web/                           # 前端项目根目录（独立于 Go 后端）
 - 取消按钮（prompt 进行中显示）→ `POST /api/v1/sessions/:id/cancel`。
 - 若会话状态为 error，显示"恢复会话"按钮 → `POST /api/v1/sessions/:id/resume`。
 - 若会话状态为 closed，显示提示，禁用输入。
+
+#### PromptInput 补全（已实现）
+
+`PromptInput` 在输入框内提供两类补全菜单（↑↓ 选择，Enter 确认，Esc 返回上一级或关闭）：
+
+| 触发符 | 行为 |
+|--------|------|
+| `/` | 平铺筛选 command、skill、mode；选中后插入 `/name`，后端展开本地 command / skill 文件 |
+| `@` | 分级选择：一级为类型（Command / Skill / File / Note），二级为具体项 |
+
+`@` 各类型说明：
+
+- **Command / Skill**：二级列表选中后插入 `/name`
+- **File**：浏览会话工作区目录（需传入 `cwd`）；目录可继续进入；文件插入 `@/绝对路径`
+- **Note**：二级为标签列表，三级为该标签下的笔记；选中后插入 `@note:{id}`
+
+数据来源：`commands` / `skills` / `modes` 由 ChatPage 从会话 API 加载；文件通过 `GET /api/v1/filesystem/list`；笔记通过 `GET /api/v1/notes` 与 `GET /api/v1/notes/tags`。
+
+### 5.5 笔记页（`/notes`，已实现）
+
+- 左侧 SessionSidebar，右侧笔记流式列表。
+- 底部快速输入框：回车创建笔记；内容中的 `#tag` 自动解析为标签。
+- 顶部标签栏筛选；支持标题 / 内容 / 标签搜索。
+- 笔记卡片支持 Markdown 渲染（`MarkdownContent`）与 inline 编辑。
+- 待分类笔记（`classify_pending`）会轮询刷新，配合后台 Agent 分类任务。
 
 ### 5.4 消息渲染规则
 
@@ -247,17 +274,25 @@ interface Message {
 
 不引入 Jest/Vitest 等测试框架。前端逻辑相对简单（主要是 API 调用 + 渲染），核心业务逻辑在后端已充分测试。
 
-## 9. 范围边界（不做）
+## 9. 范围边界（不做 / 已实现补充）
+
+原规格中以下项**已实现**，不再属于边界：
+
+- 暗色主题切换（设置页可切换亮色 / 暗色）
+- 国际化（中 / 英文，设置页切换）
+- 笔记 Markdown 渲染（笔记页；聊天 prompt 仍为纯文本）
+
+仍不做：
 
 - 不实现 Markdown 编辑器（prompt 输入为纯文本）。
 - 不实现代码语法高亮（agent 输出的代码块纯文本渲染）。
 - 不实现拖拽上传文件。
 - 不实现多标签页/多会话同时聊天。
-- 不实现暗色主题切换（默认浅色）。
-- 不实现国际化（中文界面）。
 - 不实现 PWA / 离线支持。
 - 不实现单元测试框架（手动验证 + 类型安全）。
 - 不实现真实终端模拟（tool_call 仅展示文本卡片）。
+
+> 注：原规格写「不实现暗色主题 / 国际化」已过时，见上文已实现补充。
 
 ## 10. 成功标准
 
