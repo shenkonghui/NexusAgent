@@ -182,12 +182,26 @@ The Notes page (`/notes`) supports quick capture, tag filtering, Markdown previe
 | `make run` | Single-port production mode |
 | `make build` | Build frontend + backend |
 | `make pake` | Build Pake desktop client only |
-| `make desktop` | Build complete desktop app (backend + Pake) |
+| `make desktop` | Build macOS desktop app (Apple Silicon) |
+| `make desktop-linux` | Build Linux amd64 desktop app |
+| `make desktop-windows` | Build Windows amd64 desktop app |
 | `make test` | Run all backend tests |
 | `make clean` | Clean build artifacts |
 | `make docker-up` | Build Docker image and start |
 | `make docker-down` | Stop and clean Docker containers |
 | `make docker-logs` | View Docker container logs |
+
+## Release Builds
+
+Pushing a `v*` tag (e.g. `v1.0.0`) triggers GitHub Actions to build and publish a Release with:
+
+| Platform | Desktop artifact | CLI artifact |
+|----------|------------------|--------------|
+| macOS Apple Silicon | `nexusagent-darwin-desktop.tar.gz` | `nexusagent-darwin-arm64.tar.gz` |
+| Linux x86_64 | `nexusagent-linux-desktop.tar.gz` | `nexusagent-linux-amd64.tar.gz` |
+| Windows x86_64 | `nexusagent-windows-desktop.zip` | `nexusagent-windows-amd64.zip` |
+
+Local desktop builds require Rust, pnpm, and `pake-cli@3.13.0` — see `scripts/build-pake.sh`.
 
 ## License
 

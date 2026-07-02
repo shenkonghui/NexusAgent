@@ -191,12 +191,26 @@ npm exec --include=optional --yes @zed-industries/claude-code-acp@latest -- --he
 | `make run` | 单端口启动（release 模式） |
 | `make build` | 构建前端 + 后端 |
 | `make pake` | 仅打包 Pake 桌面客户端 |
-| `make desktop` | 构建完整桌面应用（后端 + Pake 客户端） |
+| `make desktop` | 构建 macOS 桌面应用（Apple Silicon） |
+| `make desktop-linux` | 构建 Linux amd64 桌面应用 |
+| `make desktop-windows` | 构建 Windows amd64 桌面应用 |
 | `make test` | 运行后端全部测试 |
 | `make clean` | 清理构建产物 |
 | `make docker-up` | 构建 Docker 镜像并前台启动 |
 | `make docker-down` | 停止并清理 Docker 容器 |
 | `make docker-logs` | 查看 Docker 容器日志 |
+
+## 发布构建
+
+推送 `v*` 格式 tag（如 `v1.0.0`）后，GitHub Actions 会自动构建并创建 Release，包含：
+
+| 平台 | 桌面版产物 | 命令行产物 |
+|------|-----------|-----------|
+| macOS Apple Silicon | `nexusagent-darwin-desktop.tar.gz` | `nexusagent-darwin-arm64.tar.gz` |
+| Linux x86_64 | `nexusagent-linux-desktop.tar.gz` | `nexusagent-linux-amd64.tar.gz` |
+| Windows x86_64 | `nexusagent-windows-desktop.zip` | `nexusagent-windows-amd64.zip` |
+
+本地打包依赖 Rust、pnpm 与 `pake-cli@3.13.0`，详见 `scripts/build-pake.sh`。
 
 ## 许可证
 

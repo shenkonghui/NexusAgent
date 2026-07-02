@@ -49,12 +49,41 @@ desktop:
 	@mkdir -p dist
 	@CGO_ENABLED=1 go build $(LDFLAGS) -o dist/nexusagent ./cmd/server
 	@echo "==> 3/3 Pake 客户端 + 组装 app bundle"
-	@./scripts/build-pake.sh dist $(VERSION)
+	@./scripts/build-pake.sh dist $(VERSION) app
 	@./scripts/package-darwin.sh dist nexusagent dist
 	@echo ""
 	@echo "✅ 桌面应用打包完成"
 	@du -sh dist/NexusAgent.app
 	@echo "   双击 dist/NexusAgent.app 启动"
+
+# Linux amd64 桌面应用打包
+# 用法: make desktop-linux
+desktop-linux:
+	@echo "==> 1/3 构建前端"
+	@cd web && npm run build
+	@echo "==> 2/3 构建后端 binary"
+	@mkdir -p dist
+	@CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/nexusagent-linux-amd64 ./cmd/server
+	@echo "==> 3/3 Pake AppImage + 组装桌面目录"
+	@./scripts/build-pake.sh dist $(VERSION) appimage
+	@./scripts/package-linux.sh dist nexusagent-linux-amd64 dist
+	@cd dist && tar czf nexusagent-linux-desktop.tar.gz NexusAgent
+	@echo ""
+	@echo "✅ Linux 桌面应用打包完成: dist/nexusagent-linux-desktop.tar.gz"
+
+# Windows amd64 桌面应用打包（需在 Windows 或交叉编译环境运行 Pake 步骤）
+# 用法: make desktop-windows
+desktop-windows:
+	@echo "==> 1/3 构建前端"
+	@cd web && npm run build
+	@echo "==> 2/3 构建后端 binary"
+	@mkdir -p dist
+	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags=sqlite_nocgo $(LDFLAGS) -o dist/nexusagent-windows-amd64.exe ./cmd/server
+	@echo "==> 3/3 Pake 客户端 + 组装桌面目录（需在 Windows 上执行 Pake）"
+	@./scripts/build-pake.sh dist $(VERSION) x64
+	@pwsh -File ./scripts/package-windows.ps1 -OutDir dist -BinName nexusagent-windows-amd64.exe -PakeDir dist
+	@echo ""
+	@echo "✅ Windows 桌面应用打包完成: dist/NexusAgent/"
 
 # 开发模式：构建后以 release 模式启动并打开浏览器
 # 用法: make run-desktop
@@ -84,7 +113,7 @@ release:
 	cd dist && tar czf nexusagent-darwin-amd64.tar.gz nexusagent-darwin-amd64 && tar czf nexusagent-darwin-arm64.tar.gz nexusagent-darwin-arm64 && tar czf nexusagent-linux-amd64.tar.gz nexusagent-linux-amd64 && tar czf nexusagent-linux-arm64.tar.gz nexusagent-linux-arm64 && zip nexusagent-windows-amd64.zip nexusagent-windows-amd64.exe
 	@echo "==> 创建 macOS 桌面应用包"
 	@if command -v pake &>/dev/null; then \
-		./scripts/build-pake.sh dist $(VERSION) && \
+		./scripts/build-pake.sh dist $(VERSION) app && \
 		./scripts/package-darwin.sh dist nexusagent-darwin-arm64 dist && \
 		cd dist && tar czf nexusagent-darwin-desktop.tar.gz NexusAgent.app; \
 	else \
