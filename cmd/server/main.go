@@ -134,8 +134,9 @@ func main() {
 	noteClassifyWorker := services.NewNoteClassifyWorker(noteClassifier)
 	noteClassifyWorker.Start()
 	noteH := handlers.NewNoteHandler(noteRepo, noteSettingsRepo)
+	configH := handlers.NewConfigHandler(cfgPath)
 
-	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
+	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, configH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	srv := &http.Server{Addr: addr, Handler: engine}

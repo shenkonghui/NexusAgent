@@ -9,6 +9,7 @@ import { getNoteSettings, updateNoteSettings } from '../api/notes'
 import type { AgentConfig, Session, Agent, ModelOption, ConfigOption } from '../types'
 import SessionSidebar from '../components/SessionSidebar'
 import EditAgentDialog, { type AgentFormPayload } from '../components/EditAgentDialog'
+import ConfigEditor from '../components/ConfigEditor'
 import UserMenu from '../components/UserMenu'
 import ErrorBanner from '../components/ErrorBanner'
 import LoadingSpinner from '../components/LoadingSpinner'
@@ -16,10 +17,10 @@ import i18n from '../i18n'
 import styles from './SettingsPage.module.css'
 
 const DEFAULT_AGENT_KEY = 'nexus.default.agent'
-type SettingsTab = 'language' | 'agent' | 'classify'
+type SettingsTab = 'language' | 'agent' | 'classify' | 'config'
 
 function parseSettingsTab(raw: string | null): SettingsTab {
-  if (raw === 'agent' || raw === 'classify') return raw
+  if (raw === 'agent' || raw === 'classify' || raw === 'config') return raw
   return 'language'
 }
 
@@ -253,6 +254,13 @@ export default function SettingsPage() {
               >
                 {t('settings.tabClassify')}
               </button>
+              <button
+                type="button"
+                className={`${styles.navItem} ${tab === 'config' ? styles.navItemActive : ''}`}
+                onClick={() => setTab('config')}
+              >
+                {t('settings.tabConfig')}
+              </button>
             </nav>
             <div className={styles.content}>
               {tab === 'language' && (
@@ -419,6 +427,13 @@ export default function SettingsPage() {
                       </Link>
                     )}
                   </div>
+                </>
+              )}
+
+              {tab === 'config' && (
+                <>
+                  <p className={styles.hint}>{t('settings.configHint')}</p>
+                  <ConfigEditor />
                 </>
               )}
 

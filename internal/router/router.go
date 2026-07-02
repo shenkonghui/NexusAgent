@@ -16,13 +16,13 @@ import (
 	"nexusagent/internal/services"
 )
 
-func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, schedTaskH *handlers.ScheduledTaskHandler, noteH *handlers.NoteHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, mode, webDist string, autoLogin bool) *gin.Engine {
+func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, schedTaskH *handlers.ScheduledTaskHandler, noteH *handlers.NoteHandler, configH *handlers.ConfigHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, rulesCfg config.RulesConfig, mode, webDist string, autoLogin bool) *gin.Engine {
 	gin.SetMode(mode)
 	r := gin.New()
 	r.Use(gin.Recovery())
 
 	authHandler := handlers.NewAuthHandler(authSvc, autoLogin)
-	fsHandler := handlers.NewFileSystemHandler(skillsCfg, commandsCfg)
+	fsHandler := handlers.NewFileSystemHandler(skillsCfg, commandsCfg, rulesCfg)
 
 	v1 := r.Group("/api/v1")
 	{
@@ -93,11 +93,21 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			protected.GET("/sessions/:id/files/content", sessionFileH.ReadFile)
 			protected.PUT("/sessions/:id/files/content", sessionFileH.WriteFile)
 
+			// 配置管理（config.yaml agents 块下的 skills/commands/rules 配置）
+			configG := protected.Group("/config")
+			{
+				configG.GET("/agents", configH.GetAgentsConfig)
+				configG.PUT("/agents", configH.UpdateAgentsConfig)
+			}
+
 			// 文件系统目录浏览（用于前端目录选择器）
 			protected.GET("/filesystem/dirs", fsHandler.ListDirs)
 			protected.GET("/filesystem/list", fsHandler.ListFiles)
 			protected.GET("/filesystem/skills", fsHandler.Skills)
 			protected.GET("/filesystem/commands", fsHandler.Commands)
+			protected.GET("/filesystem/rules", fsHandler.Rules)
+			protected.GET("/filesystem/file", fsHandler.ReadFile)
+			protected.PUT("/filesystem/file", fsHandler.WriteFile)
 
 			// 定时任务
 			sched := protected.Group("/scheduled-tasks")

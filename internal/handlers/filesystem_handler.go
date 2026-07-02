@@ -32,15 +32,19 @@ type FileSystemHandler struct {
 	skillProjectDirs     []string
 	commandUserDirs      []string
 	commandProjectDirs   []string
+	ruleUserDirs         []string
+	ruleProjectDirs      []string
 }
 
 // NewFileSystemHandler 创建 FileSystemHandler。
-func NewFileSystemHandler(skills config.SkillsConfig, commands config.CommandsConfig) *FileSystemHandler {
+func NewFileSystemHandler(skills config.SkillsConfig, commands config.CommandsConfig, rules config.RulesConfig) *FileSystemHandler {
 	return &FileSystemHandler{
 		skillUserDirs:      append([]string(nil), skills.UserDirs...),
 		skillProjectDirs:   append([]string(nil), skills.ProjectDirs...),
 		commandUserDirs:    append([]string(nil), commands.UserDirs...),
 		commandProjectDirs: append([]string(nil), commands.ProjectDirs...),
+		ruleUserDirs:       append([]string(nil), rules.UserDirs...),
+		ruleProjectDirs:    append([]string(nil), rules.ProjectDirs...),
 	}
 }
 
@@ -259,4 +263,120 @@ func parentPath(p string) string {
 		return ""
 	}
 	return parent
+}
+
+type ruleItem struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Location    string `json:"location"`
+	Scope       string `json:"scope"`
+	Path        string `json:"path"`
+	AlwaysApply bool   `json:"always_apply"`
+	Globs       string `json:"globs,omitempty"`
+}
+
+// Rules GET /api/v1/filesystem/rules?path=...
+// 扫描指定目录下的 Rules（Cursor 规范：递归 *.mdc / *.md）。
+func (h *FileSystemHandler) Rules(c *gin.Context) {
+	scanCwd := strings.TrimSpace(c.Query("path"))
+	if scanCwd != "" {
+		absPath, err := filepath.Abs(scanCwd)
+		if err != nil {
+			scanCwd = ""
+		} else if info, err := os.Stat(absPath); err != nil || !info.IsDir() {
+			scanCwd = ""
+		} else {
+			scanCwd = absPath
+		}
+	}
+	rules := acplocal.ScanRules(scanCwd, h.ruleUserDirs, h.ruleProjectDirs)
+	items := make([]ruleItem, 0, len(rules))
+	for _, r := range rules {
+		items = append(items, ruleItem{
+			Name:        r.Name,
+			Description: r.Description,
+			Location:    r.Location,
+			Scope:       r.Scope,
+			Path:        r.Location,
+			AlwaysApply: r.AlwaysApply,
+			Globs:       r.Globs,
+		})
+	}
+	Success(c, http.StatusOK, gin.H{"rules": items})
+}
+
+// ReadFile GET /api/v1/filesystem/file?path=...
+// 读取指定文件的文本内容（仅限文本文件，最大 1MB）。
+func (h *FileSystemHandler) ReadFile(c *gin.Context) {
+	reqPath := strings.TrimSpace(c.Query("path"))
+	if reqPath == "" {
+		Fail(c, http.StatusBadRequest, "MISSING_PATH", "缺少 path 参数")
+		return
+	}
+	absPath, err := filepath.Abs(reqPath)
+	if err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_PATH", "路径无效")
+		return
+	}
+	info, err := os.Stat(absPath)
+	if err != nil {
+		Fail(c, http.StatusNotFound, "FILE_NOT_FOUND", "文件不存在")
+		return
+	}
+	if info.IsDir() {
+		Fail(c, http.StatusBadRequest, "NOT_A_FILE", "路径不是文件")
+		return
+	}
+	const maxSize = 1 << 20 // 1MB
+	if info.Size() > maxSize {
+		Fail(c, http.StatusBadRequest, "FILE_TOO_LARGE", "文件过大（最大 1MB）")
+		return
+	}
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		Fail(c, http.StatusForbidden, "READ_DENIED", "无法读取文件")
+		return
+	}
+	Success(c, http.StatusOK, gin.H{
+		"path":    absPath,
+		"content": string(data),
+		"size":    info.Size(),
+	})
+}
+
+// WriteFile PUT /api/v1/filesystem/file
+// 将文本内容写入指定文件。
+func (h *FileSystemHandler) WriteFile(c *gin.Context) {
+	var req struct {
+		Path    string `json:"path" binding:"required"`
+		Content string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_JSON", "请求参数格式错误")
+		return
+	}
+	absPath, err := filepath.Abs(req.Path)
+	if err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_PATH", "路径无效")
+		return
+	}
+	// 确保父目录存在
+	dir := filepath.Dir(absPath)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		Fail(c, http.StatusInternalServerError, "MKDIR_FAILED", "创建目录失败")
+		return
+	}
+	if err := os.WriteFile(absPath, []byte(req.Content), 0o644); err != nil {
+		Fail(c, http.StatusInternalServerError, "WRITE_FAILED", "写入文件失败")
+		return
+	}
+	info, _ := os.Stat(absPath)
+	size := int64(0)
+	if info != nil {
+		size = info.Size()
+	}
+	Success(c, http.StatusOK, gin.H{
+		"path": absPath,
+		"size": size,
+	})
 }
