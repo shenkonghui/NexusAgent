@@ -3,9 +3,10 @@ package models
 import "time"
 
 const (
-	SessionStatusActive = "active"
-	SessionStatusClosed = "closed"
-	SessionStatusError  = "error"
+	SessionStatusActive  = "active"
+	SessionStatusClosed  = "closed"
+	SessionStatusError   = "error"
+	SessionStatusPending = "pending"
 
 	// 会话来源：手动创建、定时任务或笔记自动分类
 	SessionSourceManual    = "manual"

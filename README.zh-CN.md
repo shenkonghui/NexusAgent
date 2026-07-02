@@ -131,7 +131,7 @@ Agent 的连接命令、参数、API Key 等可在前端「设置」页面动态
 
 1. **启动子进程**：按配置执行 `npx` / `uvx` 或 binary 分发命令
 2. **ACP 握手**：调用 `initialize` 协商协议能力
-3. **ACP 认证**：若 Agent 在握手响应中返回 `authMethods`，自动调用 `authenticate` 完成认证（API Key 类认证通过 `api_key_env` 注入子进程环境变量）
+3. **ACP 认证**：仅对 `env_var` 类型（API Key 已通过 `api_key_env` 注入子进程）自动调用 `authenticate`；`agent` / `terminal` 交互式登录不在后台自动执行
 4. **配置探测**：缓存可用模型、模式与命令列表
 5. **健康检查**：每 30 秒检测连接状态，断线自动重连
 

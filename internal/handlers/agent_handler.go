@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -32,6 +33,11 @@ type AgentConfigProber interface {
 	ProbeConfigOptions(ctx context.Context, agentType string, userID uint) ([]acpsdk.SessionConfigOption, error)
 }
 
+// AgentPreconnector 异步预连接 agent 与工作目录。
+type AgentPreconnector interface {
+	PreconnectAgent(agentType, cwd string) error
+}
+
 // AgentCommandLister 返回指定 agent 类型缓存的 slash command。
 type AgentCommandLister interface {
 	CachedCommands(agentType string, cwd string) []acpsdk.AvailableCommand
@@ -48,6 +54,7 @@ type AgentHandler struct {
 	lister         AgentLister
 	prober         AgentModelProber
 	cfgProber      AgentConfigProber
+	preconnector   AgentPreconnector
 	cmdLister      AgentCommandLister
 	modeLister     AgentModeLister
 	statusLister   AgentStatusLister
@@ -61,6 +68,9 @@ func NewAgentHandler(lister AgentLister, prober AgentModelProber, cfgProber Agen
 	}
 	if ml, ok := lister.(AgentModeLister); ok {
 		h.modeLister = ml
+	}
+	if pc, ok := lister.(AgentPreconnector); ok {
+		h.preconnector = pc
 	}
 	return h
 }
@@ -225,6 +235,30 @@ func (h *AgentHandler) Probe(c *gin.Context) {
 		items = append(items, item)
 	}
 	Success(c, http.StatusOK, gin.H{"config_options": items})
+}
+
+// Preconnect POST /api/v1/agents/:type/preconnect — 异步预连接 agent。
+// 使用 probeCwd 建立共享连接（供新建会话页预热），cwd 参数仅在 NewSession 时传入。
+func (h *AgentHandler) Preconnect(c *gin.Context) {
+	agentType := strings.TrimSpace(c.Param("type"))
+	if agentType == "" {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "缺少 agent 类型")
+		return
+	}
+	if h.preconnector == nil {
+		Fail(c, http.StatusServiceUnavailable, "PRECONNECT_UNAVAILABLE", "当前服务不支持预连接")
+		return
+	}
+	// 始终使用空 cwd 建立共享连接，实际会话 cwd 由 NewSession 传入
+	if err := h.preconnector.PreconnectAgent(agentType, ""); err != nil {
+		if errors.Is(err, agent.ErrAgentNotFound) {
+			Fail(c, http.StatusBadRequest, "AGENT_NOT_FOUND", "未知的 agent 类型")
+			return
+		}
+		Fail(c, http.StatusInternalServerError, "PRECONNECT_FAILED", err.Error())
+		return
+	}
+	Success(c, http.StatusAccepted, gin.H{"status": "accepted"})
 }
 
 // Commands GET /api/v1/agents/:type/commands — 返回 agent 类型缓存的 slash command（新建任务页用）。

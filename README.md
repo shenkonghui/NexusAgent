@@ -122,7 +122,7 @@ After enabling an agent, NexusAgent automatically performs these steps in the ba
 
 1. **Start subprocess**: run the configured `npx` / `uvx` or binary distribution command
 2. **ACP handshake**: call `initialize` to negotiate capabilities
-3. **ACP authentication**: if the agent returns `authMethods` in the handshake response, call `authenticate` automatically (API-key auth is injected via `api_key_env` into the subprocess environment)
+3. **ACP authentication**: only `env_var` methods (API key injected via `api_key_env`) are auto-authenticated; `agent` / `terminal` interactive login is not attempted in the background
 4. **Config probe**: cache available models, modes, and commands
 5. **Health check**: poll connection status every 30 seconds and auto-reconnect on failure
 

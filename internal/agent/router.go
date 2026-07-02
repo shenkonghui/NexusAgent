@@ -120,6 +120,18 @@ func (r *Router) ProbeConfigOptions(ctx context.Context, agentType string, userI
 	return r.service.ProbeConfigOptions(ctx, agentType, userID)
 }
 
+// PreconnectAgent 异步预连接指定 agent 与工作目录，委托 service。
+func (r *Router) PreconnectAgent(agentType, cwd string) error {
+	if _, err := r.registry.Get(agentType); err != nil {
+		return err
+	}
+	if r.service == nil {
+		return errors.New("service 未配置")
+	}
+	r.service.PreconnectAsync(agentType, cwd)
+	return nil
+}
+
 // ListModes 返回会话可用的 mode 列表（agent skill/模式），委托 service。
 func (r *Router) ListModes(sessionID string) ([]acpsdk.SessionMode, error) {
 	if r.service == nil {

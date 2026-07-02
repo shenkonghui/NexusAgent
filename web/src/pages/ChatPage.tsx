@@ -5,7 +5,7 @@ import { useRequireAuth } from '../hooks/useRequireAuth'
 import { getSession, listMessages, cancelSession, listCommands, listModes, listSkills, listConfigOptions, setConfigOption, setSessionMode, respondPermission, deleteSession, updateSessionTitle, createSession, resumeSession, listSessionExecutions } from '../api/sessions'
 import { getWorkspace } from '../api/workspaces'
 import { listScheduledTasks, listExecutions } from '../api/scheduledTasks'
-import { listAgents, probeAgentConfigs, listAgentCommands, listAgentModes } from '../api/agents'
+import { listAgents, probeAgentConfigs, preconnectAgent, listAgentCommands, listAgentModes } from '../api/agents'
 import { listSkillsByPath } from '../api/filesystem'
 import { WORKSPACE_STORAGE_KEY, useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
 import { getLastAgentModel, resolveAgentModel, setLastAgentModel } from '../utils/agentModel'
@@ -162,10 +162,12 @@ export default function ChatPage() {
   const loadHomeData = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const agentsResp = await listAgents()
+      const [agentsResp, wsResp] = await Promise.all([
+        listAgents(),
+        workspaceId ? getWorkspace(workspaceId) : Promise.resolve(null),
+      ])
       setAgents(agentsResp.data.agents || [])
-      if (workspaceId) {
-        const wsResp = await getWorkspace(workspaceId)
+      if (wsResp) {
         setAllSessions(wsResp.data.sessions || [])
         setWorkspaceCwd(wsResp.data.workspace?.cwd || '')
       } else {
@@ -228,6 +230,13 @@ export default function ChatPage() {
     return () => { alive = false }
   }, [selectedAgent, hasSession, isCreateMode])
 
+  // 新建页：提前预连接 agent，减少首次发送时的冷启动等待。
+  // agent 选中后立即用 probe cwd 预热；workspaceCwd 就绪后若不同则再次预热。
+  useEffect(() => {
+    if (hasSession || !isCreateMode || !selectedAgent) return
+    preconnectAgent(selectedAgent, workspaceCwd)
+  }, [selectedAgent, workspaceCwd, hasSession, isCreateMode])
+
   // 新建任务页：加载 agent 级 slash command / mode（探测完成后刷新）
   useEffect(() => {
     if (hasSession || !isCreateMode || !selectedAgent || probing) {
@@ -275,7 +284,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (loading && !bootstrapSession) return // 新建会话有 bootstrap 数据时不等待 loadData
-    if (!activeSession || activeSession.status !== 'active') return
+    if (!activeSession || (activeSession.status !== 'active' && activeSession.status !== 'pending')) return
     const pending = initialPromptRef.current
     if (!pending) return
     initialPromptRef.current = ''
@@ -314,7 +323,7 @@ export default function ChatPage() {
   }
 
   async function handleSend(prompt: string) {
-    if (!activeSession || activeSession.status !== 'active') return
+    if (!activeSession || (activeSession.status !== 'active' && activeSession.status !== 'pending')) return
     setConvState('connecting')
     setError('')
     setRetryable(false)
@@ -757,7 +766,7 @@ export default function ChatPage() {
           sessionId={sessionId} cwd={activeSession?.workspace?.cwd || ''}
         />
 
-        {activeSession?.status === 'active' && activeSession?.source !== 'classify' ? (
+        {(activeSession?.status === 'active' || activeSession?.status === 'pending') && activeSession?.source !== 'classify' ? (
           <>
             <ConvStatusBar state={displayConvState} />
             <PromptInput onSend={handleSend} onCancel={handleCancel}
@@ -766,7 +775,7 @@ export default function ChatPage() {
               placeholder={sending ? t(`session.conv_${displayConvState === 'idle' ? 'connecting' : displayConvState}`) : t('session.promptPlaceholder')}
             />
           </>
-        ) : activeSession?.status === 'active' && activeSession?.source === 'classify' ? (
+        ) : (activeSession?.status === 'active' || activeSession?.status === 'pending') && activeSession?.source === 'classify' ? (
           <p className={styles.classifyViewHint}>{t('notes.classifyTaskHint')}</p>
         ) : (
           <div className={styles.recoverBar}>

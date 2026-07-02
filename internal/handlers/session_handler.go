@@ -526,7 +526,7 @@ func (h *SessionHandler) Prompt(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "prompt 不能为空")
 		return
 	}
-	if sess.Status != models.SessionStatusActive {
+	if sess.Status != models.SessionStatusActive && sess.Status != models.SessionStatusPending {
 		Fail(c, http.StatusConflict, "SESSION_NOT_ACTIVE", "会话不在活跃状态")
 		return
 	}

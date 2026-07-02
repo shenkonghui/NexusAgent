@@ -43,6 +43,17 @@ export function probeAgentConfigs(
   })
 }
 
+// 异步预连接 agent（新建会话页提前预热，失败静默忽略）。
+// cwd 非空时作为工作目录；为空时后端自动使用 probeCwd。
+export function preconnectAgent(agentType: string, cwd?: string): void {
+  if (!agentType) return
+  const body = cwd ? JSON.stringify({ cwd }) : '{}'
+  apiFetch(`/agents/${encodeURIComponent(agentType)}/preconnect`, {
+    method: 'POST',
+    body,
+  }).catch(() => {})
+}
+
 // 获取指定 agent 类型 slash command（Agent 原生 + 配置 commands；可选 cwd 扫描项目级）
 export function listAgentCommands(agentType: string, cwd?: string): Promise<{ data: { commands: AgentCommand[] } }> {
   const qs = cwd ? `?path=${encodeURIComponent(cwd)}` : ''

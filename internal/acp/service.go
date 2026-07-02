@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/coder/acp-go-sdk"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 
 	"nexusagent/internal/config"
@@ -60,6 +61,8 @@ type Service struct {
 	pool map[string]*Connection
 	// states 记录每个连接池键的状态（connecting/connected/disconnected）。
 	states map[string]string
+	// connectDone 在 connecting 期间供其他 goroutine 等待，完成后 close。
+	connectDone map[string]chan struct{}
 	// sessionPoolKey 记录 sessionID → 连接池键，用于定位所属连接。
 	sessionPoolKey map[string]string
 	commands     map[string][]acp.AvailableCommand
@@ -96,6 +99,7 @@ func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig, skillsConfig confi
 		backends:     make(map[string]Backend),
 		pool:         make(map[string]*Connection),
 		states:       make(map[string]string),
+		connectDone:  make(map[string]chan struct{}),
 		sessionPoolKey: make(map[string]string),
 		commands:     make(map[string][]acp.AvailableCommand),
 		configs:      make(map[string][]acp.SessionConfigOption),
@@ -227,11 +231,22 @@ func (s *Service) ensureConnection(ctx context.Context, agentType, cwd string) (
 			return existing, nil
 		}
 	}
-	// 已有 connecting 状态的 goroutine 在跑？等待它完成（这里简单处理：直接返回错误让调用方重试）
+	// 已有 connecting 状态的 goroutine 在跑：等待完成后重试，避免重复建连或返回错误。
 	if s.states[key] == connStateConnecting {
+		done := s.connectDone[key]
 		s.mu.Unlock()
-		return nil, fmt.Errorf("agent %s 正在连接中，请稍后重试", agentType)
+		if done == nil {
+			return nil, fmt.Errorf("agent %s 正在连接中，请稍后重试", agentType)
+		}
+		select {
+		case <-done:
+			return s.ensureConnection(ctx, agentType, cwd)
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
+	doneCh := make(chan struct{})
+	s.connectDone[key] = doneCh
 	s.states[key] = connStateConnecting
 	// 清理已断开的旧连接
 	if oldConn, ok2 := s.pool[key]; ok2 {
@@ -243,18 +258,20 @@ func (s *Service) ensureConnection(ctx context.Context, agentType, cwd string) (
 
 	// 在锁外执行耗时的进程启动与握手
 	conn, err := s.buildConnection(ctx, agentType, cwd)
+	s.mu.Lock()
+	close(doneCh)
+	delete(s.connectDone, key)
 	if err != nil {
-		s.mu.Lock()
 		s.states[key] = connStateDisconnected
 		s.mu.Unlock()
 		return nil, err
 	}
 	if s.shuttingDown.Load() {
+		s.states[key] = connStateDisconnected
+		s.mu.Unlock()
 		_ = conn.Close()
 		return nil, context.Canceled
 	}
-
-	s.mu.Lock()
 	// 并发场景：可能已有其他 goroutine 先建好，复用之并关闭多余的
 	if existing, ok2 := s.pool[key]; ok2 {
 		select {
@@ -295,7 +312,7 @@ func (s *Service) buildConnection(ctx context.Context, agentType, cwd string) (*
 	}
 	if err := newConn.AuthenticateIfRequired(ctx, initResp); err != nil {
 		_ = newConn.Close()
-		return nil, fmt.Errorf("ACP 认证: %w", err)
+		return nil, err
 	}
 	return newConn, nil
 }
@@ -335,6 +352,20 @@ func (s *Service) markSessionsErrorForPoolKeyLocked(poolKey string) {
 			_ = s.sessions.UpdateStatus(sess.ID, models.SessionStatusError, nil)
 		}
 	}
+}
+
+// PreconnectAsync 异步为指定 agent + cwd 预建立共享连接，供新建会话页提前预热。
+func (s *Service) PreconnectAsync(agentType, cwd string) {
+	if cwd == "" {
+		cwd = s.probeCwd()
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := s.ensureConnection(ctx, agentType, cwd); err != nil {
+			slog.Debug("工作区预连接失败", "agent", agentType, "cwd", cwd, "err", err)
+		}
+	}()
 }
 
 // PreconnectAllAsync 异步为所有已注册后端预建立共享连接。
@@ -506,8 +537,11 @@ func (s *Service) CreateSession(ctx context.Context, agentType string, workspace
 
 // CreateSessionWithSource 创建会话并指定来源（manual/scheduled）。
 // workspaceID 非 0 时使用指定 workspace，否则查找或创建默认 temporary workspace。
-// modelValue 非空时在会话创建后立即设置该模型。
+// modelValue 非空时将在首次 Prompt 时应用。
+// 为提升页面跳转速度，不再同步创建 ACP 会话，而是返回 pending 状态；
+// ACP 连接与会话创建延迟到首次 Prompt（PromptWithExecution）时完成。
 func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string) (*models.Session, error) {
+	_ = modelValue // 暂存（后续可在 prompt 激活时使用）
 	if _, err := s.GetBackend(agentType); err != nil {
 		return nil, err
 	}
@@ -567,56 +601,25 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 		_ = ws.Cleanup()
 	}
 
-	conn, err := s.ensureConnection(ctx, agentType, ws.Cwd)
-	if err != nil {
-		rollbackNewDefaultWS()
-		return nil, err
-	}
-
-	sessionID, configOptions, modes, err := conn.NewSession(ctx, ws.Cwd, s.skillAdditionalDirs(ws.Cwd))
-	if err != nil {
-		rollbackNewDefaultWS()
-		return nil, fmt.Errorf("创建 ACP 会话: %w", err)
-	}
-	slog.Info("agent 会话已创建", "agent", agentType, "session", sessionID, "cwd", ws.Cwd)
-
+	// 生成临时 SessionID，不创建 ACP 会话，快速返回 pending 状态
+	tempSessionID := uuid.New().String()
 	wid := dbWS.ID
 	session := &models.Session{
-		SessionID:   sessionID,
+		SessionID:   tempSessionID,
 		AgentType:   agentType,
 		Cwd:         ws.Cwd,
-		Status:      models.SessionStatusActive,
+		Status:      models.SessionStatusPending,
 		UserID:      userID,
 		WorkspaceID: &wid,
 		Source:      source,
 	}
 	if err := s.sessions.Create(session); err != nil {
-		_ = conn.CloseSessionByID(ctx, sessionID)
 		rollbackNewDefaultWS()
 		return nil, fmt.Errorf("会话落库: %w", err)
 	}
 	session.Workspace = *dbWS
 
-	poolKey := connectionKey(agentType, ws.Cwd)
-	s.mu.Lock()
-	s.sessionPoolKey[sessionID] = poolKey
-	if len(configOptions) > 0 {
-		s.configs[sessionID] = configOptions
-	}
-	if len(modes) > 0 {
-		s.modes[sessionID] = modes
-		s.agentModes[agentType] = modes
-	}
-	s.mu.Unlock()
-
-	// 创建后立即设置模型（若指定且该 agent 支持 model config option）
-	if modelValue != "" {
-		if err := s.applyModelValue(ctx, sessionID, configOptions, modelValue); err != nil {
-			// 模型设置失败不阻断会话创建，仅记录日志
-			slog.Warn("创建会话后设置模型失败", "session", sessionID, "model", modelValue, "err", err)
-		}
-	}
-
+	slog.Info("会话已创建（pending）", "agent", agentType, "session", tempSessionID, "cwd", ws.Cwd)
 	return session, nil
 }
 
@@ -649,13 +652,57 @@ func (s *Service) Prompt(ctx context.Context, sessionID, prompt string) (<-chan 
 
 // PromptWithExecution 与 Prompt 相同，并为本次执行的所有消息写入 executionID。
 // executionID 为 nil 时表示手动会话（不标记执行块）。
+// pending 状态的会话在首次调用时自动完成连接建立与 ACP 会话创建。
 func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt string, executionID *uint) (<-chan models.Message, error) {
 	session, err := s.GetSession(sessionID)
 	if err != nil {
 		return nil, err
 	}
-	if session.Status != models.SessionStatusActive {
+	if session.Status != models.SessionStatusActive && session.Status != models.SessionStatusPending {
 		return nil, ErrSessionNotActive
+	}
+
+	// 延迟激活：pending 会话在首次 Prompt 时创建 ACP 会话
+	if session.Status == models.SessionStatusPending {
+		cwd := sessionCwd(session, s.workspaces)
+		conn, actErr := s.ensureConnection(ctx, session.AgentType, s.probeCwd())
+		if actErr != nil {
+			return nil, fmt.Errorf("激活会话-建立连接: %w", actErr)
+		}
+		newSessionID, configOptions, modes, actErr := conn.NewSession(ctx, cwd, s.skillAdditionalDirs(cwd))
+		if actErr != nil {
+			return nil, fmt.Errorf("激活会话-创建 ACP 会话: %w", actErr)
+		}
+
+		// 更新 DB 中的 SessionID 和状态
+		if actErr = s.sessions.UpdateSessionID(session.ID, newSessionID); actErr != nil {
+			_ = conn.CloseSessionByID(ctx, newSessionID)
+			return nil, fmt.Errorf("激活会话-更新 session_id: %w", actErr)
+		}
+		if actErr = s.sessions.UpdateStatus(session.ID, models.SessionStatusActive, nil); actErr != nil {
+			_ = conn.CloseSessionByID(ctx, newSessionID)
+			return nil, fmt.Errorf("激活会话-更新状态: %w", actErr)
+		}
+
+		// 建立路由（同时映射新旧 sessionID，兼容 connForSession 查询）
+		poolKey := connectionKey(session.AgentType, s.probeCwd())
+		s.mu.Lock()
+		s.sessionPoolKey[newSessionID] = poolKey
+		s.sessionPoolKey[sessionID] = poolKey
+		if len(configOptions) > 0 {
+			s.configs[newSessionID] = configOptions
+		}
+		if len(modes) > 0 {
+			s.modes[newSessionID] = modes
+			s.agentModes[session.AgentType] = modes
+		}
+		s.mu.Unlock()
+		slog.Info("agent 会话已激活", "agent", session.AgentType, "session", newSessionID, "cwd", cwd)
+
+		// 后续使用 ACP sessionID
+		sessionID = newSessionID
+		session.SessionID = newSessionID
+		session.Status = models.SessionStatusActive
 	}
 
 	conn, ok := s.connForSession(sessionID)
@@ -663,10 +710,10 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 		// 共享连接已断开但会话 DB 状态仍为 active：尝试自动恢复连接
 		cwd := sessionCwd(session, s.workspaces)
 		slog.Warn("会话连接丢失，尝试自动恢复", "session", sessionID, "agent", session.AgentType, "cwd", cwd)
-		if recConn, recErr := s.ensureConnection(ctx, session.AgentType, cwd); recErr == nil {
+		if recConn, recErr := s.ensureConnection(ctx, session.AgentType, s.probeCwd()); recErr == nil {
 			// 恢复会话路由
 			s.mu.Lock()
-			s.sessionPoolKey[sessionID] = connectionKey(session.AgentType, cwd)
+			s.sessionPoolKey[sessionID] = connectionKey(session.AgentType, s.probeCwd())
 			s.mu.Unlock()
 			conn = recConn
 		} else {
@@ -1260,7 +1307,7 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 	}
 
 	// 复用共享连接（不存在则自动建立）
-	conn, err := s.ensureConnection(ctx, session.AgentType, cwd)
+	conn, err := s.ensureConnection(ctx, session.AgentType, s.probeCwd())
 	if err != nil {
 		return nil, fmt.Errorf("恢复会话-建立连接: %w", err)
 	}
@@ -1291,7 +1338,7 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 	}
 
 	// 清理旧 sessionID 路由，建立新路由
-	poolKey := connectionKey(session.AgentType, cwd)
+	poolKey := connectionKey(session.AgentType, s.probeCwd())
 	s.mu.Lock()
 	delete(s.sessionPoolKey, sessionID)
 	delete(s.commands, sessionID)

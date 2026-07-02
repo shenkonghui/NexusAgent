@@ -49,6 +49,7 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			protected.GET("/agents/:type/commands", agentH.Commands)
 			protected.GET("/agents/:type/modes", agentH.Modes)
 			protected.POST("/agents/:type/probe", agentH.Probe)
+			protected.POST("/agents/:type/preconnect", agentH.Preconnect)
 
 			agentCfg := protected.Group("/agent-configs")
 			{

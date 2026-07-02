@@ -71,20 +71,39 @@ func authMethodID(m acp.AuthMethod) string {
 	}
 }
 
-// AuthenticateIfRequired 若 agent 在 initialize 中声明了 authMethods，则自动完成认证。
+// autoAuthMethodIDs 返回可后台自动认证的 methodId 列表。
+// 仅 env_var 类型（API Key 已由 Backend.Env() 注入）适合自动调用 authenticate；
+// agent / terminal 类型需要交互式登录，不在预连接阶段自动调用。
+func autoAuthMethodIDs(methods []acp.AuthMethod) []string {
+	var ids []string
+	for _, m := range methods {
+		if m.EnvVar != nil && m.EnvVar.Id != "" {
+			ids = append(ids, m.EnvVar.Id)
+		}
+	}
+	return ids
+}
+
+// AuthenticateIfRequired 尝试对 env_var 类型认证方式调用 authenticate。
+// 认证失败不阻断连接——部分 Agent 通过环境变量鉴权，无需或未实现 authenticate。
 func (c *Connection) AuthenticateIfRequired(ctx context.Context, initResp acp.InitializeResponse) error {
-	if len(initResp.AuthMethods) == 0 {
+	ids := autoAuthMethodIDs(initResp.AuthMethods)
+	if len(ids) == 0 {
+		if len(initResp.AuthMethods) > 0 {
+			slog.Debug("跳过自动 ACP 认证（无 env_var 方式，agent/terminal 需交互式登录）",
+				"auth_methods", len(initResp.AuthMethods))
+		}
 		return nil
 	}
-	methodID := authMethodID(initResp.AuthMethods[0])
-	if methodID == "" {
-		return fmt.Errorf("agent 未提供有效的认证方法 ID")
+	for _, methodID := range ids {
+		slog.Info("ACP authenticate", "method", methodID, "type", "env_var")
+		if _, err := c.conn.Authenticate(ctx, acp.AuthenticateRequest{MethodId: methodID}); err != nil {
+			slog.Warn("ACP authenticate 失败（非致命，继续连接）", "method", methodID, "err", err)
+			continue
+		}
+		slog.Info("ACP authenticate 完成", "method", methodID)
+		return nil
 	}
-	slog.Info("ACP authenticate", "method", methodID)
-	if _, err := c.conn.Authenticate(ctx, acp.AuthenticateRequest{MethodId: methodID}); err != nil {
-		return fmt.Errorf("ACP authenticate: %w", err)
-	}
-	slog.Info("ACP authenticate 完成", "method", methodID)
 	return nil
 }
 
