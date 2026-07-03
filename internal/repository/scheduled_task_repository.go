@@ -27,6 +27,18 @@ func (r *ScheduledTaskRepository) FindByUserID(userID uint) ([]models.ScheduledT
 	return list, err
 }
 
+// FindByUserIDAndWorkspace 返回指定用户指定工作区下的定时任务。
+// workspaceID 为 0 时等价于 FindByUserID。
+func (r *ScheduledTaskRepository) FindByUserIDAndWorkspace(userID, workspaceID uint) ([]models.ScheduledTask, error) {
+	var list []models.ScheduledTask
+	q := r.db.Where("user_id = ?", userID)
+	if workspaceID > 0 {
+		q = q.Where("workspace_id = ?", workspaceID)
+	}
+	err := q.Order("id DESC").Find(&list).Error
+	return list, err
+}
+
 // FindAllEnabled 返回所有启用的定时任务（调度器启动时加载）。
 func (r *ScheduledTaskRepository) FindAllEnabled() ([]models.ScheduledTask, error) {
 	var list []models.ScheduledTask

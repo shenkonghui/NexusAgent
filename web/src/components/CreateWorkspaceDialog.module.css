@@ -80,3 +80,69 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.sectionLabel {
+  font-size: 13px;
+  font-weight: 500;
+  color: #666;
+  margin: 16px 0 8px;
+}
+
+.dirList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.dirItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid #e8e8e8;
+  border-radius: 4px;
+  font-size: 13px;
+  background: #fafafa;
+}
+
+.dirItemPath {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dirItemRemove {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #999;
+  font-size: 16px;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.dirItemRemove:hover {
+  color: #ff4d4f;
+}
+
+.addDirBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: 1px dashed #d9d9d9;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  color: #666;
+  width: 100%;
+  justify-content: center;
+}
+
+.addDirBtn:hover {
+  border-color: #1677ff;
+  color: #1677ff;
+}

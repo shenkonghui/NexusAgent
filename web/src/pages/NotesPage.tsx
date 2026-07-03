@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useRequireAuth } from '../hooks/useRequireAuth'
-import { listSessions } from '../api/sessions'
+import { useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
 import { listNotes, listNoteTags, createNote, updateNote, deleteNote } from '../api/notes'
-import type { Note, Session } from '../types'
+import type { Note } from '../types'
 import SessionSidebar from '../components/SessionSidebar'
 import UserMenu from '../components/UserMenu'
 import ErrorBanner from '../components/ErrorBanner'
@@ -15,8 +15,8 @@ import styles from './NotesPage.module.css'
 export default function NotesPage() {
   const { t } = useTranslation()
   const { user, loading: authLoading } = useRequireAuth()
+  const { workspaceId, sessions } = useCurrentWorkspace(!!user)
 
-  const [sessions, setSessions] = useState<Session[]>([])
   const [notes, setNotes] = useState<Note[]>([])
   const [allTags, setAllTags] = useState<string[]>([])
   const [activeTag, setActiveTag] = useState('')
@@ -40,8 +40,7 @@ export default function NotesPage() {
     if (!user) return
     setLoading(true)
     setError('')
-    Promise.all([listSessions(), loadNotes(activeTag)])
-      .then(([sessResp]) => setSessions(sessResp.data.sessions || []))
+    loadNotes(activeTag)
       .catch((err) => setError(err instanceof Error ? err.message : t('notes.loadFailed')))
       .finally(() => setLoading(false))
   }, [user, activeTag, loadNotes, t])
@@ -134,7 +133,7 @@ export default function NotesPage() {
   return (
     <div className={styles.layout}>
       <div className={styles.sidebarWrap}>
-        <SessionSidebar sessions={sessions} />
+        <SessionSidebar sessions={sessions} workspaceId={workspaceId} />
       </div>
       <div className={styles.main}>
         <header className={styles.header}>

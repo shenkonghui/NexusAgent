@@ -1,9 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { useRequireAuth } from '../hooks/useRequireAuth'
 import { useAuthContext } from '../context/AuthContext'
+import { useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
 import { updateProfile, changePassword } from '../api/auth'
-import { listSessions } from '../api/sessions'
-import type { Session } from '../types'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import SessionSidebar from '../components/SessionSidebar'
@@ -16,8 +15,8 @@ export default function ProfilePage() {
   const { t } = useTranslation()
   const { user, loading: authLoading } = useRequireAuth()
   const { refreshUser } = useAuthContext()
+  const { workspaceId, sessions } = useCurrentWorkspace(!!user)
 
-  const [sessions, setSessions] = useState<Session[]>([])
   const [profileForm, setProfileForm] = useState({ username: '', email: '' })
   const [passwordForm, setPasswordForm] = useState({
     old_password: '',
@@ -33,7 +32,6 @@ export default function ProfilePage() {
   useEffect(() => {
     if (user) {
       setProfileForm({ username: user.username, email: user.email })
-      listSessions().then((r) => setSessions(r.data.sessions || [])).catch(() => {})
     }
   }, [user])
 
@@ -87,7 +85,7 @@ export default function ProfilePage() {
   return (
     <div className={styles.layout}>
       <div className={styles.sidebarWrap}>
-        <SessionSidebar sessions={sessions} />
+        <SessionSidebar sessions={sessions} workspaceId={workspaceId} />
       </div>
 
       <div className={styles.main}>

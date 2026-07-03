@@ -50,7 +50,7 @@ export default function ScheduledTasksPage() {
   const [workspaceCwd, setWorkspaceCwd] = useState('')
   const [workspaceName, setWorkspaceName] = useState('')
 
-  useEffect(() => { if (!user) return; loadData() }, [user])
+  useEffect(() => { if (!user || !workspaceId) return; loadData() }, [user, workspaceId])
 
   useEffect(() => {
     const state = location.state as { openCreate?: boolean } | null
@@ -115,7 +115,7 @@ export default function ScheduledTasksPage() {
   async function loadData() {
     setLoading(true); setError('')
     try {
-      const [agentsResp, tasksResp] = await Promise.all([listAgents(), listScheduledTasks()])
+      const [agentsResp, tasksResp] = await Promise.all([listAgents(), listScheduledTasks(workspaceId || undefined)])
       setAgents(agentsResp.data.agents || [])
       setTasks(tasksResp.data.tasks || [])
       if (agentsResp.data.agents?.length > 0 && !form.agent_type) setForm((prev) => ({ ...prev, agent_type: agentsResp.data.agents[0].type }))
@@ -143,7 +143,6 @@ export default function ScheduledTasksPage() {
       { label: customLabel, value: '' },
     ]
     const presetMatch = presets.find((p) => p.value === task.cron_expr)
-    if (task.workspace_id) selectWorkspace(task.workspace_id)
     setEditingId(task.id)
     setForm({
       name: task.name, agent_type: task.agent_type, prompt: task.prompt, cron_expr: task.cron_expr,
@@ -219,7 +218,7 @@ export default function ScheduledTasksPage() {
   if (!user) return null
 
   const locale = i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US'
-  const visibleTasks = tasks.filter((task) => !task.workspace_id || task.workspace_id === workspaceId)
+  const visibleTasks = tasks
 
   const taskStatusLabels: Record<string, string> = {
     success: t('scheduledTask.statusSuccess'),
@@ -232,7 +231,7 @@ export default function ScheduledTasksPage() {
   return (
     <div className={styles.layout}>
       <div className={styles.sidebarWrap}>
-        <SessionSidebar sessions={sessions} onNewScheduledTask={openCreate} />
+        <SessionSidebar sessions={sessions} workspaceId={workspaceId} onNewScheduledTask={openCreate} />
       </div>
       <div className={styles.main}>
         <div className={styles.header}>

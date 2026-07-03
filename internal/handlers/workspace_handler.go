@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -49,8 +50,9 @@ func parseWorkspaceID(c *gin.Context) (uint, bool) {
 // Create POST /api/v1/workspaces
 func (h *WorkspaceHandler) Create(c *gin.Context) {
 	var req struct {
-		Name string `json:"name" binding:"required"`
-		Cwd  string `json:"cwd" binding:"required"`
+		Name        string   `json:"name" binding:"required"`
+		Cwd         string   `json:"cwd" binding:"required"`
+		Directories []string `json:"directories"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数无效")
@@ -67,6 +69,12 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "CWD_NOT_FOUND", "目录不存在: "+req.Cwd)
 		return
 	}
+	// 校验附加目录均存在
+	dirs, dirErr := validateDirectories(req.Directories)
+	if dirErr != nil {
+		Fail(c, http.StatusBadRequest, "DIR_NOT_FOUND", dirErr.Error())
+		return
+	}
 	uid, ok := currentUserID(c)
 	if !ok {
 		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
@@ -77,10 +85,11 @@ func (h *WorkspaceHandler) Create(c *gin.Context) {
 		return
 	}
 	ws := &models.Workspace{
-		UserID: uid,
-		Name:   req.Name,
-		Cwd:    req.Cwd,
-		Mode:   models.WorkspaceModePersistent,
+		UserID:      uid,
+		Name:        req.Name,
+		Cwd:         req.Cwd,
+		Directories: dirs,
+		Mode:        models.WorkspaceModePersistent,
 	}
 	if err := h.store.CreateWorkspace(ws); err != nil {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
@@ -156,7 +165,8 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Name string `json:"name" binding:"required"`
+		Name        string   `json:"name" binding:"required"`
+		Directories []string `json:"directories"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数无效")
@@ -167,11 +177,26 @@ func (h *WorkspaceHandler) Update(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "名称不能为空")
 		return
 	}
-	if err := h.store.UpdateWorkspace(id, map[string]interface{}{"name": req.Name}); err != nil {
+	updates := map[string]interface{}{"name": req.Name}
+	var validatedDirs models.StringArray
+	// directories 字段存在时（包括空数组）才更新
+	if req.Directories != nil {
+		dirs, dirErr := validateDirectories(req.Directories)
+		if dirErr != nil {
+			Fail(c, http.StatusBadRequest, "DIR_NOT_FOUND", dirErr.Error())
+			return
+		}
+		validatedDirs = models.StringArray(dirs)
+		updates["directories"] = validatedDirs
+	}
+	if err := h.store.UpdateWorkspace(id, updates); err != nil {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
 		return
 	}
 	ws.Name = req.Name
+	if req.Directories != nil {
+		ws.Directories = validatedDirs
+	}
 	Success(c, http.StatusOK, ws)
 }
 
@@ -223,8 +248,9 @@ func (h *WorkspaceHandler) Save(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Name string `json:"name" binding:"required"`
-		Cwd  string `json:"cwd" binding:"required"`
+		Name        string   `json:"name" binding:"required"`
+		Cwd         string   `json:"cwd" binding:"required"`
+		Directories []string `json:"directories"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数无效")
@@ -241,10 +267,16 @@ func (h *WorkspaceHandler) Save(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "CWD_NOT_FOUND", "目录不存在: "+req.Cwd)
 		return
 	}
+	dirs, dirErr := validateDirectories(req.Directories)
+	if dirErr != nil {
+		Fail(c, http.StatusBadRequest, "DIR_NOT_FOUND", dirErr.Error())
+		return
+	}
 	if err := h.store.UpdateWorkspace(id, map[string]interface{}{
-		"name": req.Name,
-		"cwd":  req.Cwd,
-		"mode": models.WorkspaceModePersistent,
+		"name":        req.Name,
+		"cwd":         req.Cwd,
+		"directories": models.StringArray(dirs),
+		"mode":        models.WorkspaceModePersistent,
 	}); err != nil {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
 		return
@@ -252,5 +284,26 @@ func (h *WorkspaceHandler) Save(c *gin.Context) {
 	ws.Name = req.Name
 	ws.Cwd = req.Cwd
 	ws.Mode = models.WorkspaceModePersistent
+	ws.Directories = dirs
 	Success(c, http.StatusOK, ws)
+}
+
+// validateDirectories 去重并校验每个附加目录存在且是目录。
+// 返回去重后的路径切片。
+func validateDirectories(dirs []string) ([]string, error) {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(dirs))
+	for _, d := range dirs {
+		d = strings.TrimSpace(d)
+		if d == "" || seen[d] {
+			continue
+		}
+		seen[d] = true
+		info, err := os.Stat(d)
+		if err != nil || !info.IsDir() {
+			return nil, fmt.Errorf("附加目录不存在: %s", d)
+		}
+		result = append(result, d)
+	}
+	return result, nil
 }

@@ -18,9 +18,10 @@ export function createScheduledTask(payload: {
   })
 }
 
-// 列出定时任务
-export function listScheduledTasks(): Promise<{ data: { tasks: ScheduledTask[] } }> {
-  return apiFetch('/scheduled-tasks')
+// 列出定时任务，支持按 workspace_id 过滤
+export function listScheduledTasks(workspaceId?: number): Promise<{ data: { tasks: ScheduledTask[] } }> {
+  const query = workspaceId ? `?workspace_id=${workspaceId}` : ''
+  return apiFetch(`/scheduled-tasks${query}`)
 }
 
 // 获取单个定时任务

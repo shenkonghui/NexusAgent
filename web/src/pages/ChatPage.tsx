@@ -83,7 +83,6 @@ export default function ChatPage() {
   const [probeConfigs, setProbeConfigs] = useState<ConfigOption[]>([])
   const [probing, setProbing] = useState(false)
   const [creating, setCreating] = useState(false)
-  const [resuming, setResuming] = useState(false)
   const [homeCommands, setHomeCommands] = useState<AgentCommand[]>([])
   const [homeModes, setHomeModes] = useState<SessionMode[]>([])
   const [homeSkills, setHomeSkills] = useState<AgentSkill[]>([])
@@ -284,7 +283,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (loading && !bootstrapSession) return // 新建会话有 bootstrap 数据时不等待 loadData
-    if (!activeSession || (activeSession.status !== 'active' && activeSession.status !== 'pending')) return
+    if (!activeSession) return
     const pending = initialPromptRef.current
     if (!pending) return
     initialPromptRef.current = ''
@@ -299,7 +298,7 @@ export default function ChatPage() {
         setExecutions(execResp.data.executions || [])
         return
       }
-      const tasksResp = await listScheduledTasks()
+      const tasksResp = await listScheduledTasks(workspaceId || undefined)
       const task = (tasksResp.data.tasks || []).find((t) => t.db_session_id === dbSessionId)
       if (task) { const execResp = await listExecutions(task.id); setExecutions(execResp.data.executions || []) }
     } catch { /* silent */ }
@@ -323,7 +322,7 @@ export default function ChatPage() {
   }
 
   async function handleSend(prompt: string) {
-    if (!activeSession || (activeSession.status !== 'active' && activeSession.status !== 'pending')) return
+    if (!activeSession) return
     setConvState('connecting')
     setError('')
     setRetryable(false)
@@ -431,17 +430,6 @@ export default function ChatPage() {
     setConvState('idle')
   }
 
-  // 恢复异常状态的会话（error 或 closed）
-  async function handleResume() {
-    setResuming(true); setError('')
-    try {
-      await resumeSession(sessionId)
-      await loadData()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('common.failed'))
-    } finally { setResuming(false) }
-  }
-
   async function handleSetMode(modeId: string) {
     if (!modeId || modeId === currentModeId) return
     setError('')
@@ -530,7 +518,7 @@ export default function ChatPage() {
       return (
         <div className={styles.layout}>
           <div className={styles.sidebarWrap}>
-            <SessionSidebar sessions={allSessions} onDelete={handleDeleteSession} onRename={handleRenameSession} />
+            <SessionSidebar sessions={allSessions} workspaceId={workspaceId} onDelete={handleDeleteSession} onRename={handleRenameSession} />
           </div>
 
           <div className={styles.main}>
@@ -556,7 +544,7 @@ export default function ChatPage() {
                   ) : (
                     manualSessions.map((item) => (
                       <div key={item.id} className={styles.sessionCard}
-                        onClick={() => navigate(`/sessions/${item.id}`)}
+                        onClick={() => navigate(item.workspace_id ? `/workspaces/${item.workspace_id}/sessions/${item.id}` : `/sessions/${item.id}`)}
                       >
                         <div className={styles.sessionHeader}>
                           <span className={styles.sessionAgent}>{item.title || item.agent_type}</span>
@@ -587,7 +575,7 @@ export default function ChatPage() {
     return (
       <div className={styles.layout}>
         <div className={styles.sidebarWrap}>
-          <SessionSidebar sessions={allSessions} onDelete={handleDeleteSession} onRename={handleRenameSession} />
+          <SessionSidebar sessions={allSessions} workspaceId={workspaceId} onDelete={handleDeleteSession} onRename={handleRenameSession} />
         </div>
 
         <div className={styles.main}>
@@ -708,7 +696,7 @@ export default function ChatPage() {
     <div className={styles.layout}>
       {!sidebarCollapsed && (
         <div className={styles.sidebarWrap}>
-          <SessionSidebar sessions={allSessions} currentId={sessionId}
+          <SessionSidebar sessions={allSessions} workspaceId={workspaceId} currentId={sessionId}
             onDelete={handleDeleteSession} onRename={handleRenameSession}
             onCollapse={() => setSidebarCollapsed(true)}
           />
@@ -766,7 +754,9 @@ export default function ChatPage() {
           sessionId={sessionId} cwd={activeSession?.workspace?.cwd || ''}
         />
 
-        {(activeSession?.status === 'active' || activeSession?.status === 'pending') && activeSession?.source !== 'classify' ? (
+        {activeSession?.source === 'classify' ? (
+          <p className={styles.classifyViewHint}>{t('notes.classifyTaskHint')}</p>
+        ) : (
           <>
             <ConvStatusBar state={displayConvState} />
             <PromptInput onSend={handleSend} onCancel={handleCancel}
@@ -775,18 +765,6 @@ export default function ChatPage() {
               placeholder={sending ? t(`session.conv_${displayConvState === 'idle' ? 'connecting' : displayConvState}`) : t('session.promptPlaceholder')}
             />
           </>
-        ) : (activeSession?.status === 'active' || activeSession?.status === 'pending') && activeSession?.source === 'classify' ? (
-          <p className={styles.classifyViewHint}>{t('notes.classifyTaskHint')}</p>
-        ) : (
-          <div className={styles.recoverBar}>
-            <span className={styles.recoverText}>
-              {activeSession?.status === 'error' ? t('session.errorHint') : t('session.closedHint')}
-            </span>
-            <button type="button" className={styles.recoverBtn}
-              onClick={handleResume}
-              disabled={resuming}
-            >{resuming ? t('common.loading') : t('session.resume')}</button>
-          </div>
         )}
       </div>
 

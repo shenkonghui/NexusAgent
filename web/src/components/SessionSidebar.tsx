@@ -11,6 +11,7 @@ import styles from './SessionSidebar.module.css'
 
 interface SessionSidebarProps {
   sessions: Session[]
+  workspaceId?: number
   currentId?: number
   onDelete?: (id: number) => void
   onRename?: (id: number, title: string) => void
@@ -20,6 +21,12 @@ interface SessionSidebarProps {
 
 const STORAGE_KEY = 'nexus.sidebar.collapsed'
 const FAVS_KEY = 'nexus.favorites'
+
+// 直接构造会话最终 URL，避免经过 SessionRedirect 的中间跳转
+function sessionUrl(sessionId: number, workspaceId?: number | null): string {
+  if (workspaceId) return `/workspaces/${workspaceId}/sessions/${sessionId}`
+  return `/sessions/${sessionId}`
+}
 
 function loadCollapsed(): { favorites: boolean; manual: boolean; scheduled: boolean } {
   try {
@@ -41,7 +48,7 @@ function saveFavorites(ids: number[]) {
   try { localStorage.setItem(FAVS_KEY, JSON.stringify(ids)) } catch { /* ignore */ }
 }
 
-export default function SessionSidebar({ sessions, currentId, onDelete, onRename, onCollapse, onNewScheduledTask }: SessionSidebarProps) {
+export default function SessionSidebar({ sessions, workspaceId, currentId, onDelete, onRename, onCollapse, onNewScheduledTask }: SessionSidebarProps) {
   const { t } = useTranslation()
   const [editingId, setEditingId] = useState<number | null>(null)
   const [showLangMenu, setShowLangMenu] = useState(false)
@@ -71,11 +78,11 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
 
   useEffect(() => {
     let alive = true
-    listScheduledTasks()
+    listScheduledTasks(workspaceId || undefined)
       .then((r) => { if (alive) setTasks(r.data.tasks || []) })
       .catch(() => { if (alive) setTasks([]) })
     return () => { alive = false }
-  }, [location.pathname])
+  }, [location.pathname, workspaceId])
 
   useEffect(() => {
     let alive = true
@@ -169,7 +176,7 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
               ) : (
                 favoriteSessions.map((session) => (
                   <div key={session.id} className={`${styles.item} ${currentId === session.id ? styles.itemActive : ''}`}>
-                    <Link to={`/sessions/${session.id}`} className={styles.itemLink}>
+                    <Link to={sessionUrl(session.id, session.workspace_id)} className={styles.itemLink}>
                       <div className={styles.itemRow}>
                         <span className={styles.itemTitle}>{session.title || session.agent_type}</span>
                         <span className={styles.itemTime}>{formatTimeAgo(session.created_at, t)}</span>
@@ -221,7 +228,7 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
                       </div>
                     ) : (
                       <>
-                        <Link to={`/sessions/${session.id}`} className={styles.itemLink}>
+                        <Link to={sessionUrl(session.id, session.workspace_id)} className={styles.itemLink}>
                           <div className={styles.itemRow}>
                             <span className={styles.itemTitle}>{session.title || session.agent_type}</span>
                             <span className={styles.itemTime}>{formatTimeAgo(session.created_at, t)}</span>
@@ -280,7 +287,7 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
             <div className={styles.groupList}>
               {recentTask && recentTask.db_session_id ? (
                 <button type="button" className={styles.recentEntry}
-                  onClick={() => navigate(`/sessions/${recentTask.db_session_id}`)}
+                  onClick={() => navigate(sessionUrl(recentTask.db_session_id, recentTask.workspace_id))}
                   title={`${t('nav.recentRun')}: ${recentTask.name}`}
                 >
                   <span className={styles.recentIcon}>⚡</span>
@@ -293,7 +300,7 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
                 tasks.map((task) => (
                   <div key={task.id} className={`${styles.item} ${currentId === task.db_session_id ? styles.itemActive : ''}`}>
                     <button type="button" className={styles.itemLink}
-                      onClick={() => task.db_session_id ? navigate(`/sessions/${task.db_session_id}`) : undefined}
+                      onClick={() => task.db_session_id ? navigate(sessionUrl(task.db_session_id, task.workspace_id)) : undefined}
                       disabled={!task.db_session_id}
                       style={!task.db_session_id ? { cursor: 'default', opacity: 0.6 } : undefined}
                     >
@@ -345,8 +352,8 @@ export default function SessionSidebar({ sessions, currentId, onDelete, onRename
         </Link>
         {classifySession && (
           <Link
-            to={`/sessions/${classifySession.id}`}
-            className={`${styles.navItem} ${location.pathname === `/sessions/${classifySession.id}` ? styles.navItemActive : ''}`}
+            to={sessionUrl(classifySession.id, classifySession.workspace_id)}
+            className={`${styles.navItem} ${location.pathname === sessionUrl(classifySession.id, classifySession.workspace_id) ? styles.navItemActive : ''}`}
           >
             <span className={styles.navIcon}>🏷️</span>
             <span>{t('notes.classifyTask')}</span>

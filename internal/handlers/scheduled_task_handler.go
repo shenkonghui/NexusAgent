@@ -105,14 +105,27 @@ func (h *ScheduledTaskHandler) Create(c *gin.Context) {
 	Success(c, http.StatusCreated, task)
 }
 
-// List GET /api/v1/scheduled-tasks
+// List GET /api/v1/scheduled-tasks?workspace_id=123
+// 支持按 workspace_id 过滤，不传则返回当前用户全部任务。
 func (h *ScheduledTaskHandler) List(c *gin.Context) {
 	uid, ok := currentUserID(c)
 	if !ok {
 		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
 		return
 	}
-	tasks, err := h.repo.FindByUserID(uid)
+	wsIDStr := c.Query("workspace_id")
+	var tasks []models.ScheduledTask
+	var err error
+	if wsIDStr != "" {
+		wsID, parseErr := strconv.ParseUint(wsIDStr, 10, 64)
+		if parseErr != nil {
+			Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "workspace_id 参数无效")
+			return
+		}
+		tasks, err = h.repo.FindByUserIDAndWorkspace(uid, uint(wsID))
+	} else {
+		tasks, err = h.repo.FindByUserID(uid)
+	}
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
 		return

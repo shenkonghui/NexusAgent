@@ -17,6 +17,7 @@ export default function WorkspaceSelector({ value, onChange, onRefresh, onError 
   const [workspaces, setWorkspaces] = useState<(Workspace & { session_count?: number })[]>([])
   const [open, setOpen] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
+  const [editTarget, setEditTarget] = useState<Workspace | null>(null)
   const [contextMenu, setContextMenu] = useState<{ id: number; x: number; y: number } | null>(null)
   const [renaming, setRenaming] = useState<number | null>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -57,12 +58,23 @@ export default function WorkspaceSelector({ value, onChange, onRefresh, onError 
     setOpen(false)
   }
 
-  async function handleCreate(name: string, cwd: string) {
+  async function handleCreate(name: string, cwd: string, directories: string[]) {
     try {
-      const resp = await createWorkspace(name, cwd)
+      const resp = await createWorkspace(name, cwd, directories)
       await loadWorkspaces()
       onChange(resp.data.id)
       setShowCreate(false)
+    } catch (e) {
+      onError?.(e instanceof Error ? e.message : t('common.failed'))
+    }
+  }
+
+  async function handleEdit(name: string, _cwd: string, directories: string[]) {
+    if (!editTarget) return
+    try {
+      await updateWorkspace(editTarget.id, name, directories)
+      await loadWorkspaces()
+      setEditTarget(null)
     } catch (e) {
       onError?.(e instanceof Error ? e.message : t('common.failed'))
     }
@@ -124,6 +136,9 @@ export default function WorkspaceSelector({ value, onChange, onRefresh, onError 
               ) : (
                 <span className={styles.itemName}>{ws.name}</span>
               )}
+              {ws.directories && ws.directories.length > 0 && (
+                <span className={styles.itemBadge} title={`${ws.directories.length} 个附加目录`}>+{ws.directories.length}</span>
+              )}
               {ws.session_count !== undefined && <span className={styles.itemCount}>{ws.session_count}</span>}
               <button type="button" className={styles.menuBtn}
                 onClick={(e) => { e.stopPropagation(); setContextMenu({ id: ws.id, x: e.clientX, y: e.clientY }) }}
@@ -140,10 +155,15 @@ export default function WorkspaceSelector({ value, onChange, onRefresh, onError 
             if (ws) { setRenaming(ws.id); setRenameValue(ws.name) }
             setContextMenu(null)
           }}>{t('workspace.rename')}</div>
+          <div className={styles.menuItem} onClick={() => {
+            const ws = workspaces.find((w) => w.id === contextMenu.id)
+            if (ws) { setEditTarget(ws) }
+            setContextMenu(null)
+          }}>编辑目录</div>
           <div className={styles.menuItem} onClick={async () => {
             const ws = workspaces.find((w) => w.id === contextMenu.id)
             if (ws?.mode === 'temporary') {
-              try { await saveWorkspace(contextMenu.id, ws.name, ws.cwd); await loadWorkspaces() }
+              try { await saveWorkspace(contextMenu.id, ws.name, ws.cwd, ws.directories || []); await loadWorkspaces() }
               catch (e) { onError?.(e instanceof Error ? e.message : t('common.failed')) }
             }
             setContextMenu(null)
@@ -156,6 +176,16 @@ export default function WorkspaceSelector({ value, onChange, onRefresh, onError 
 
       {showCreate && (
         <CreateWorkspaceDialog onSubmit={handleCreate} onClose={() => setShowCreate(false)} />
+      )}
+
+      {editTarget && (
+        <CreateWorkspaceDialog
+          onSubmit={handleEdit}
+          onClose={() => setEditTarget(null)}
+          initialName={editTarget.name}
+          initialCwd={editTarget.cwd}
+          initialDirectories={editTarget.directories || []}
+        />
       )}
     </div>
   )

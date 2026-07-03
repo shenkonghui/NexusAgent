@@ -96,7 +96,6 @@ func main() {
 
 	// P1: ACP 服务
 	acpSvc := acp.NewService(db, cfg.Agents.Workspace, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules)
-	acpSvc.RecoverActiveSessions()
 
 	// P2: Agent 注册表与路由
 	agentRegistry := agent.NewRegistry()

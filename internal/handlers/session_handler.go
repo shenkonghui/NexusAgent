@@ -527,8 +527,11 @@ func (h *SessionHandler) Prompt(c *gin.Context) {
 		return
 	}
 	if sess.Status != models.SessionStatusActive && sess.Status != models.SessionStatusPending {
-		Fail(c, http.StatusConflict, "SESSION_NOT_ACTIVE", "会话不在活跃状态")
-		return
+		// 自动恢复 error 或 closed 状态的会话
+		if _, err := h.store.ResumeSession(c.Request.Context(), sess.SessionID); err != nil {
+			writeSessionError(c, err)
+			return
+		}
 	}
 	ch, err := h.store.Prompt(c.Request.Context(), sess.SessionID, req.Prompt)
 	if err != nil {

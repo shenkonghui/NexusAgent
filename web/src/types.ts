@@ -96,6 +96,7 @@ export interface Workspace {
   user_id: number;
   name: string;
   cwd: string;
+  directories: string[];
   mode: 'persistent' | 'temporary';
   temp_dir?: string;
   session_count?: number;
@@ -108,7 +109,7 @@ export interface Session {
   id: number;
   session_id: string;
   agent_type: string;
-  status: 'active' | 'closed' | 'error';
+  status: 'active' | 'closed' | 'error' | 'pending';
   user_id: number;
   workspace_id: number | null;
   workspace?: Workspace;

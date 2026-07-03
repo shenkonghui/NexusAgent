@@ -582,9 +582,10 @@ func TestSessionHandler_Prompt_NotFound(t *testing.T) {
 	}
 }
 
-func TestSessionHandler_Prompt_NotActive(t *testing.T) {
+func TestSessionHandler_Prompt_Resume_Failed(t *testing.T) {
 	store := newFakeSessionStore()
 	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusClosed}
+	store.resumeErr = errors.New("resume failed")
 	r := newSessionTestRouter(store, 100)
 	var buf bytes.Buffer
 	_ = json.NewEncoder(&buf).Encode(gin.H{"prompt": "hi"})
@@ -592,8 +593,8 @@ func TestSessionHandler_Prompt_NotActive(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusConflict {
-		t.Fatalf("状态码 = %d, 期望 409", w.Code)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("状态码 = %d, 期望 500", w.Code)
 	}
 }
 

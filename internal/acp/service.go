@@ -558,7 +558,7 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 		if dbWS.UserID != userID {
 			return nil, errors.New("无权访问该工作区")
 		}
-		ws = &Workspace{Mode: dbWS.Mode, Cwd: dbWS.Cwd, TempDir: dbWS.TempDir}
+		ws = &Workspace{Mode: dbWS.Mode, Cwd: dbWS.Cwd, TempDir: dbWS.TempDir, Directories: dbWS.Directories}
 		if err := EnsureWorkspaceDir(dbWS.Mode, dbWS.Cwd); err != nil {
 			return nil, err
 		}
@@ -585,7 +585,7 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 			ws = tempWs
 			createdDefaultWS = true
 		} else {
-			ws = &Workspace{Mode: dbWS.Mode, Cwd: dbWS.Cwd, TempDir: dbWS.TempDir}
+			ws = &Workspace{Mode: dbWS.Mode, Cwd: dbWS.Cwd, TempDir: dbWS.TempDir, Directories: dbWS.Directories}
 			if err := EnsureWorkspaceDir(dbWS.Mode, dbWS.Cwd); err != nil {
 				return nil, err
 			}
@@ -665,11 +665,11 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 	// 延迟激活：pending 会话在首次 Prompt 时创建 ACP 会话
 	if session.Status == models.SessionStatusPending {
 		cwd := sessionCwd(session, s.workspaces)
-		conn, actErr := s.ensureConnection(ctx, session.AgentType, s.probeCwd())
+		conn, actErr := s.ensureConnection(ctx, session.AgentType, cwd)
 		if actErr != nil {
 			return nil, fmt.Errorf("激活会话-建立连接: %w", actErr)
 		}
-		newSessionID, configOptions, modes, actErr := conn.NewSession(ctx, cwd, s.skillAdditionalDirs(cwd))
+		newSessionID, configOptions, modes, actErr := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd))
 		if actErr != nil {
 			return nil, fmt.Errorf("激活会话-创建 ACP 会话: %w", actErr)
 		}
@@ -685,7 +685,7 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 		}
 
 		// 建立路由（同时映射新旧 sessionID，兼容 connForSession 查询）
-		poolKey := connectionKey(session.AgentType, s.probeCwd())
+		poolKey := connectionKey(session.AgentType, cwd)
 		s.mu.Lock()
 		s.sessionPoolKey[newSessionID] = poolKey
 		s.sessionPoolKey[sessionID] = poolKey
@@ -710,10 +710,10 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 		// 共享连接已断开但会话 DB 状态仍为 active：尝试自动恢复连接
 		cwd := sessionCwd(session, s.workspaces)
 		slog.Warn("会话连接丢失，尝试自动恢复", "session", sessionID, "agent", session.AgentType, "cwd", cwd)
-		if recConn, recErr := s.ensureConnection(ctx, session.AgentType, s.probeCwd()); recErr == nil {
+		if recConn, recErr := s.ensureConnection(ctx, session.AgentType, cwd); recErr == nil {
 			// 恢复会话路由
 			s.mu.Lock()
-			s.sessionPoolKey[sessionID] = connectionKey(session.AgentType, s.probeCwd())
+			s.sessionPoolKey[sessionID] = connectionKey(session.AgentType, cwd)
 			s.mu.Unlock()
 			conn = recConn
 		} else {
@@ -723,6 +723,11 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 	}
 
 	agentPrompt := s.expandPrompt(sessionID, session, prompt)
+
+	// 注入工作区附加目录上下文，让 AI 知晓可访问的额外目录
+	if dirCtx := s.workspaceDirContext(session); dirCtx != "" {
+		agentPrompt = dirCtx + "\n" + agentPrompt
+	}
 	slog.Debug("发送 agent prompt",
 		"session", sessionID,
 		"agent", session.AgentType,
@@ -980,6 +985,48 @@ func sessionCwd(session *models.Session, workspaces *repository.WorkspaceReposit
 		}
 	}
 	return cwd
+}
+
+// sessionAdditionalDirs 返回 ACP 会话的 additionalDirectories：
+// 工作区附加目录（次级）+ skills/commands/rules 目录。
+func (s *Service) sessionAdditionalDirs(session *models.Session, cwd string) []string {
+	var wsDirs []string
+	if session.WorkspaceID != nil {
+		if ws, err := s.workspaces.FindByID(*session.WorkspaceID); err == nil {
+			wsDirs = ws.Directories
+			slog.Info("工作区附加目录", "workspaceID", *session.WorkspaceID, "directories", wsDirs)
+		} else {
+			slog.Warn("查找工作区附加目录失败", "workspaceID", *session.WorkspaceID, "err", err)
+		}
+	} else {
+		slog.Warn("会话无 WorkspaceID，无法获取附加目录", "sessionID", session.SessionID)
+	}
+	result := MergeAdditionalDirectories(
+		wsDirs,
+		s.skillAdditionalDirs(cwd),
+	)
+	slog.Info("会话 AdditionalDirectories", "sessionID", session.SessionID, "total", len(result), "dirs", result)
+	return result
+}
+
+// workspaceDirContext 返回工作区附加目录的 prompt 上下文文本。
+// 仅包含用户配置的工作区次级目录（不含 skills/commands/rules），以便 AI 知晓可访问的额外文件目录。
+func (s *Service) workspaceDirContext(session *models.Session) string {
+	if session.WorkspaceID == nil {
+		return ""
+	}
+	ws, err := s.workspaces.FindByID(*session.WorkspaceID)
+	if err != nil || len(ws.Directories) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("<workspace_directories>\n以下目录在当前工作区中可访问：\n")
+	for _, d := range ws.Directories {
+		sb.WriteString(fmt.Sprintf("- %s\n", d))
+	}
+	sb.WriteString("你可以读取和操作这些目录中的文件。\n")
+	sb.WriteString("</workspace_directories>")
+	return sb.String()
 }
 
 func (s *Service) expandPrompt(sessionID string, session *models.Session, prompt string) string {
@@ -1307,12 +1354,12 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 	}
 
 	// 复用共享连接（不存在则自动建立）
-	conn, err := s.ensureConnection(ctx, session.AgentType, s.probeCwd())
+	conn, err := s.ensureConnection(ctx, session.AgentType, cwd)
 	if err != nil {
 		return nil, fmt.Errorf("恢复会话-建立连接: %w", err)
 	}
 
-	newSessionID, configOptions, modes, err := conn.NewSession(ctx, cwd, s.skillAdditionalDirs(cwd))
+	newSessionID, configOptions, modes, err := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd))
 	if err != nil {
 		return nil, fmt.Errorf("恢复会话-创建 ACP 会话: %w", err)
 	}
@@ -1338,7 +1385,7 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 	}
 
 	// 清理旧 sessionID 路由，建立新路由
-	poolKey := connectionKey(session.AgentType, s.probeCwd())
+	poolKey := connectionKey(session.AgentType, cwd)
 	s.mu.Lock()
 	delete(s.sessionPoolKey, sessionID)
 	delete(s.commands, sessionID)

@@ -2,11 +2,11 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useRequireAuth } from '../hooks/useRequireAuth'
+import { useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
 import { listAgentConfigs, updateAgentConfig, deleteAgentConfig } from '../api/agentConfigs'
 import { listAgents, getAgentModels, probeAgentConfigs, clearAgentProbeCache } from '../api/agents'
-import { listSessions } from '../api/sessions'
 import { getNoteSettings, updateNoteSettings } from '../api/notes'
-import type { AgentConfig, Session, Agent, ModelOption, ConfigOption } from '../types'
+import type { AgentConfig, Agent, ModelOption, ConfigOption } from '../types'
 import SessionSidebar from '../components/SessionSidebar'
 import EditAgentDialog, { type AgentFormPayload } from '../components/EditAgentDialog'
 import ConfigEditor from '../components/ConfigEditor'
@@ -55,7 +55,7 @@ export default function SettingsPage() {
 
   const [configs, setConfigs] = useState<AgentConfig[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
-  const [sessions, setSessions] = useState<Session[]>([])
+  const { workspaceId, sessions } = useCurrentWorkspace(!!user)
   const [defaultAgent, setDefaultAgent] = useState('')
   const [noteAgent, setNoteAgent] = useState('')
   const [noteModel, setNoteModel] = useState('')
@@ -113,12 +113,11 @@ export default function SettingsPage() {
   async function loadData() {
     setLoading(true); setError('')
     try {
-      const [cfgResp, agentsResp, sessResp, noteSettingsResp] = await Promise.all([
-        listAgentConfigs(), listAgents(), listSessions(), getNoteSettings(),
+      const [cfgResp, agentsResp, noteSettingsResp] = await Promise.all([
+        listAgentConfigs(), listAgents(), getNoteSettings(),
       ])
       setConfigs(cfgResp.data.agent_configs || [])
       setAgents(agentsResp.data.agents || [])
-      setSessions(sessResp.data.sessions || [])
       setDefaultAgent(localStorage.getItem(DEFAULT_AGENT_KEY) || '')
       setNoteAgent(noteSettingsResp.data.agent_type || '')
       setNoteModel(noteSettingsResp.data.model_value || '')
@@ -223,7 +222,7 @@ export default function SettingsPage() {
 
   return (
     <div className={styles.layout}>
-      <div className={styles.sidebarWrap}><SessionSidebar sessions={sessions} /></div>
+      <div className={styles.sidebarWrap}><SessionSidebar sessions={sessions} workspaceId={workspaceId} /></div>
       <div className={styles.main}>
         <div className={styles.header}>
           <h1 className={styles.title}>{t('settings.title')}</h1>

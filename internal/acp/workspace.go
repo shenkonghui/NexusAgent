@@ -9,17 +9,21 @@ import (
 )
 
 // Workspace 管理会话的工作目录。
+// Cwd 为工作区主目录，Directories 为附加目录（次级），在创建 ACP 会话时一并授权。
 type Workspace struct {
-	Mode    string
-	Cwd     string
-	TempDir string
+	Mode        string
+	Cwd         string
+	TempDir     string
+	Directories []string
 }
 
 // NewExternalWorkspace 创建一个使用外部指定 cwd 的工作区。
-func NewExternalWorkspace(cwd string) *Workspace {
+// dirs 为可选的附加目录（次级），创建 ACP 会话时一并授权访问。
+func NewExternalWorkspace(cwd string, dirs ...string) *Workspace {
 	return &Workspace{
-		Mode: models.WorkspaceModePersistent,
-		Cwd:  cwd,
+		Mode:        models.WorkspaceModePersistent,
+		Cwd:         cwd,
+		Directories: dirs,
 	}
 }
 

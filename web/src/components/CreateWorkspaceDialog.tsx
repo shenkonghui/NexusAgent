@@ -3,44 +3,89 @@ import DirectoryPicker from './DirectoryPicker'
 import styles from './CreateWorkspaceDialog.module.css'
 
 interface Props {
-  onSubmit: (name: string, cwd: string) => void
+  onSubmit: (name: string, cwd: string, directories: string[]) => void
   onClose: () => void
+  /** 编辑模式初始值（可选） */
+  initialName?: string
+  initialCwd?: string
+  initialDirectories?: string[]
 }
 
-export default function CreateWorkspaceDialog({ onSubmit, onClose }: Props) {
-  const [name, setName] = useState('')
-  const [cwd, setCwd] = useState('')
-  const [showDirPicker, setShowDirPicker] = useState(false)
+export default function CreateWorkspaceDialog({ onSubmit, onClose, initialName, initialCwd, initialDirectories }: Props) {
+  const [name, setName] = useState(initialName || '')
+  const [cwd, setCwd] = useState(initialCwd || '')
+  const [directories, setDirectories] = useState<string[]>(initialDirectories || [])
+  // showDirPicker: 'primary' 选择主目录, 'additional' 选择附加目录, null 关闭
+  const [dirPickerMode, setDirPickerMode] = useState<'primary' | 'additional' | null>(null)
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (name.trim() && cwd.trim()) onSubmit(name.trim(), cwd.trim())
+    if (name.trim() && cwd.trim()) onSubmit(name.trim(), cwd.trim(), directories)
+  }
+
+  function addDirectory(path: string) {
+    if (!directories.includes(path)) {
+      setDirectories([...directories, path])
+    }
+  }
+
+  function removeDirectory(path: string) {
+    setDirectories(directories.filter(d => d !== path))
   }
 
   return (
     <div className={styles.overlay} onClick={onClose}>
       <form className={styles.dialog} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
-        <h3>新建工作区</h3>
+        <h3>{initialCwd ? '编辑工作区' : '新建工作区'}</h3>
         <input className={styles.input} type="text" value={name}
           onChange={e => setName(e.target.value)}
           placeholder="工作区名称" autoFocus required />
+
+        {/* 主目录 */}
+        <div className={styles.sectionLabel}>主目录（Primary）</div>
         <div className={styles.dirRow}>
           <input className={styles.input} type="text" value={cwd}
             onChange={e => setCwd(e.target.value)}
-            placeholder="选择工作目录" required readOnly />
+            placeholder="选择主工作目录" required readOnly style={{ marginBottom: 0 }} />
           <button type="button" className={styles.browseBtn}
-            onClick={() => setShowDirPicker(true)}>浏览</button>
+            onClick={() => setDirPickerMode('primary')}>浏览</button>
         </div>
+
+        {/* 附加目录 */}
+        <div className={styles.sectionLabel}>附加目录（Secondary）</div>
+        {directories.length > 0 && (
+          <div className={styles.dirList}>
+            {directories.map(d => (
+              <div key={d} className={styles.dirItem}>
+                <span className={styles.dirItemPath} title={d}>{d}</span>
+                <button type="button" className={styles.dirItemRemove}
+                  onClick={() => removeDirectory(d)}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <button type="button" className={styles.addDirBtn}
+          onClick={() => setDirPickerMode('additional')}>+ 添加附加目录</button>
+
         <div className={styles.actions}>
           <button type="button" onClick={onClose}>取消</button>
-          <button type="submit" disabled={!name.trim() || !cwd.trim()}>创建</button>
+          <button type="submit" disabled={!name.trim() || !cwd.trim()}>
+            {initialCwd ? '保存' : '创建'}
+          </button>
         </div>
       </form>
-      {showDirPicker && (
+      {dirPickerMode && (
         <DirectoryPicker
-          initialPath={cwd}
-          onSelect={path => { setCwd(path); setShowDirPicker(false) }}
-          onClose={() => setShowDirPicker(false)}
+          initialPath={dirPickerMode === 'primary' ? cwd : undefined}
+          onSelect={path => {
+            if (dirPickerMode === 'primary') {
+              setCwd(path)
+            } else {
+              addDirectory(path)
+            }
+            setDirPickerMode(null)
+          }}
+          onClose={() => setDirPickerMode(null)}
         />
       )}
     </div>
