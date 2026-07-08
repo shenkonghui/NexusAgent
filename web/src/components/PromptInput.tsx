@@ -145,7 +145,7 @@ export default function PromptInput({
   embedded = false,
   value: controlledValue,
   onValueChange,
-  rows = 1,
+  rows = 3,
   commands = [],
   modes = [],
   skills = [],

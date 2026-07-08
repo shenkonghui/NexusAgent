@@ -541,7 +541,6 @@ func (s *Service) CreateSession(ctx context.Context, agentType string, workspace
 // 为提升页面跳转速度，不再同步创建 ACP 会话，而是返回 pending 状态；
 // ACP 连接与会话创建延迟到首次 Prompt（PromptWithExecution）时完成。
 func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string) (*models.Session, error) {
-	_ = modelValue // 暂存（后续可在 prompt 激活时使用）
 	if _, err := s.GetBackend(agentType); err != nil {
 		return nil, err
 	}
@@ -612,6 +611,7 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 		UserID:      userID,
 		WorkspaceID: &wid,
 		Source:      source,
+		ModelValue:  modelValue,
 	}
 	if err := s.sessions.Create(session); err != nil {
 		rollbackNewDefaultWS()
@@ -698,6 +698,13 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 		}
 		s.mu.Unlock()
 		slog.Info("agent 会话已激活", "agent", session.AgentType, "session", newSessionID, "cwd", cwd)
+
+		// 应用用户在创建会话时选择的模型（configOptions 在激活时才可用，故延迟到此设置）
+		if modelValue := strings.TrimSpace(session.ModelValue); modelValue != "" {
+			if err := s.applyModelValue(ctx, newSessionID, configOptions, modelValue); err != nil {
+				slog.Warn("激活会话-应用用户模型失败", "agent", session.AgentType, "session", newSessionID, "model", modelValue, "err", err)
+			}
+		}
 
 		// 后续使用 ACP sessionID
 		sessionID = newSessionID

@@ -67,6 +67,7 @@ export default function ChatPage() {
   const [error, setError] = useState('')
   const [convState, setConvState] = useState<ConvState>('idle')
   const abortRef = useRef<AbortController | null>(null)
+  const mountedRef = useRef(true)
   const [showWorkspace, setShowWorkspace] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [lastFailedPrompt, setLastFailedPrompt] = useState('')
@@ -281,6 +282,34 @@ export default function ChatPage() {
     }
   }, [user, hasSession, sessionId, loadData, loadHomeData, navState?.createdSession])
 
+  // 当组件卸载或切换到不同会话时，中断旧的 SSE 流，防止内存泄漏和 React 警告
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      if (abortRef.current) {
+        abortRef.current.abort()
+        abortRef.current = null
+      }
+    }
+  }, [sessionId])
+
+  // 定时轮询执行状态：当会话活跃或为定时/分类任务时，每 5 秒刷新消息和执行列表。
+  // 即使前端重启，也能通过 loadData 从数据库获取最新状态。
+  useEffect(() => {
+    if (!hasSession || !session) return
+    const needPoll = session.status === 'active' || session.status === 'pending' ||
+      session.source === 'scheduled' || session.source === 'classify'
+    if (!needPoll) return
+
+    const interval = setInterval(() => {
+      if (!mountedRef.current) return
+      loadData({ quiet: true })
+    }, 5000)
+
+    return () => clearInterval(interval)
+  }, [hasSession, session?.id, session?.status, session?.source, loadData])
+
   useEffect(() => {
     if (loading && !bootstrapSession) return // 新建会话有 bootstrap 数据时不等待 loadData
     if (!activeSession) return
@@ -351,6 +380,7 @@ export default function ChatPage() {
       sessionId,
       prompt,
       (msg) => {
+        if (!mountedRef.current) return
         if (msg.role !== 'user') gotAgentReply = true
         if (msg.kind === 'permission_request') {
           const req = parsePermissionRequest(msg.raw_json)
@@ -371,6 +401,7 @@ export default function ChatPage() {
         setMessages((prev) => [...prev, msg])
       },
       () => {
+        if (!mountedRef.current) return
         abortRef.current = null
         setConvState('idle')
         setPendingPermission(null)
@@ -379,6 +410,7 @@ export default function ChatPage() {
         loadData({ quiet: true })
       },
       async (err) => {
+        if (!mountedRef.current) return
         abortRef.current = null
         setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
         if (isTimeoutError(err)) {
@@ -388,7 +420,7 @@ export default function ChatPage() {
         setConvState('idle')
         setError(err.message)
       },
-      { signal: ac.signal, onActivity: () => setConvState((s) => (s === 'waiting_permission' ? s : 'streaming')) },
+      { signal: ac.signal, onActivity: () => { if (mountedRef.current) setConvState((s) => (s === 'waiting_permission' ? s : 'streaming')) } },
     )
   }
 
