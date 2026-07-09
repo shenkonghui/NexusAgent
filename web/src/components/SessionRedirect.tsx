@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Navigate } from 'react-router-dom'
 import { getSession } from '../api/sessions'
+import { sessionUrl } from '../utils/routes'
 import LoadingSpinner from './LoadingSpinner'
 
 export default function SessionRedirect() {
@@ -8,10 +9,9 @@ export default function SessionRedirect() {
   const [target, setTarget] = useState<string | null>(null)
 
   useEffect(() => {
-    getSession(Number(id)).then(r => {
-      const wid = r.data.workspace_id
-      if (wid) setTarget(`/workspaces/${wid}/sessions/${id}`)
-      else setTarget('/')
+    const sid = Number(id)
+    getSession(sid).then(r => {
+      setTarget(sessionUrl(sid, r.data.workspace_id))
     }).catch(() => setTarget('/'))
   }, [id])
 

@@ -17,3 +17,19 @@ dist/
 *.zip
 *.exe
 *.app
+
+# electron client
+electron/node_modules/
+electron/dist/
+electron/out/
+
+# tools & system files
+.DS_Store
+.superpowers/
+.zcode/
+config.yaml.bak
+
+# build artifacts (binaries)
+nexusagent
+server
+registry.json

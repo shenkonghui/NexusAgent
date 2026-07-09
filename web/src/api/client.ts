@@ -1,4 +1,5 @@
 import type { ApiError } from '../types'
+import { logger } from '../utils/logger'
 
 // baseURL 从环境变量读取，默认 /api/v1
 const BASE_URL = import.meta.env.VITE_API_BASE || '/api/v1'
@@ -77,12 +78,14 @@ export async function apiFetch<T>(
       }
       resp = await fetch(`${BASE_URL}${path}`, { ...fetchOptions, headers })
     } else {
+      logger.warn('api', `${fetchOptions.method || 'GET'} ${path} → 401 认证过期`)
       clearTokensAndRedirect(!skipAuthRedirect)
       throw new Error('认证已过期，请重新登录')
     }
   }
 
   if (!resp.ok) {
+    logger.warn('api', `${fetchOptions.method || 'GET'} ${path} → ${resp.status}`)
     let errMsg = `请求失败 (${resp.status})`
     let errCode = 'UNKNOWN'
     try {

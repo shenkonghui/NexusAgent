@@ -102,6 +102,33 @@ func TestAgentConfigHandler_Create_And_List(t *testing.T) {
 	}
 }
 
+func TestAgentConfigHandler_Create_WithEnv(t *testing.T) {
+	r, _, _ := newAgentConfigTestRouter(t)
+
+	w := doJSON(t, r, "POST", "/api/v1/agent-configs", gin.H{
+		"type": "codebuddy", "display_name": "CodeBuddy", "command": "codebuddy",
+		"env": map[string]string{
+			"HTTPS_PROXY": "http://127.0.0.1:7890",
+			"NO_PROXY":    "localhost,127.0.0.1",
+		},
+	})
+	if w.Code != http.StatusCreated {
+		t.Fatalf("状态码 = %d, 期望 201, body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Data agentConfigItem `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("解析响应失败: %v", err)
+	}
+	if resp.Data.Env["HTTPS_PROXY"] != "http://127.0.0.1:7890" {
+		t.Errorf("env 往返不正确: %+v", resp.Data.Env)
+	}
+	if resp.Data.Env["NO_PROXY"] != "localhost,127.0.0.1" {
+		t.Errorf("env NO_PROXY 往返不正确: %+v", resp.Data.Env)
+	}
+}
+
 func TestAgentConfigHandler_Create_DuplicateType(t *testing.T) {
 	r, repo, _ := newAgentConfigTestRouter(t)
 	_ = repo.Create(newAgentConfig("devin", "Devin", "devin"))

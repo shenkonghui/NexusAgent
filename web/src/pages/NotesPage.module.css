@@ -1,18 +1,3 @@
-.layout {
-  display: flex;
-  height: 100vh;
-  width: 100vw;
-  overflow: hidden;
-}
-
-.sidebarWrap {
-  width: 240px;
-  flex-shrink: 0;
-  height: 100%;
-  border-right: 1px solid var(--border);
-  overflow: hidden;
-}
-
 .main {
   flex: 1;
   min-width: 0;
@@ -31,6 +16,13 @@
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 
 .title {

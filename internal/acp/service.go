@@ -88,6 +88,24 @@ type Service struct {
 	hcCancel      context.CancelFunc
 	hcWG          sync.WaitGroup
 	shuttingDown  atomic.Bool
+
+	// activePrompts 记录每个会话正在进行的 prompt 广播器，支持多客户端订阅（断点续传重连）。
+	activePrompts map[string]*msgBroadcaster
+	// runningTasks 记录进行中任务，用于服务重启后的中断恢复。
+	runningTasks *repository.RunningTaskRepository
+
+	// taskMetaTrigger 可选：发起任务时异步触发自动打标签 / 标题生成。nil 则跳过。
+	taskMetaTrigger TaskMetaTrigger
+}
+
+// TaskMetaTrigger 由任务元数据服务实现，发起任务时异步调用以打标签和生成标题。
+type TaskMetaTrigger interface {
+	ProcessTask(userID, dbSessionID uint, prompt string)
+}
+
+// SetTaskMetaTrigger 注入任务元数据触发器。
+func (s *Service) SetTaskMetaTrigger(t TaskMetaTrigger) {
+	s.taskMetaTrigger = t
 }
 
 // NewService 创建新的 Service。
@@ -107,6 +125,8 @@ func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig, skillsConfig confi
 		probeCache:    make(map[string][]acp.SessionConfigOption),
 		agentCommands: make(map[string][]acp.AvailableCommand),
 		agentModes:    make(map[string][]acp.SessionMode),
+		activePrompts: make(map[string]*msgBroadcaster),
+		runningTasks:  repository.NewRunningTaskRepository(db),
 		wsConfig:         wsConfig,
 		skillUserDirs:    append([]string(nil), skillsConfig.UserDirs...),
 		skillProjectDirs: append([]string(nil), skillsConfig.ProjectDirs...),
@@ -757,14 +777,69 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 		}
 	}
 
+	// 首次对话时异步触发任务自动打标签 / AI 标题生成（fire-and-forget，不阻塞主对话流）。
+	// 仅在首次对话触发，避免每次追问都重复分类。
+	if s.taskMetaTrigger != nil && session.Title == "" {
+		uid := session.UserID
+		dbID := session.ID
+		p := prompt
+		go s.taskMetaTrigger.ProcessTask(uid, dbID, p)
+	}
+
+	// 创建广播器：当前 prompt 的所有消息经广播器分发，支持多客户端订阅（断点续传重连）。
+	startSeq := s.getNextSequence(session.ID)
+	bc := newMsgBroadcaster(startSeq)
+	s.registerBroadcaster(sessionID, bc)
+
+	// 创建 running_task 记录，用于服务重启后的中断恢复。
+	task := &models.RunningTask{
+		DBSessionID: session.ID,
+		UserID:      session.UserID,
+		Prompt:      prompt,
+		Status:      models.RunningTaskStatusRunning,
+		LastSeq:     startSeq,
+		ExecutionID: executionID,
+		StartedAt:   time.Now(),
+	}
+	if err := s.runningTasks.Create(task); err != nil {
+		slog.Warn("创建 running_task 记录失败", "session", sessionID, "err", err)
+	}
+	finishTask := func(status string) {
+		if task.ID == 0 {
+			return
+		}
+		now := time.Now()
+		if err := s.runningTasks.UpdateStatus(task.ID, status, &now); err != nil {
+			slog.Warn("更新 running_task 状态失败", "task", task.ID, "status", status, "err", err)
+		}
+	}
+
+	// 主订阅者：发起 prompt 的原始请求消费此 channel。
 	out := make(chan models.Message, 256)
 	go func() {
-		defer close(out)
+		defer func() {
+			close(out)
+			bc.close()
+			s.unregisterBroadcaster(sessionID)
+			finishTask(models.RunningTaskStatusDone)
+		}()
 
-		seq := s.getNextSequence(session.ID)
+		seq := startSeq
 		sid := acp.SessionId(sessionID)
 		permCh := conn.Client().RegisterPermissionWaiter(sid)
 		defer conn.Client().UnregisterPermissionWaiter(sid)
+
+		// persistMsg 持久化消息并广播，同步更新 running_task 的 LastSeq。
+		persistMsg := func(msg models.Message) {
+			if err := s.messages.Create(&msg); err != nil {
+				slog.Error("持久化消息失败", "session", sessionID, "sequence", msg.Sequence, "err", err)
+			}
+			bc.broadcast(msg)
+			out <- msg
+			if task.ID != 0 {
+				_ = s.runningTasks.UpdateLastSeq(task.ID, msg.Sequence)
+			}
+		}
 
 		// 持久化用户发送的 prompt 作为 user_message_chunk
 		seq++
@@ -778,8 +853,7 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 		}
 		userMsg := MapUpdate(sessionID, session.ID, seq, userUpdate)
 		userMsg.ExecutionID = executionID
-		_ = s.messages.Create(&userMsg)
-		out <- userMsg
+		persistMsg(userMsg)
 
 		// 读取 agent 返回的 update 流与权限请求，逐条持久化并转发
 		for {
@@ -793,8 +867,7 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 				seq++
 				msg := MapUpdate(sessionID, session.ID, seq, u)
 				msg.ExecutionID = executionID
-				_ = s.messages.Create(&msg)
-				out <- msg
+				persistMsg(msg)
 			case pn, ok := <-permCh:
 				if !ok {
 					continue
@@ -803,8 +876,7 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 				seq++
 				msg := MapPermissionRequest(sessionID, session.ID, seq, pn)
 				msg.ExecutionID = executionID
-				_ = s.messages.Create(&msg)
-				out <- msg
+				persistMsg(msg)
 			}
 		}
 	}()
@@ -822,7 +894,74 @@ func (s *Service) CancelSession(ctx context.Context, sessionID string) error {
 	return conn.Cancel(ctx, sessionID)
 }
 
-// detachSession 从路由表与缓存中移除 session，返回连接池键与是否存在连接。
+// registerBroadcaster 注册指定会话的活跃 prompt 广播器。
+func (s *Service) registerBroadcaster(sessionID string, bc *msgBroadcaster) {
+	s.mu.Lock()
+	s.activePrompts[sessionID] = bc
+	s.mu.Unlock()
+}
+
+// unregisterBroadcaster 移除指定会话的活跃 prompt 广播器。
+func (s *Service) unregisterBroadcaster(sessionID string) {
+	s.mu.Lock()
+	delete(s.activePrompts, sessionID)
+	s.mu.Unlock()
+}
+
+// SubscribeSession 订阅指定会话当前进行中的 prompt 流，用于断点续传。
+// lastSeq 为客户端最后收到的 message sequence；返回值：
+//   - missed: DB 中 sequence > lastSeq 的遗漏消息（需先补发给客户端）
+//   - ch: 实时消息 channel（若无进行中的 prompt 则为 nil）
+//   - 若会话当前无活跃 prompt，返回 missed（补齐尾部）+ nil channel
+func (s *Service) SubscribeSession(sessionID string, lastSeq int) (missed []models.Message, ch <-chan models.Message, err error) {
+	session, err := s.GetSession(sessionID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// 先从 DB 补齐 lastSeq 之后的遗漏消息
+	missed, dbErr := s.messages.FindByDBSessionIDAfter(session.ID, lastSeq)
+	if dbErr != nil {
+		return nil, nil, dbErr
+	}
+
+	// 检查是否有活跃 prompt 广播器
+	s.mu.RLock()
+	bc, ok := s.activePrompts[sessionID]
+	s.mu.RUnlock()
+
+	if !ok || bc == nil {
+		// 无活跃 prompt：仅返回 DB 补齐的消息，channel 为 nil
+		return missed, nil, nil
+	}
+
+	// 订阅广播器，获取订阅时刻的 currentSeq
+	subCh, curSeq := bc.subscribe(256)
+
+	// 从订阅时刻的 currentSeq 之后去重 missed，避免与广播器即将推送的消息重复
+	// （广播器 currentSeq 之后的实时消息会经 channel 推送，missed 只取到 currentSeq）
+	if len(missed) > 0 && curSeq > lastSeq {
+		filtered := missed[:0]
+		for _, m := range missed {
+			if m.Sequence <= curSeq {
+				filtered = append(filtered, m)
+			}
+		}
+		missed = filtered
+	}
+
+	return missed, subCh, nil
+}
+
+// HasActivePrompt 判断指定会话是否有进行中的 prompt。
+func (s *Service) HasActivePrompt(sessionID string) bool {
+	s.mu.RLock()
+	_, ok := s.activePrompts[sessionID]
+	s.mu.RUnlock()
+	return ok
+}
+
+
 func (s *Service) detachSession(sessionID string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -928,9 +1067,62 @@ func (s *Service) UpdateTitle(dbSessionID uint, title string) error {
 	return s.sessions.UpdateTitle(dbSessionID, title)
 }
 
-// RecoverActiveSessions 在服务启动时调用，将所有 active 状态的会话标记为 error。
+// RecoverActiveSessions 在服务启动时调用：
+// 1. 将所有 running 状态的 running_task 标记为 interrupted（服务重启导致 prompt 中断）。
+// 2. 将所有 active 状态的会话标记为 error（agent 进程已随重启终止，内存态丢失）。
+// 用户可通过 ListInterruptedTasks 查看中断任务并手动重发。
 func (s *Service) RecoverActiveSessions() {
-	_ = s.sessions.MarkActiveAsError()
+	if err := s.runningTasks.MarkRunningAsInterrupted(); err != nil {
+		slog.Warn("标记中断任务失败", "err", err)
+	}
+	if err := s.sessions.MarkActiveAsError(); err != nil {
+		slog.Warn("标记活跃会话为 error 失败", "err", err)
+	}
+}
+
+// ListInterruptedTasks 返回指定会话下所有 interrupted 状态的任务。
+func (s *Service) ListInterruptedTasks(dbSessionID uint) ([]models.RunningTask, error) {
+	return s.runningTasks.FindInterruptedByDBSessionID(dbSessionID)
+}
+
+// ListRunningDBSessionIDs 返回指定用户下所有 status=running 的 db_session_id，
+// 供侧边栏展示「哪些会话正在运行」。
+func (s *Service) ListRunningDBSessionIDs(userID uint) ([]uint, error) {
+	return s.runningTasks.FindRunningDBSessionIDsByUser(userID)
+}
+
+// ResumeInterruptedTask 恢复中断的任务：ResumeSession 后重新发送原 prompt。
+// 返回的消息流与普通 Prompt 一致（含 id: sequence，经广播器分发）。
+func (s *Service) ResumeInterruptedTask(ctx context.Context, taskID uint) (<-chan models.Message, error) {
+	task, err := s.runningTasks.FindByID(taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task.Status != models.RunningTaskStatusInterrupted {
+		return nil, fmt.Errorf("任务状态不是 interrupted（当前: %s），无法恢复", task.Status)
+	}
+
+	session, err := s.sessions.FindByID(task.DBSessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 恢复会话（error/closed 状态会重开 ACP session）
+	if _, err := s.ResumeSession(ctx, session.SessionID); err != nil {
+		return nil, fmt.Errorf("恢复会话失败: %w", err)
+	}
+
+	// 重新发送原 prompt（使用重开后的 sessionID）
+	ch, err := s.PromptWithExecution(ctx, session.SessionID, task.Prompt, task.ExecutionID)
+	if err != nil {
+		return nil, fmt.Errorf("重发 prompt 失败: %w", err)
+	}
+
+	// 标记任务已完成（重发后会创建新的 running_task 记录）
+	now := time.Now()
+	_ = s.runningTasks.UpdateStatus(taskID, models.RunningTaskStatusDone, &now)
+
+	return ch, nil
 }
 
 // getNextSequence 获取指定会话当前最大 sequence 值（无消息时返回 0）。

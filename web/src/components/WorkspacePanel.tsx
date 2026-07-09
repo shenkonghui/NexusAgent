@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
+import type { ReactNode } from 'react'
 import type { Message } from '../types'
 import FilePanel from './FilePanel'
 import ChangesPanel from './ChangesPanel'
 import TerminalPanel from './Terminal'
+import { Folder, SquareTerminal, Pencil, PanelRightClose } from 'lucide-react'
 import styles from './WorkspacePanel.module.css'
 
 type TabKey = 'files' | 'terminal' | 'changes'
@@ -36,10 +38,10 @@ export default function WorkspacePanel({
     }
   }, [changesCount, autoSwitched])
 
-  const tabs: { key: TabKey; label: string; icon: string; badge?: number }[] = [
-    { key: 'files', label: '文件', icon: '📁' },
-    { key: 'terminal', label: '终端', icon: '⌨' },
-    { key: 'changes', label: '改动', icon: '✎', badge: changesCount },
+  const tabs: { key: TabKey; label: string; icon: ReactNode; badge?: number }[] = [
+    { key: 'files', label: '文件', icon: <Folder size={14} /> },
+    { key: 'terminal', label: '终端', icon: <SquareTerminal size={14} /> },
+    { key: 'changes', label: '改动', icon: <Pencil size={14} />, badge: changesCount },
   ]
 
   return (
@@ -65,7 +67,7 @@ export default function WorkspacePanel({
             onClick={onClose}
             title="折叠工作区"
           >
-            ▶
+            <PanelRightClose size={16} />
           </button>
         </div>
       </div>

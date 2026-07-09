@@ -197,6 +197,15 @@ func (r *Router) Prompt(ctx context.Context, sessionID, prompt string) (<-chan m
 	return r.service.Prompt(ctx, sessionID, prompt)
 }
 
+// RunPromptOnce 在临时 ACP 会话中发送 prompt 并收集 assistant 文本，不落库。
+// 用于任务自动打标签 / 标题生成等一次性 AI 调用。
+func (r *Router) RunPromptOnce(ctx context.Context, agentType, modelValue, prompt string) (string, error) {
+	if r.service == nil {
+		return "", errors.New("service 未配置")
+	}
+	return r.service.RunPromptOnce(ctx, agentType, modelValue, prompt)
+}
+
 func (r *Router) PromptWithExecution(ctx context.Context, sessionID, prompt string, executionID *uint) (<-chan models.Message, error) {
 	if r.service == nil {
 		return nil, errors.New("service 未配置")
@@ -337,4 +346,46 @@ func (r *Router) DeleteSessionWithMessages(session *models.Session) error {
 		return errors.New("service 未配置")
 	}
 	return r.service.DeleteSessionWithMessages(session)
+}
+
+// ====== 流续传与中断任务恢复 delegation methods ======
+
+// SubscribeSession 订阅会话当前进行中的 prompt 流（断点续传）。
+func (r *Router) SubscribeSession(sessionID string, lastSeq int) ([]models.Message, <-chan models.Message, error) {
+	if r.service == nil {
+		return nil, nil, errors.New("service 未配置")
+	}
+	return r.service.SubscribeSession(sessionID, lastSeq)
+}
+
+// HasActivePrompt 判断会话是否有进行中的 prompt。
+func (r *Router) HasActivePrompt(sessionID string) bool {
+	if r.service == nil {
+		return false
+	}
+	return r.service.HasActivePrompt(sessionID)
+}
+
+// ListInterruptedTasks 返回指定会话下因服务重启而中断的任务。
+func (r *Router) ListInterruptedTasks(dbSessionID uint) ([]models.RunningTask, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.ListInterruptedTasks(dbSessionID)
+}
+
+// ResumeInterruptedTask 恢复中断的任务。
+func (r *Router) ResumeInterruptedTask(ctx context.Context, taskID uint) (<-chan models.Message, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.ResumeInterruptedTask(ctx, taskID)
+}
+
+// ListRunningDBSessionIDs 返回指定用户下所有正在运行的 db_session_id。
+func (r *Router) ListRunningDBSessionIDs(userID uint) ([]uint, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.ListRunningDBSessionIDs(userID)
 }

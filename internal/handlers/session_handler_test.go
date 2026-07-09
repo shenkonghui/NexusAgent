@@ -179,6 +179,20 @@ func (f *fakeSessionStore) GetWorkspaceCwd(workspaceID uint) (string, error) {
 	return "/tmp", nil
 }
 
+func (f *fakeSessionStore) SubscribeSession(_ string, _ int) ([]models.Message, <-chan models.Message, error) {
+	return nil, nil, nil
+}
+
+func (f *fakeSessionStore) HasActivePrompt(_ string) bool { return false }
+
+func (f *fakeSessionStore) ListInterruptedTasks(_ uint) ([]models.RunningTask, error) {
+	return nil, nil
+}
+
+func (f *fakeSessionStore) ResumeInterruptedTask(_ context.Context, _ uint) (<-chan models.Message, error) {
+	return nil, nil
+}
+
 // closeNotifyRecorder 包装 httptest.ResponseRecorder，补充 CloseNotifier 接口以兼容 Gin 的 c.Stream。
 type closeNotifyRecorder struct {
 	*httptest.ResponseRecorder
@@ -553,6 +567,14 @@ func (s *commandsFakeStore) Prompt(context.Context, string, string) (<-chan mode
 	return nil, nil
 }
 func (s *commandsFakeStore) GetWorkspaceCwd(uint) (string, error) { return "/tmp", nil }
+func (s *commandsFakeStore) SubscribeSession(string, int) ([]models.Message, <-chan models.Message, error) {
+	return nil, nil, nil
+}
+func (s *commandsFakeStore) HasActivePrompt(string) bool                        { return false }
+func (s *commandsFakeStore) ListInterruptedTasks(uint) ([]models.RunningTask, error) { return nil, nil }
+func (s *commandsFakeStore) ResumeInterruptedTask(context.Context, uint) (<-chan models.Message, error) {
+	return nil, nil
+}
 
 func TestSessionHandler_Prompt_Empty(t *testing.T) {
 	store := newFakeSessionStore()

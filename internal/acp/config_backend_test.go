@@ -102,3 +102,58 @@ func TestConfigBackendFromParams(t *testing.T) {
 		t.Errorf("args 编码不正确: %s", b.cfg.Args)
 	}
 }
+
+// envInSlice 判断 envs 是否包含指定项。
+func envInSlice(envs []string, want string) bool {
+	for _, e := range envs {
+		if e == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestConfigBackend_EnvInjection(t *testing.T) {
+	t.Setenv("CODEBUDDY_API_KEY", "secret-key")
+	enabled := true
+	cfg := models.AgentConfig{
+		Type:      "codebuddy",
+		Command:   "codebuddy",
+		APIKeyEnv: "CODEBUDDY_API_KEY",
+		Enabled:   &enabled,
+		Env:       `{"HTTPS_PROXY":"http://127.0.0.1:7890","HTTP_PROXY":"http://127.0.0.1:7890"}`,
+	}
+	b := NewConfigBackend(cfg)
+	envs := b.Env()
+
+	// API Key 与自定义环境变量都应被注入
+	if !envInSlice(envs, "CODEBUDDY_API_KEY=secret-key") {
+		t.Errorf("缺少 API Key 注入: %+v", envs)
+	}
+	if !envInSlice(envs, "HTTPS_PROXY=http://127.0.0.1:7890") {
+		t.Errorf("缺少 HTTPS_PROXY 注入: %+v", envs)
+	}
+	if !envInSlice(envs, "HTTP_PROXY=http://127.0.0.1:7890") {
+		t.Errorf("缺少 HTTP_PROXY 注入: %+v", envs)
+	}
+}
+
+func TestConfigBackend_EnvInvalidJSON(t *testing.T) {
+	// 非法 JSON 的 Env 不应 panic，且不影响其它注入。
+	b := NewConfigBackend(models.AgentConfig{
+		Type:    "x",
+		Command: "x",
+		Env:     "not-json",
+	})
+	envs := b.Env()
+	if len(envs) != 0 {
+		t.Errorf("非法 Env 应产生 0 个变量, 实际 %+v", envs)
+	}
+}
+
+func TestConfigBackend_EnvEmpty(t *testing.T) {
+	b := NewConfigBackend(models.AgentConfig{Type: "x", Command: "x", Env: ""})
+	if got := b.Env(); len(got) != 0 {
+		t.Errorf("空 Env 应返回空切片, 实际 %+v", got)
+	}
+}

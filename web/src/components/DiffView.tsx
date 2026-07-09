@@ -10,6 +10,7 @@ import {
   type FileDiff,
   type DiffLine,
 } from '../utils/diff'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import styles from './DiffView.module.css'
 
 interface DiffViewProps {
@@ -77,7 +78,7 @@ function FileDiffCard({
         role="button"
         tabIndex={0}
       >
-        <span className={styles.arrow}>{expanded ? '▾' : '▸'}</span>
+        <span className={styles.arrow}>{expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
         <span className={styles.filePath} title={diff.path}>
           {shortPath(relPath, 3)}
         </span>

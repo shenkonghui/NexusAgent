@@ -35,6 +35,16 @@ func (r *MessageRepository) FindByDBSessionID(dbSessionID uint) ([]models.Messag
 	return messages, err
 }
 
+// FindByDBSessionIDAfter 查询指定会话中 sequence 大于 afterSeq 的消息，按 sequence 升序排列。
+// 用于 SSE 断点续传：客户端携带 Last-Event-ID 重连时，补齐遗漏的消息。
+func (r *MessageRepository) FindByDBSessionIDAfter(dbSessionID uint, afterSeq int) ([]models.Message, error) {
+	var messages []models.Message
+	err := r.db.Where("db_session_id = ? AND sequence > ?", dbSessionID, afterSeq).
+		Order("sequence ASC").
+		Find(&messages).Error
+	return messages, err
+}
+
 // DeleteByDBSessionID 删除指定会话的全部消息。
 func (r *MessageRepository) DeleteByDBSessionID(dbSessionID uint) error {
 	return r.db.Where("db_session_id = ?", dbSessionID).

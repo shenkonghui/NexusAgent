@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { listDirs, type DirEntry } from '../api/filesystem'
 import LoadingSpinner from './LoadingSpinner'
+import { X, ArrowUp, Folder } from 'lucide-react'
 import styles from './DirectoryPicker.module.css'
 
 interface DirectoryPickerProps {
@@ -52,7 +53,7 @@ export default function DirectoryPicker({ initialPath, onSelect, onClose }: Dire
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <h3 className={styles.title}>选择工作目录</h3>
-          <button className={styles.closeBtn} onClick={onClose} type="button">×</button>
+          <button className={styles.closeBtn} onClick={onClose} type="button"><X size={16} /></button>
         </div>
 
         {/* 当前路径 + 返回上级 */}
@@ -64,7 +65,7 @@ export default function DirectoryPicker({ initialPath, onSelect, onClose }: Dire
             type="button"
             title="返回上级目录"
           >
-            ↑ 上级
+            <ArrowUp size={14} style={{ verticalAlign: '-2px' }} /> 上级
           </button>
           <span className={styles.currentPath} title={currentPath}>{currentPath}</span>
         </div>
@@ -86,7 +87,7 @@ export default function DirectoryPicker({ initialPath, onSelect, onClose }: Dire
                 type="button"
                 title={dir.path}
               >
-                <span className={styles.dirIcon}>📁</span>
+                <span className={styles.dirIcon}><Folder size={14} /></span>
                 <span className={styles.dirName}>{dir.name}</span>
               </button>
             ))

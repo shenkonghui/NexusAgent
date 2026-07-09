@@ -411,6 +411,14 @@ export default function PromptInput({
     setSelectedIdx(0)
   }, [activeRows.length, trigger.query, mentionCategory, noteBrowseTag, fileBrowsePath])
 
+  // 根据内容自动撑高 textarea：始终至少容纳 rows 行，内容增多时随之增长，上限由 CSS max-height 控制
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [text])
+
   function goBack() {
     if (noteBrowseTag) {
       setNoteBrowseTag('')

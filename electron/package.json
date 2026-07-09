@@ -1,0 +1,105 @@
+{
+  "name": "nexusagent-electron",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NexusAgent Electron desktop client (launches the Go backend and loads its web UI)",
+  "author": "NexusAgent",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.0"
+  },
+  "build": {
+    "appId": "com.nexusagent.app",
+    "productName": "NexusAgent",
+    "directories": {
+      "output": "dist",
+      "buildResources": "."
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "icon.png"
+    ],
+    "extraResources": [
+      {
+        "from": "../web/dist",
+        "to": "web",
+        "filter": [
+          "**"
+        ]
+      },
+      {
+        "from": "../config.yaml",
+        "to": "config.yaml"
+      }
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "icon.png",
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": false,
+      "extraResources": [
+        {
+          "from": "../nexusagent",
+          "to": "backend/nexusagent",
+          "filter": [
+            "**"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.png",
+      "category": "Development",
+      "extraResources": [
+        {
+          "from": "../nexusagent",
+          "to": "backend/nexusagent",
+          "filter": [
+            "**"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.png",
+      "extraResources": [
+        {
+          "from": "../nexusagent.exe",
+          "to": "backend/nexusagent.exe",
+          "filter": [
+            "**"
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -4,12 +4,13 @@ import { useRequireAuth } from '../hooks/useRequireAuth'
 import { useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
 import { listNotes, listNoteTags, createNote, updateNote, deleteNote } from '../api/notes'
 import type { Note } from '../types'
-import SessionSidebar from '../components/SessionSidebar'
+import AppLayout, { SidebarToggleButton } from '../components/AppLayout'
 import UserMenu from '../components/UserMenu'
 import ErrorBanner from '../components/ErrorBanner'
 import LoadingSpinner from '../components/LoadingSpinner'
 import MarkdownContent from '../components/MarkdownContent'
 import { formatTimeAgo } from '../utils/time'
+import { Pencil, X } from 'lucide-react'
 import styles from './NotesPage.module.css'
 
 export default function NotesPage() {
@@ -131,13 +132,13 @@ export default function NotesPage() {
   if (authLoading || !user) return <LoadingSpinner />
 
   return (
-    <div className={styles.layout}>
-      <div className={styles.sidebarWrap}>
-        <SessionSidebar sessions={sessions} workspaceId={workspaceId} />
-      </div>
+    <AppLayout sidebarProps={{ sessions, workspaceId }}>
       <div className={styles.main}>
         <header className={styles.header}>
-          <h1 className={styles.title}>{t('notes.title')}</h1>
+          <div className={styles.headerLeft}>
+            <SidebarToggleButton />
+            <h1 className={styles.title}>{t('notes.title')}</h1>
+          </div>
           <UserMenu />
         </header>
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}
@@ -212,7 +213,7 @@ export default function NotesPage() {
           </>
         )}
       </div>
-    </div>
+    </AppLayout>
   )
 }
 
@@ -304,7 +305,7 @@ function NoteCard({
               onClick={() => setEditing(true)}
               title={t('common.edit')}
             >
-              ✎
+              <Pencil size={14} />
             </button>
           )}
           <button
@@ -314,7 +315,7 @@ function NoteCard({
             title={t('common.delete')}
             disabled={editing}
           >
-            ×
+            <X size={14} />
           </button>
         </div>
       </div>

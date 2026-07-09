@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ConfigOptionValue } from '../types'
+import { ChevronUp, ChevronDown } from 'lucide-react'
 import styles from './ModelPicker.module.css'
 
 interface ModelPickerProps {
@@ -68,7 +69,7 @@ export default function ModelPicker({ value, options, onChange, disabled, placeh
         <span className={`${styles.triggerLabel} ${!triggerLabel ? styles.triggerPlaceholder : ''}`}>
           {triggerLabel || placeholder || t('session.selectModel')}
         </span>
-        <span className={styles.arrow}>{open ? '▲' : '▼'}</span>
+        <span className={styles.arrow}>{open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</span>
       </button>
 
       {open && (

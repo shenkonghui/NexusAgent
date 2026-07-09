@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import DirectoryPicker from './DirectoryPicker'
+import { X, Plus } from 'lucide-react'
 import styles from './CreateWorkspaceDialog.module.css'
 
 interface Props {
@@ -59,13 +60,13 @@ export default function CreateWorkspaceDialog({ onSubmit, onClose, initialName, 
               <div key={d} className={styles.dirItem}>
                 <span className={styles.dirItemPath} title={d}>{d}</span>
                 <button type="button" className={styles.dirItemRemove}
-                  onClick={() => removeDirectory(d)}>×</button>
+                  onClick={() => removeDirectory(d)}><X size={14} /></button>
               </div>
             ))}
           </div>
         )}
         <button type="button" className={styles.addDirBtn}
-          onClick={() => setDirPickerMode('additional')}>+ 添加附加目录</button>
+          onClick={() => setDirPickerMode('additional')}><Plus size={14} style={{ verticalAlign: '-2px' }} /> 添加附加目录</button>
 
         <div className={styles.actions}>
           <button type="button" onClick={onClose}>取消</button>

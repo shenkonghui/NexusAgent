@@ -64,6 +64,12 @@ func (r *SessionRepository) UpdateTitle(id uint, title string) error {
 		Update("title", title).Error
 }
 
+// UpdateTags 更新会话标签（JSON 数组字符串）。
+func (r *SessionRepository) UpdateTags(id uint, tags string) error {
+	return r.db.Model(&models.Session{}).Where("id = ?", id).
+		Update("tags", tags).Error
+}
+
 func (r *SessionRepository) MarkActiveAsError() error {
 	return r.db.Model(&models.Session{}).
 		Where("status = ?", models.SessionStatusActive).

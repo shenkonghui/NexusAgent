@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuthContext } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
+import { ChevronUp, ChevronDown, User, Sun, Moon, LogOut } from 'lucide-react'
 import styles from './UserMenu.module.css'
 
 export default function UserMenu() {
@@ -49,21 +50,21 @@ export default function UserMenu() {
       >
         <span className={styles.avatar}>{user.username.charAt(0).toUpperCase()}</span>
         <span className={styles.username}>{user.username}</span>
-        <span className={styles.arrow}>{open ? '▲' : '▼'}</span>
+        <span className={styles.arrow}>{open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</span>
       </button>
       {open && (
         <div className={styles.dropdown}>
           <button type="button" className={styles.menuItem} onClick={handleProfile}>
-            <span className={styles.menuIcon}>👤</span>
+            <span className={styles.menuIcon}><User size={14} /></span>
             {t('nav.profile')}
           </button>
           <button type="button" className={styles.menuItem} onClick={handleToggleTheme}>
-            <span className={styles.menuIcon}>{theme === 'dark' ? '☀️' : '🌙'}</span>
-            {theme === 'dark' ? '☀️ ' + t('theme.light') : '🌙 ' + t('theme.dark')}
+            <span className={styles.menuIcon}>{theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}</span>
+            {theme === 'dark' ? t('theme.light') : t('theme.dark')}
           </button>
           <div className={styles.divider} />
           <button type="button" className={styles.menuItem} onClick={handleLogout}>
-            <span className={styles.menuIcon}>🚪</span>
+            <span className={styles.menuIcon}><LogOut size={14} /></span>
             {t('nav.logout')}
           </button>
         </div>

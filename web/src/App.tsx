@@ -16,7 +16,8 @@ function WorkspaceHomeRedirect() {
   useEffect(() => {
     if (wid) localStorage.setItem(WORKSPACE_STORAGE_KEY, wid)
   }, [wid])
-  return <Navigate to="/" replace />
+  // 重定向到该工作区的任务列表
+  return <Navigate to={wid ? `/workspaces/${wid}/tasks` : '/'} replace />
 }
 
 export default function App() {
@@ -29,6 +30,8 @@ export default function App() {
           <Route path="/new" element={<ChatPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/workspaces/:wid" element={<WorkspaceHomeRedirect />} />
+          <Route path="/workspaces/:wid/tasks" element={<ChatPage />} />
+          <Route path="/workspaces/:wid/tasks/new" element={<ChatPage />} />
           <Route path="/workspaces/:wid/sessions/:sid" element={<ChatPage />} />
           <Route path="/sessions/:id" element={<SessionRedirect />} />
           <Route path="/scheduled-tasks" element={<ScheduledTasksPage />} />

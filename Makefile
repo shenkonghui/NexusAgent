@@ -1,7 +1,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -ldflags="-s -w -X main.version=$(VERSION)"
 
-.PHONY: dev backend frontend build run test clean release release-dry docker-build docker-up docker-down docker-logs
+.PHONY: dev backend frontend build run test clean release release-dry docker-build docker-up docker-down docker-logs electron-dev electron-dist electron-install electron-uninstall
 
 # 一键启动前后端开发服务器
 # 用法: make dev
@@ -161,3 +161,74 @@ docker-down:
 # 用法: make docker-logs
 docker-logs:
 	@docker compose logs -f
+
+# ============================================================================
+# Electron 桌面客户端（与 Pake 并存）
+# 前端/后端均无改动：Electron 壳启动 Go 后端(release 模式)并加载同源页面。
+# 依赖: Node >= 20 (首次运行会 npm install electron + electron-builder)
+# ============================================================================
+
+# 开发运行：先 make build 出后端二进制 + web/dist，再拉起 Electron 窗口
+# 用法: make electron-dev
+electron-dev: build
+	@echo "==> 启动 Electron 客户端（开发模式）"
+	@cd electron && npm install --no-audit --no-fund && npm start
+
+# 打包当前平台桌面应用（macOS 产出 dmg / Linux 产出 AppImage / Windows 产出 nsis）
+# 用法: make electron-dist
+electron-dist: build
+	@echo "==> 打包 Electron 桌面应用"
+	@cd electron && npm install --no-audit --no-fund && npm run dist
+	@echo "✅ Electron 桌面应用: electron/dist/"
+
+# 安装到本机（macOS：复制到 /Applications；未签名应用会自动清除隔离属性）
+# 用法: make electron-install
+electron-install: electron-dist
+ifeq ($(shell uname -s),Darwin)
+	@echo "==> 安装 NexusAgent 到 /Applications"
+	@osascript -e 'quit app "NexusAgent"' 2>/dev/null || true
+	@sleep 1
+	@bash -c '\
+		APP_SRC=$$(ls -d electron/dist/mac-*/NexusAgent.app 2>/dev/null | head -1); \
+		if [ -z "$$APP_SRC" ]; then echo "❌ 未找到打包产物，请先 make electron-dist"; exit 1; fi; \
+		echo "   源: $$APP_SRC"; \
+		if [ -d /Applications/NexusAgent.app ]; then \
+		  if [ -w /Applications ]; then rm -rf /Applications/NexusAgent.app; \
+		  else sudo rm -rf /Applications/NexusAgent.app; fi; \
+		fi; \
+		if [ -w /Applications ]; then cp -R "$$APP_SRC" /Applications/; \
+		else echo "   /Applications 需要管理员权限:"; sudo cp -R "$$APP_SRC" /Applications/; fi; \
+		xattr -cr /Applications/NexusAgent.app 2>/dev/null || sudo xattr -cr /Applications/NexusAgent.app; \
+		/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+		  -f /Applications/NexusAgent.app 2>/dev/null || true; \
+		echo "✅ 已安装到 /Applications/NexusAgent.app"; \
+		echo "   启动: make electron-run  或  open /Applications/NexusAgent.app"'
+else
+	@echo "❌ make electron-install 仅支持 macOS，Linux 请用 make electron-dist 产出 AppImage 后直接运行"
+endif
+
+# 卸载已安装的 NexusAgent
+# 用法: make electron-uninstall
+electron-uninstall:
+ifeq ($(shell uname -s),Darwin)
+	@-osascript -e 'quit app "NexusAgent"' 2>/dev/null || true
+	@if [ -d /Applications/NexusAgent.app ]; then \
+	  if [ -w /Applications ]; then rm -rf /Applications/NexusAgent.app; \
+	  else sudo rm -rf /Applications/NexusAgent.app; fi; \
+	  echo "✅ 已卸载 /Applications/NexusAgent.app"; \
+	else echo "ℹ️  /Applications/NexusAgent.app 不存在，无需卸载"; fi
+else
+	@echo "❌ make electron-uninstall 仅支持 macOS"
+endif
+
+# 启动已安装到 /Applications 的 NexusAgent
+# 用法: make electron-run
+electron-run:
+ifeq ($(shell uname -s),Darwin)
+	@if [ -d /Applications/NexusAgent.app ]; then \
+	  open /Applications/NexusAgent.app; \
+	  echo "✅ 已启动 /Applications/NexusAgent.app"; \
+	else echo "❌ 未安装，请先 make electron-install"; fi
+else
+	@echo "❌ make electron-run 仅支持 macOS"
+endif

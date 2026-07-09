@@ -1,13 +1,15 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import i18n from '../i18n'
 import { formatTimeAgo } from '../utils/time'
+import { sessionUrl, tasksUrl, newTaskUrl, isTasksPath } from '../utils/routes'
 import type { Session, ScheduledTask, AgentStatus } from '../types'
 import { listScheduledTasks } from '../api/scheduledTasks'
 import { listAgentStatus } from '../api/agents'
-import { listSessions } from '../api/sessions'
+import { listSessions, listRunningSessions } from '../api/sessions'
+import { PanelLeftClose, Star, Pencil, X, Check, Plus, FileText, Calendar, ClipboardList, Timer, Tag, Settings, Zap, ScrollText, Loader2, CheckCircle2, XCircle, Clock3, CircleDashed } from 'lucide-react'
 import styles from './SessionSidebar.module.css'
+import LogPanel from './LogPanel'
 
 interface SessionSidebarProps {
   sessions: Session[]
@@ -21,12 +23,6 @@ interface SessionSidebarProps {
 
 const STORAGE_KEY = 'nexus.sidebar.collapsed'
 const FAVS_KEY = 'nexus.favorites'
-
-// 直接构造会话最终 URL，避免经过 SessionRedirect 的中间跳转
-function sessionUrl(sessionId: number, workspaceId?: number | null): string {
-  if (workspaceId) return `/workspaces/${workspaceId}/sessions/${sessionId}`
-  return `/sessions/${sessionId}`
-}
 
 function loadCollapsed(): { favorites: boolean; manual: boolean; scheduled: boolean } {
   try {
@@ -48,33 +44,44 @@ function saveFavorites(ids: number[]) {
   try { localStorage.setItem(FAVS_KEY, JSON.stringify(ids)) } catch { /* ignore */ }
 }
 
+function TaskStatusIcon({ status }: { status: string }) {
+  const size = 13
+  const cls = styles.taskStatusIcon
+  if (status === 'running') return <Loader2 size={size} className={`${cls} ${styles.taskStatusIconSpin}`} />
+  if (status === 'success') return <CheckCircle2 size={size} className={`${cls} ${styles.taskStatusIconSuccess}`} />
+  if (status === 'failed') return <XCircle size={size} className={`${cls} ${styles.taskStatusIconFailed}`} />
+  if (status === 'skipped') return <Clock3 size={size} className={`${cls} ${styles.taskStatusIconSkipped}`} />
+  return <CircleDashed size={size} className={`${cls} ${styles.taskStatusIconIdle}`} />
+}
+
+// SessionStatusIcon 普通会话的实时运行状态图标：
+// 运行中(agent 正在生成)→ 蓝色旋转；error → 红色叉；否则 → 灰色对勾(完成/空闲)。
+function SessionStatusIcon({ running, status }: { running: boolean; status: string }) {
+  const size = 13
+  const cls = styles.taskStatusIcon
+  if (running) return <Loader2 size={size} className={`${cls} ${styles.taskStatusIconSpin}`} />
+  if (status === 'error') return <XCircle size={size} className={`${cls} ${styles.taskStatusIconFailed}`} />
+  return <CheckCircle2 size={size} className={`${cls} ${styles.taskStatusIconIdle}`} />
+}
+
 export default function SessionSidebar({ sessions, workspaceId, currentId, onDelete, onRename, onCollapse, onNewScheduledTask }: SessionSidebarProps) {
   const { t } = useTranslation()
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [showLangMenu, setShowLangMenu] = useState(false)
-  const langRef = useRef<HTMLDivElement>(null)
+  const [showLogs, setShowLogs] = useState(false)
   const [editTitle, setEditTitle] = useState('')
   const location = useLocation()
   const navigate = useNavigate()
-  const isSessionList = location.pathname === '/'
+  const isSessionList = isTasksPath(location.pathname, workspaceId)
 
   const [collapsed, setCollapsed] = useState(loadCollapsed)
   const [favorites, setFavorites] = useState<number[]>(loadFavorites)
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
   const [agentStatuses, setAgentStatuses] = useState<AgentStatus[]>([])
+  const [runningIds, setRunningIds] = useState<Set<number>>(() => new Set())
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(collapsed)) } catch { /* ignore */ }
   }, [collapsed])
-
-  useEffect(() => {
-    if (!showLangMenu) return
-    function handleClick(e: MouseEvent) {
-      if (langRef.current && !langRef.current.contains(e.target as Node)) setShowLangMenu(false)
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [showLangMenu])
 
   useEffect(() => {
     let alive = true
@@ -90,6 +97,9 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
       listAgentStatus()
         .then((r) => { if (alive) setAgentStatuses(r.data.agents || []) })
         .catch(() => { if (alive) setAgentStatuses([]) })
+      listRunningSessions()
+        .then((r) => { if (alive) setRunningIds(new Set(r.data.db_session_ids || [])) })
+        .catch(() => {})
     }
     load()
     const timer = setInterval(load, 3000)
@@ -146,17 +156,16 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
 
   return (
     <div className={styles.sidebar}>
-      <Link to="/" className={styles.logo} title={t('nav.sessionList')}>
-        <span className={styles.logoIcon}>⚡</span>
+      <Link to={tasksUrl(workspaceId)} className={styles.logo} title={t('nav.sessionList')}>
         <span className={styles.logoText}>NexusAgent</span>
         {onCollapse && (
           <button
             type="button"
             className={styles.collapseBtn}
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); onCollapse() }}
-            title={t('common.close')}
+            title={t('common.close') + ' (⌘B)'}
           >
-            ◀
+            <PanelLeftClose size={16} />
           </button>
         )}
       </Link>
@@ -165,9 +174,8 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
         {/* 收藏任务 */}
         <div className={styles.group}>
           <button type="button" className={styles.groupHeader} onClick={() => toggleGroup('favorites')}>
-            <span className={styles.groupTitle}>⭐ {t('session.favGroup')}</span>
-            <span className={styles.groupCount}>{favoriteSessions.length}</span>
-            <span className={styles.groupArrow}>{collapsed.favorites ? '▶' : '▼'}</span>
+            <span className={styles.groupTitle}><Star size={13} style={{ marginRight: 4, verticalAlign: '-2px' }} />{t('session.favGroup')}</span>
+
           </button>
           {!collapsed.favorites && (
             <div className={styles.groupList}>
@@ -178,7 +186,10 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
                   <div key={session.id} className={`${styles.item} ${currentId === session.id ? styles.itemActive : ''}`}>
                     <Link to={sessionUrl(session.id, session.workspace_id)} className={styles.itemLink}>
                       <div className={styles.itemRow}>
-                        <span className={styles.itemTitle}>{session.title || session.agent_type}</span>
+                        <span className={styles.itemTitle}>
+                          <SessionStatusIcon running={runningIds.has(session.id)} status={session.status} />
+                          {session.title || session.agent_type}
+                        </span>
                         <span className={styles.itemTime}>{formatTimeAgo(session.created_at, t)}</span>
                       </div>
                     </Link>
@@ -186,7 +197,7 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
                       <button type="button" className={styles.favBtnActive}
                         title={t('session.favorited')}
                         onClick={(e) => toggleFavorite(session.id, e)}
-                      >★</button>
+                      ><Star size={13} fill="currentColor" strokeWidth={0} /></button>
                     </div>
                   </div>
                 ))
@@ -197,15 +208,14 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
 
         <div className={styles.group}>
           <button type="button" className={styles.groupHeader} onClick={() => toggleGroup('manual')}>
-            <span className={styles.groupTitle}>📝 {t('session.title')}</span>
-            <span className={styles.groupCount}>{manualSessions.length}</span>
+            <span className={styles.groupTitle}><FileText size={13} style={{ marginRight: 4, verticalAlign: '-2px' }} />{t('session.title')}</span>
+
             <span
               className={styles.addBtn} role="button" tabIndex={0}
               title={t('session.newSession')}
-              onClick={(e) => { e.stopPropagation(); navigate('/new') }}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); navigate('/new') } }}
-            >+</span>
-            <span className={styles.groupArrow}>{collapsed.manual ? '▶' : '▼'}</span>
+              onClick={(e) => { e.stopPropagation(); navigate(newTaskUrl(workspaceId)) }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); navigate(newTaskUrl(workspaceId)) } }}
+            ><Plus size={14} /></span>
           </button>
           {!collapsed.manual && (
             <div className={styles.groupList}>
@@ -224,13 +234,16 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
                           }} autoFocus />
                         <button type="button" className={styles.editOkBtn}
                           onClick={() => { const t = editTitle.trim(); if (t && onRename) onRename(session.id, t); setEditingId(null) }}
-                        >✓</button>
+                        ><Check size={13} /></button>
                       </div>
                     ) : (
                       <>
                         <Link to={sessionUrl(session.id, session.workspace_id)} className={styles.itemLink}>
                           <div className={styles.itemRow}>
-                            <span className={styles.itemTitle}>{session.title || session.agent_type}</span>
+                            <span className={styles.itemTitle}>
+                              <SessionStatusIcon running={runningIds.has(session.id)} status={session.status} />
+                              {session.title || session.agent_type}
+                            </span>
                             <span className={styles.itemTime}>{formatTimeAgo(session.created_at, t)}</span>
                           </div>
                         </Link>
@@ -238,12 +251,12 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
                           <button type="button" className={favorites.includes(session.id) ? styles.favBtnActive : styles.favBtn}
                             title={favorites.includes(session.id) ? t('session.favorited') : t('session.unfavorited')}
                             onClick={(e) => toggleFavorite(session.id, e)}
-                          >{favorites.includes(session.id) ? '★' : '☆'}</button>
+                          >{favorites.includes(session.id) ? <Star size={13} fill="currentColor" strokeWidth={0} /> : <Star size={13} />}</button>
                           {onRename && (
                             <button type="button" className={styles.renameBtn}
                               title={t('common.rename')} aria-label={t('common.rename')}
                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditTitle(session.title || session.agent_type); setEditingId(session.id) }}
-                            >✎</button>
+                            ><Pencil size={13} /></button>
                           )}
                           {onDelete && (
                             <button type="button" className={styles.deleteBtn}
@@ -259,7 +272,7 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
                                   onDelete(session.id)
                                 }
                               }}
-                            >×</button>
+                            ><X size={13} /></button>
                           )}
                         </div>
                       </>
@@ -273,15 +286,14 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
 
         <div className={styles.group}>
           <button type="button" className={styles.groupHeader} onClick={() => toggleGroup('scheduled')}>
-            <span className={styles.groupTitle}>📅 {t('nav.scheduledTasks')}</span>
-            <span className={styles.groupCount}>{tasks.length}</span>
+            <span className={styles.groupTitle}><Calendar size={13} style={{ marginRight: 4, verticalAlign: '-2px' }} />{t('nav.scheduledTasks')}</span>
+
             <span
               className={styles.addBtn} role="button" tabIndex={0}
               title={t('scheduledTask.newTask')}
               onClick={handleNewScheduledTask}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleNewScheduledTask(e) }}
-            >+</span>
-            <span className={styles.groupArrow}>{collapsed.scheduled ? '▶' : '▼'}</span>
+            ><Plus size={14} /></span>
           </button>
           {!collapsed.scheduled && (
             <div className={styles.groupList}>
@@ -290,7 +302,7 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
                   onClick={() => navigate(sessionUrl(recentTask.db_session_id, recentTask.workspace_id))}
                   title={`${t('nav.recentRun')}: ${recentTask.name}`}
                 >
-                  <span className={styles.recentIcon}>⚡</span>
+                  <span className={styles.recentIcon}><Zap size={13} /></span>
                   <span className={styles.recentText}>{t('nav.recentRun')} · {recentTask.name}</span>
                 </button>
               ) : null}
@@ -305,7 +317,10 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
                       style={!task.db_session_id ? { cursor: 'default', opacity: 0.6 } : undefined}
                     >
                       <div className={styles.itemRow}>
-                        <span className={styles.itemTitle}>{task.name}</span>
+                        <span className={styles.itemTitle}>
+                          <TaskStatusIcon status={task.last_status} />
+                          {task.name}
+                        </span>
                         {task.last_run_at && (
                           <span className={styles.itemTime}>{formatTimeAgo(task.last_run_at, t)}</span>
                         )}
@@ -338,16 +353,16 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
       )}
 
       <div className={styles.footer}>
-        <Link to="/" className={`${styles.navItem} ${isSessionList ? styles.navItemActive : ''}`}>
-          <span className={styles.navIcon}>📋</span>
+        <Link to={tasksUrl(workspaceId)} className={`${styles.navItem} ${isSessionList ? styles.navItemActive : ''}`}>
+          <span className={styles.navIcon}><ClipboardList size={15} /></span>
           <span>{t('nav.sessionList')}</span>
         </Link>
         <Link to="/scheduled-tasks" className={`${styles.navItem} ${location.pathname === '/scheduled-tasks' ? styles.navItemActive : ''}`}>
-          <span className={styles.navIcon}>⏰</span>
+          <span className={styles.navIcon}><Timer size={15} /></span>
           <span>{t('nav.scheduledTasks')}</span>
         </Link>
         <Link to="/notes" className={`${styles.navItem} ${location.pathname === '/notes' ? styles.navItemActive : ''}`}>
-          <span className={styles.navIcon}>📝</span>
+          <span className={styles.navIcon}><FileText size={15} /></span>
           <span>{t('nav.notes')}</span>
         </Link>
         {classifySession && (
@@ -355,33 +370,23 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
             to={sessionUrl(classifySession.id, classifySession.workspace_id)}
             className={`${styles.navItem} ${location.pathname === sessionUrl(classifySession.id, classifySession.workspace_id) ? styles.navItemActive : ''}`}
           >
-            <span className={styles.navIcon}>🏷️</span>
+            <span className={styles.navIcon}><Tag size={15} /></span>
             <span>{t('notes.classifyTask')}</span>
           </Link>
         )}
-        <div className={styles.langRow} ref={langRef}>
-          <button type="button" className={`${styles.navItem} ${styles.langBtn}`}
-            onClick={() => setShowLangMenu((v) => !v)}
-          >
-            <span className={styles.navIcon}>🌐</span>
-            <span>{i18n.language === 'zh' ? '中文' : 'English'}</span>
-          </button>
-          {showLangMenu && (
-            <div className={styles.langMenu}>
-              <button type="button" className={`${styles.langMenuItem} ${i18n.language === 'zh' ? styles.langMenuItemActive : ''}`}
-                onClick={() => { i18n.changeLanguage('zh'); localStorage.setItem('nexus-lang', 'zh'); window.location.reload() }}
-              >中文</button>
-              <button type="button" className={`${styles.langMenuItem} ${i18n.language === 'en' ? styles.langMenuItemActive : ''}`}
-                onClick={() => { i18n.changeLanguage('en'); localStorage.setItem('nexus-lang', 'en'); window.location.reload() }}
-              >English</button>
-            </div>
-          )}
-        </div>
+        <button type="button" className={`${styles.navItem} ${showLogs ? styles.navItemActive : ''}`}
+          onClick={() => setShowLogs((v) => !v)}
+        >
+          <span className={styles.navIcon}><ScrollText size={15} /></span>
+          <span>{t('log.openLogs')}</span>
+        </button>
         <Link to="/settings" className={`${styles.navItem} ${location.pathname === '/settings' ? styles.navItemActive : ''}`}>
-          <span className={styles.navIcon}>⚙️</span>
+          <span className={styles.navIcon}><Settings size={15} /></span>
           <span>{t('common.settings')}</span>
         </Link>
       </div>
+
+      {showLogs && <LogPanel onClose={() => setShowLogs(false)} />}
     </div>
   )
 }

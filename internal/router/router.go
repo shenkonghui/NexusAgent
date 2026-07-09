@@ -16,7 +16,7 @@ import (
 	"nexusagent/internal/services"
 )
 
-func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, schedTaskH *handlers.ScheduledTaskHandler, noteH *handlers.NoteHandler, configH *handlers.ConfigHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, rulesCfg config.RulesConfig, mode, webDist string, autoLogin bool) *gin.Engine {
+func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, schedTaskH *handlers.ScheduledTaskHandler, noteH *handlers.NoteHandler, taskSettingsH *handlers.TaskSettingsHandler, configH *handlers.ConfigHandler, logH *handlers.LogHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, rulesCfg config.RulesConfig, mode, webDist string, autoLogin bool) *gin.Engine {
 	gin.SetMode(mode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -62,6 +62,7 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			sessionH := handlers.NewSessionHandler(agentRouter)
 			protected.POST("/sessions", sessionH.Create)
 			protected.GET("/sessions", sessionH.List)
+			protected.GET("/sessions/running", sessionH.RunningSessions)
 			protected.GET("/sessions/:id", sessionH.Get)
 			protected.PUT("/sessions/:id/title", sessionH.UpdateTitle)
 			protected.DELETE("/sessions/:id", sessionH.Delete)
@@ -77,6 +78,10 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			protected.POST("/sessions/:id/config-options", sessionH.SetConfigOption)
 			protected.POST("/sessions/:id/mode", sessionH.SetMode)
 			protected.POST("/sessions/:id/permissions/:requestId/respond", sessionH.RespondPermission)
+			// 流续传与中断任务恢复
+			protected.GET("/sessions/:id/stream", sessionH.Stream)
+			protected.GET("/sessions/:id/interrupted-tasks", sessionH.InterruptedTasks)
+			protected.POST("/running-tasks/:taskId/resume", sessionH.ResumeInterruptedTask)
 
 			// Workspace 路由
 			workspaceH := handlers.NewWorkspaceHandler(agentRouter)
@@ -133,6 +138,16 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 				notes.PUT("/:id", noteH.Update)
 				notes.DELETE("/:id", noteH.Delete)
 			}
+
+			// 任务设置（自动打标签 / AI 标题生成）
+			tasks := protected.Group("/tasks")
+			{
+				tasks.GET("/settings", taskSettingsH.GetSettings)
+				tasks.PUT("/settings", taskSettingsH.UpdateSettings)
+			}
+
+			// 实时日志流（SSE，供前端日志查看器订阅）
+			protected.GET("/logs/stream", logH.Stream)
 		}
 
 		// 终端 WebSocket（通过 query token 认证，不走 AuthRequired 中间件）

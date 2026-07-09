@@ -13,6 +13,7 @@ export function createAgentConfig(payload: {
   description?: string
   command: string
   args?: string[]
+  env?: Record<string, string>
   api_key_env?: string
   timeout?: string
   enabled?: boolean
@@ -32,6 +33,7 @@ export function updateAgentConfig(
     description?: string
     command: string
     args?: string[]
+    env?: Record<string, string>
     api_key_env?: string
     timeout?: string
     enabled?: boolean

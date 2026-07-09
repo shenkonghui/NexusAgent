@@ -44,8 +44,16 @@
 
 .terminal {
   flex: 1;
+  /* 背景与 xterm 主题一致，避免 padding/余量区域出现色差导致“没铺满” */
+  background: #1e1e2e;
   padding: 4px 8px;
   overflow: hidden;
+}
+
+/* 让 xterm 根节点填满容器，消除上下留白 */
+.terminal :global(.xterm) {
+  height: 100%;
+  padding: 0;
 }
 
 /* xterm 滚动条样式 */

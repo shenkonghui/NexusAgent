@@ -5,7 +5,7 @@ import { useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
 import { updateProfile, changePassword } from '../api/auth'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import SessionSidebar from '../components/SessionSidebar'
+import AppLayout, { SidebarToggleButton } from '../components/AppLayout'
 import UserMenu from '../components/UserMenu'
 import ErrorBanner from '../components/ErrorBanner'
 import LoadingSpinner from '../components/LoadingSpinner'
@@ -83,14 +83,13 @@ export default function ProfilePage() {
   if (!user) return null
 
   return (
-    <div className={styles.layout}>
-      <div className={styles.sidebarWrap}>
-        <SessionSidebar sessions={sessions} workspaceId={workspaceId} />
-      </div>
-
+    <AppLayout sidebarProps={{ sessions, workspaceId }}>
       <div className={styles.main}>
         <div className={styles.header}>
-          <h1 className={styles.title}>{t('profile.title')}</h1>
+          <div className={styles.headerLeft}>
+            <SidebarToggleButton />
+            <h1 className={styles.title}>{t('profile.title')}</h1>
+          </div>
           <UserMenu />
         </div>
 
@@ -190,6 +189,6 @@ export default function ProfilePage() {
           </section>
         </div>
       </div>
-    </div>
+    </AppLayout>
   )
 }

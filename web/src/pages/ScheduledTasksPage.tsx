@@ -14,10 +14,11 @@ import AgentSelector from '../components/AgentSelector'
 import PromptInput from '../components/PromptInput'
 import ErrorBanner from '../components/ErrorBanner'
 import LoadingSpinner from '../components/LoadingSpinner'
-import SessionSidebar from '../components/SessionSidebar'
+import AppLayout, { SidebarToggleButton } from '../components/AppLayout'
 import UserMenu from '../components/UserMenu'
 import WorkspaceSelector from '../components/WorkspaceSelector'
 import styles from './ScheduledTasksPage.module.css'
+import { Calendar, Plus, CheckCircle2, XCircle, Loader2, Clock3, CircleDashed } from 'lucide-react'
 
 interface FormState {
   name: string; agent_type: string; prompt: string
@@ -228,14 +229,23 @@ export default function ScheduledTasksPage() {
     '': t('scheduledTask.noTasks'),
   }
 
+  function StatusIcon({ status }: { status: string }) {
+    const size = 12
+    if (status === 'running') return <Loader2 size={size} className={styles.statusIconSpin} />
+    if (status === 'success') return <CheckCircle2 size={size} />
+    if (status === 'failed') return <XCircle size={size} />
+    if (status === 'skipped') return <Clock3 size={size} />
+    return <CircleDashed size={size} />
+  }
+
   return (
-    <div className={styles.layout}>
-      <div className={styles.sidebarWrap}>
-        <SessionSidebar sessions={sessions} workspaceId={workspaceId} onNewScheduledTask={openCreate} />
-      </div>
+    <AppLayout sidebarProps={{ sessions, workspaceId, onNewScheduledTask: openCreate }}>
       <div className={styles.main}>
         <div className={styles.header}>
-          <h1 className={styles.title}>📅 {t('scheduledTask.title')}</h1>
+          <div className={styles.headerLeft}>
+            <SidebarToggleButton />
+            <h1 className={styles.title}><Calendar size={20} style={{ verticalAlign: '-4px', marginRight: 6 }} />{t('scheduledTask.title')}</h1>
+          </div>
           <div className={styles.headerActions}>
             <WorkspaceSelector value={workspaceId} onChange={selectWorkspace} onRefresh={reloadWorkspace} onError={setError} />
             <UserMenu />
@@ -244,7 +254,7 @@ export default function ScheduledTasksPage() {
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}
         {loading ? <LoadingSpinner /> : (
           <div className={styles.content}>
-            <button className={styles.createBtn} onClick={openCreate} type="button">+ {t('scheduledTask.newTask')}</button>
+            <button className={styles.createBtn} onClick={openCreate} type="button"><Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('scheduledTask.newTask')}</button>
 
             {showForm && (
               <form className={styles.form} onSubmit={handleSubmit}>
@@ -357,6 +367,7 @@ export default function ScheduledTasksPage() {
                     <div className={styles.taskHeader}>
                       <span className={styles.taskName}>{task.name}</span>
                       <span className={`${styles.taskStatus} ${styles[`status_${task.last_status}`] || ''}`}>
+                        <StatusIcon status={task.last_status} />
                         {taskStatusLabels[task.last_status] || t('scheduledTask.noTasks')}
                       </span>
                     </div>
@@ -388,6 +399,6 @@ export default function ScheduledTasksPage() {
           </div>
         )}
       </div>
-    </div>
+    </AppLayout>
   )
 }

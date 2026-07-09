@@ -2,19 +2,20 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useRequireAuth } from '../hooks/useRequireAuth'
-import { getSession, listMessages, cancelSession, listCommands, listModes, listSkills, listConfigOptions, setConfigOption, setSessionMode, respondPermission, deleteSession, updateSessionTitle, createSession, resumeSession, listSessionExecutions } from '../api/sessions'
+import { getSession, listMessages, cancelSession, listCommands, listModes, listSkills, listConfigOptions, setConfigOption, setSessionMode, respondPermission, deleteSession, updateSessionTitle, createSession, resumeSession, listSessionExecutions, getInterruptedTasks } from '../api/sessions'
 import { getWorkspace } from '../api/workspaces'
 import { listScheduledTasks, listExecutions } from '../api/scheduledTasks'
 import { listAgents, probeAgentConfigs, preconnectAgent, listAgentCommands, listAgentModes } from '../api/agents'
 import { listSkillsByPath } from '../api/filesystem'
 import { WORKSPACE_STORAGE_KEY, useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
 import { getLastAgentModel, resolveAgentModel, setLastAgentModel } from '../utils/agentModel'
-import { streamPrompt, isTimeoutError } from '../api/sse'
+import { streamPrompt, subscribeStream, streamResumeTask, isTimeoutError } from '../api/sse'
 import { parseDiffsFromMessage } from '../utils/diff'
-import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution, Agent, PermissionRequestPayload } from '../types'
+import { tasksUrl, newTaskUrl, sessionUrl, isNewTaskPath } from '../utils/routes'
+import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution, Agent, PermissionRequestPayload, RunningTask } from '../types'
 import { parsePermissionRequest } from '../utils/permission'
 import { formatOptionLabel, fullOptionLabel } from '../utils/selectLabel'
-import SessionSidebar from '../components/SessionSidebar'
+import AppLayout, { SidebarToggleButton } from '../components/AppLayout'
 import MessageList from '../components/MessageList'
 import PromptInput from '../components/PromptInput'
 import ModelSelector from '../components/ModelSelector'
@@ -28,6 +29,7 @@ import ModelPicker from '../components/ModelPicker'
 import PermissionDialog from '../components/PermissionDialog'
 import SessionModeSelector from '../components/SessionModeSelector'
 import ConvStatusBar, { type ConvState as ConvStatusState } from '../components/ConvStatusBar'
+import { FolderOpen, Plus } from 'lucide-react'
 import styles from './ChatPage.module.css'
 
 const DEFAULT_AGENT_KEY = 'nexus.default.agent'
@@ -43,7 +45,7 @@ export default function ChatPage() {
   const sessionId = sid ? Number(sid) : NaN
   const hasSession = !isNaN(sessionId)
   const { user, loading: authLoading } = useRequireAuth()
-  const { workspaceId: storedWorkspaceId, selectWorkspace, reload: reloadWorkspace } = useCurrentWorkspace(!!user && !hasSession)
+  const { workspaceId: storedWorkspaceId, sessions, selectWorkspace, reload: reloadWorkspace } = useCurrentWorkspace(!!user)
   const workspaceId = !isNaN(urlWorkspaceId) ? urlWorkspaceId : storedWorkspaceId
   const navigate = useNavigate()
   const location = useLocation()
@@ -58,7 +60,6 @@ export default function ChatPage() {
   // 会话相关状态
   const [session, setSession] = useState<Session | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
-  const [allSessions, setAllSessions] = useState<Session[]>([])
   const [commands, setCommands] = useState<AgentCommand[]>([])
   const [modes, setModes] = useState<SessionMode[]>([])
   const [skills, setSkills] = useState<AgentSkill[]>([])
@@ -68,8 +69,11 @@ export default function ChatPage() {
   const [convState, setConvState] = useState<ConvState>('idle')
   const abortRef = useRef<AbortController | null>(null)
   const mountedRef = useRef(true)
+  // lastSeqRef 记录最后接收到的消息 sequence，用于断点续传重连时携带 Last-Event-ID
+  const lastSeqRef = useRef(0)
+  // interruptedTasks 存储因服务重启而中断的任务，用于显示重发横幅
+  const [interruptedTasks, setInterruptedTasks] = useState<RunningTask[]>([])
   const [showWorkspace, setShowWorkspace] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [lastFailedPrompt, setLastFailedPrompt] = useState('')
   const [retryable, setRetryable] = useState(false)
   const [executions, setExecutions] = useState<Execution[]>([])
@@ -90,7 +94,7 @@ export default function ChatPage() {
   const [workspaceCwd, setWorkspaceCwd] = useState('')
 
   const bootstrapSession = navState?.createdSession?.id === sessionId ? navState.createdSession : null
-  const isCreateMode = !hasSession && location.pathname === '/new'
+  const isCreateMode = !hasSession && isNewTaskPath(location.pathname, workspaceId)
   const activeSession = session ?? bootstrapSession
 
   const changesCount = useMemo(() => {
@@ -126,13 +130,15 @@ export default function ChatPage() {
         getSession(sessionId), listMessages(sessionId),
       ])
       setSession(sessionResp.data)
-      setMessages(msgResp.data.messages || [])
-      if (workspaceId) {
-        const wsResp = await getWorkspace(workspaceId)
-        setAllSessions(wsResp.data.sessions || [])
-      } else {
-        setAllSessions([])
+      const msgs = msgResp.data.messages || []
+      setMessages(msgs)
+      // 同步 lastSeqRef 为当前最大 sequence（用于断点续传重连）
+      if (msgs.length > 0) {
+        lastSeqRef.current = msgs[msgs.length - 1].sequence
       }
+      // 查询中断任务（服务重启后未完成的 prompt）
+      getInterruptedTasks(sessionId).then((r) => setInterruptedTasks(r.data.tasks || [])).catch(() => setInterruptedTasks([]))
+      // 会话列表由 useCurrentWorkspace 统一加载，会话详情模式下通过 URL workspace 同步 effect 保持一致
       if (sessionResp.data.source === 'scheduled' || sessionResp.data.source === 'classify') {
         loadExecutions(sessionId, sessionResp.data.source)
       } else { setExecutions([]) }
@@ -167,13 +173,8 @@ export default function ChatPage() {
         workspaceId ? getWorkspace(workspaceId) : Promise.resolve(null),
       ])
       setAgents(agentsResp.data.agents || [])
-      if (wsResp) {
-        setAllSessions(wsResp.data.sessions || [])
-        setWorkspaceCwd(wsResp.data.workspace?.cwd || '')
-      } else {
-        setAllSessions([])
-        setWorkspaceCwd('')
-      }
+      // 会话列表由 useCurrentWorkspace 统一加载；此处仅取工作目录用于输入框
+      setWorkspaceCwd(wsResp?.data.workspace?.cwd || '')
       if (agentsResp.data.agents?.length > 0) {
         const saved = localStorage.getItem(DEFAULT_AGENT_KEY)
         const types = agentsResp.data.agents.map((a: Agent) => a.type)
@@ -188,10 +189,11 @@ export default function ChatPage() {
   function handleWorkspaceChange(id: number) {
     if (hasSession) {
       localStorage.setItem(WORKSPACE_STORAGE_KEY, String(id))
-      navigate('/')
+      navigate(tasksUrl(id))
       return
     }
-    selectWorkspace(id).catch((err) => setError(err instanceof Error ? err.message : t('common.failed')))
+    // 无会话模式：同步更新 URL，使刷新/书签/后退按钮都能定位到正确工作区
+    navigate(isCreateMode ? newTaskUrl(id) : tasksUrl(id))
   }
 
   function handleWorkspaceRefresh() {
@@ -214,16 +216,18 @@ export default function ChatPage() {
         if (!alive) return
         const opts = r.data.config_options || []
         const modelOpt = opts.find((o) => o.category === 'model')
+        // 优先恢复上次使用的模型，否则用 agent 探测返回的默认值
         const model = resolveAgentModel(selectedAgent, modelOpt)
         setProbeConfigs(modelOpt && model
           ? opts.map((o) => (o.id === modelOpt.id ? { ...o, current_value: model } : o))
           : opts)
-        setSelectedModel(modelOpt ? model : getLastAgentModel(selectedAgent))
+        setSelectedModel(model)
       })
       .catch((err) => {
         if (!alive) return
         setProbeConfigs([])
-        setSelectedModel('')
+        // 探测失败时仍保留上次使用的模型，避免用户已选的模型被清空
+        setSelectedModel(getLastAgentModel(selectedAgent))
         setError(err instanceof Error ? err.message : '探测配置失败')
       })
       .finally(() => { if (alive) setProbing(false) })
@@ -261,6 +265,14 @@ export default function ChatPage() {
       .catch(() => setHomeSkills([]))
   }, [workspaceCwd, hasSession, isCreateMode])
 
+  // 会话详情模式下，将 URL 中的 workspace 同步到 hook，使 sidebar 展示该 workspace 的会话列表
+  useEffect(() => {
+    if (!user || !hasSession || isNaN(urlWorkspaceId)) return
+    if (urlWorkspaceId !== storedWorkspaceId) {
+      selectWorkspace(urlWorkspaceId).catch(() => {})
+    }
+  }, [user, hasSession, urlWorkspaceId, storedWorkspaceId, selectWorkspace])
+
   useEffect(() => {
     if (!user) return
     if (hasSession) {
@@ -271,7 +283,8 @@ export default function ChatPage() {
         setMessages([])
         setLoading(false)
         setCreating(false)
-        setAllSessions((prev) => prev.some((s) => s.id === created.id) ? prev : [created, ...prev])
+        // 刷新会话列表，使 sidebar 显示新建的会话
+        reloadWorkspace()
         loadData({ quiet: true })
       } else if (bootstrappedSessionIdRef.current !== sessionId) {
         loadData()
@@ -280,7 +293,7 @@ export default function ChatPage() {
       bootstrappedSessionIdRef.current = null
       loadHomeData()
     }
-  }, [user, hasSession, sessionId, loadData, loadHomeData, navState?.createdSession])
+  }, [user, hasSession, sessionId, loadData, loadHomeData, reloadWorkspace, navState?.createdSession])
 
   // 当组件卸载或切换到不同会话时，中断旧的 SSE 流，防止内存泄漏和 React 警告
   useEffect(() => {
@@ -319,6 +332,93 @@ export default function ChatPage() {
     if (location.state) navigate(location.pathname, { replace: true, state: null })
     handleSend(pending)
   }, [activeSession, loading, bootstrapSession])
+
+  // 页面可见性恢复时，若会话有进行中的 prompt 但前端未在流式接收，尝试断点续传重连。
+  // 使用 subscribeStream 而非发起新 prompt，避免重复执行。
+  useEffect(() => {
+    if (!hasSession) return
+    const handleVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      if (!mountedRef.current) return
+      // 已在流式接收则无需重连
+      if (abortRef.current) return
+      if (convState === 'streaming' || convState === 'connecting' || convState === 'waiting_permission') return
+      // 尝试订阅会话当前进行中的 prompt 流（若服务端无活跃 prompt 会立即返回）
+      setConvState('reconnecting')
+      const ac = new AbortController()
+      abortRef.current = ac
+      subscribeStream(
+        sessionId,
+        lastSeqRef.current,
+        (msg) => {
+          if (!mountedRef.current) return
+          setMessages((prev) => {
+            if (prev.some((m) => m.sequence === msg.sequence)) return prev
+            return [...prev, msg]
+          })
+          setConvState('streaming')
+        },
+        () => {
+          if (!mountedRef.current) return
+          abortRef.current = null
+          loadData({ quiet: true })
+        },
+        () => {
+          if (!mountedRef.current) return
+          abortRef.current = null
+          // 静默处理重连失败（服务端可能无活跃 prompt）
+          loadData({ quiet: true })
+        },
+        {
+          signal: ac.signal,
+          onSeq: (seq) => { if (seq > lastSeqRef.current) lastSeqRef.current = seq },
+          onActivity: () => { if (mountedRef.current) setConvState('streaming') },
+        },
+      )
+    }
+    document.addEventListener('visibilitychange', handleVisible)
+    return () => document.removeEventListener('visibilitychange', handleVisible)
+  }, [hasSession, sessionId, convState, loadData])
+
+  // 组件挂载时也尝试一次订阅（处理页面刷新后服务端仍在输出但前端未连接的情况）
+  useEffect(() => {
+    if (!hasSession || !session || convState !== 'idle') return
+    if (session.status !== 'active') return
+    if (abortRef.current) return
+    const ac = new AbortController()
+    abortRef.current = ac
+    setConvState('reconnecting')
+    subscribeStream(
+      sessionId,
+      lastSeqRef.current,
+      (msg) => {
+        if (!mountedRef.current) return
+        setMessages((prev) => {
+          if (prev.some((m) => m.sequence === msg.sequence)) return prev
+          return [...prev, msg]
+        })
+        setConvState('streaming')
+      },
+      () => {
+        if (!mountedRef.current) return
+        abortRef.current = null
+        setConvState('idle')
+      },
+      () => {
+        if (!mountedRef.current) return
+        abortRef.current = null
+        setConvState('idle')
+      },
+      {
+        signal: ac.signal,
+        onSeq: (seq) => { if (seq > lastSeqRef.current) lastSeqRef.current = seq },
+        onActivity: () => { if (mountedRef.current) setConvState((s) => (s === 'idle' ? 'streaming' : s)) },
+      },
+    )
+    return () => { ac.abort() }
+    // 仅在 session.id 变化时触发
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasSession, session?.id])
 
   async function loadExecutions(dbSessionId: number, source?: Session['source']) {
     try {
@@ -389,16 +489,14 @@ export default function ChatPage() {
             setConvState('waiting_permission')
           }
         }
-        if (msg.role === 'user') {
-          setConvState('streaming')
-          setMessages((prev) => {
-            const rest = prev.filter((m) => m.id !== optimisticId)
-            return [...rest, msg]
-          })
-          return
-        }
-        setConvState('streaming')
-        setMessages((prev) => [...prev, msg])
+        // 按 sequence 去重：避免轮询补齐与实时流重复
+        setMessages((prev) => {
+          const rest = prev.filter((m) => m.id === optimisticId || m.sequence < msg.sequence)
+          const noOptimistic = rest.filter((m) => m.id !== optimisticId)
+          return [...noOptimistic, msg]
+        })
+        if (msg.role === 'user') setConvState('streaming')
+        else setConvState('streaming')
       },
       () => {
         if (!mountedRef.current) return
@@ -420,7 +518,11 @@ export default function ChatPage() {
         setConvState('idle')
         setError(err.message)
       },
-      { signal: ac.signal, onActivity: () => { if (mountedRef.current) setConvState((s) => (s === 'waiting_permission' ? s : 'streaming')) } },
+      {
+        signal: ac.signal,
+        onSeq: (seq) => { if (seq > lastSeqRef.current) lastSeqRef.current = seq },
+        onActivity: () => { if (mountedRef.current) setConvState((s) => (s === 'waiting_permission' ? s : 'streaming')) },
+      },
     )
   }
 
@@ -453,6 +555,50 @@ export default function ChatPage() {
   const sending = convState !== 'idle'
 
   async function handleRetry() { if (!lastFailedPrompt) return; setError(''); setRetryable(false); await handleSend(lastFailedPrompt) }
+
+  // 恢复中断的任务（服务重启后用户手动重发）
+  async function handleResumeInterruptedTask(taskId: number) {
+    setConvState('connecting')
+    setError('')
+    const ac = new AbortController()
+    abortRef.current = ac
+    await streamResumeTask(
+      taskId,
+      (msg) => {
+        if (!mountedRef.current) return
+        if (msg.kind === 'permission_request') {
+          const req = parsePermissionRequest(msg.raw_json)
+          if (req) {
+            setPendingPermission(req)
+            setConvState('waiting_permission')
+          }
+        }
+        setMessages((prev) => {
+          if (prev.some((m) => m.sequence === msg.sequence)) return prev
+          return [...prev, msg]
+        })
+        setConvState('streaming')
+      },
+      () => {
+        if (!mountedRef.current) return
+        abortRef.current = null
+        setConvState('idle')
+        setPendingPermission(null)
+        loadData({ quiet: true })
+      },
+      (err) => {
+        if (!mountedRef.current) return
+        abortRef.current = null
+        setConvState('idle')
+        setError(err.message)
+      },
+      {
+        signal: ac.signal,
+        onSeq: (seq) => { if (seq > lastSeqRef.current) lastSeqRef.current = seq },
+        onActivity: () => { if (mountedRef.current) setConvState((s) => (s === 'waiting_permission' ? s : 'streaming')) },
+      },
+    )
+  }
 
   async function handleCancel() {
     abortRef.current?.abort()
@@ -524,16 +670,21 @@ export default function ChatPage() {
       await deleteSession(id)
       if (id === sessionId) {
         localStorage.setItem(WORKSPACE_STORAGE_KEY, String(workspaceId))
-        navigate('/')
-      } else {
-        setAllSessions((prev) => prev.filter((s) => s.id !== id))
+        navigate(tasksUrl(workspaceId))
       }
+      // 刷新会话列表，使 sidebar 同步删除
+      reloadWorkspace()
     } catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) }
   }
 
   async function handleRenameSession(id: number, title: string) {
     setError('')
-    try { const resp = await updateSessionTitle(id, title); setAllSessions((prev) => prev.map((s) => (s.id === id ? resp.data : s))); if (id === sessionId) setSession(resp.data) }
+    try {
+      const resp = await updateSessionTitle(id, title)
+      if (id === sessionId) setSession(resp.data)
+      // 刷新会话列表，使 sidebar 同步新标题
+      reloadWorkspace()
+    }
     catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) }
   }
 
@@ -544,23 +695,20 @@ export default function ChatPage() {
   // ============ 无会话模式：任务列表 / 新建任务 ============
   if (!hasSession) {
     const locale = i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US'
-    const manualSessions = allSessions.filter((s) => !s.source || s.source === 'manual')
+    const manualSessions = sessions.filter((s) => !s.source || s.source === 'manual')
 
     if (!isCreateMode) {
       return (
-        <div className={styles.layout}>
-          <div className={styles.sidebarWrap}>
-            <SessionSidebar sessions={allSessions} workspaceId={workspaceId} onDelete={handleDeleteSession} onRename={handleRenameSession} />
-          </div>
-
+        <AppLayout sidebarProps={{ sessions, workspaceId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
           <div className={styles.main}>
             <div className={styles.header}>
               <div className={styles.sessionInfo}>
+                <SidebarToggleButton />
                 <span className={styles.agentType}>{t('nav.sessionList')}</span>
               </div>
               <div className={styles.actions}>
                 <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
-                <button type="button" className={styles.newTaskBtn} onClick={() => navigate('/new')}>+ {t('session.newSession')}</button>
+                <button type="button" className={styles.newTaskBtn} onClick={() => navigate(newTaskUrl(workspaceId))}><Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('session.newSession')}</button>
                 <UserMenu />
               </div>
             </div>
@@ -576,7 +724,7 @@ export default function ChatPage() {
                   ) : (
                     manualSessions.map((item) => (
                       <div key={item.id} className={styles.sessionCard}
-                        onClick={() => navigate(item.workspace_id ? `/workspaces/${item.workspace_id}/sessions/${item.id}` : `/sessions/${item.id}`)}
+                        onClick={() => navigate(sessionUrl(item.id, item.workspace_id))}
                       >
                         <div className={styles.sessionHeader}>
                           <span className={styles.sessionAgent}>{item.title || item.agent_type}</span>
@@ -600,23 +748,21 @@ export default function ChatPage() {
               </div>
             )}
           </div>
-        </div>
+        </AppLayout>
       )
     }
 
     return (
-      <div className={styles.layout}>
-        <div className={styles.sidebarWrap}>
-          <SessionSidebar sessions={allSessions} workspaceId={workspaceId} onDelete={handleDeleteSession} onRename={handleRenameSession} />
-        </div>
-
+      <AppLayout sidebarProps={{ sessions, workspaceId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
         <div className={styles.main}>
           <div className={styles.header}>
             <div className={styles.sessionInfo}>
+              <SidebarToggleButton />
               <span className={styles.agentType}>{t('session.newSession')}</span>
             </div>
             <div className={styles.actions}>
               <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
+              <button type="button" className={styles.newTaskBtn} onClick={() => navigate(newTaskUrl(workspaceId))}><Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('session.newSession')}</button>
               <UserMenu />
             </div>
           </div>
@@ -717,32 +863,17 @@ export default function ChatPage() {
           />
         </div>
 
-        
-      </div>
+      </AppLayout>
     )
   }
 
   // ============ 有会话模式 ============
-
   return (
-    <div className={styles.layout}>
-      {!sidebarCollapsed && (
-        <div className={styles.sidebarWrap}>
-          <SessionSidebar sessions={allSessions} workspaceId={workspaceId} currentId={sessionId}
-            onDelete={handleDeleteSession} onRename={handleRenameSession}
-            onCollapse={() => setSidebarCollapsed(true)}
-          />
-        </div>
-      )}
-
+    <AppLayout sidebarProps={{ sessions, workspaceId, currentId: sessionId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
       <div className={styles.main}>
         <div className={styles.header}>
           <div className={styles.sessionInfo}>
-            {sidebarCollapsed && (
-              <button className={styles.iconBtn} onClick={() => setSidebarCollapsed(false)} type="button" title={t('common.open')}>
-                ☰
-              </button>
-            )}
+            <SidebarToggleButton />
             <span className={styles.agentType}>{activeSession?.agent_type || ''}</span>
             {displayConvState !== 'idle' && (
               <span className={`${styles.convStatus} ${styles[`conv_${displayConvState}`]}`}>
@@ -753,9 +884,10 @@ export default function ChatPage() {
           </div>
           <div className={styles.actions}>
             <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
+            <button type="button" className={styles.newTaskBtn} onClick={() => navigate(newTaskUrl(workspaceId))}><Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('session.newSession')}</button>
             <button className={`${styles.fileBtn} ${showWorkspace ? styles.fileBtnActive : ''}`}
               onClick={() => setShowWorkspace(!showWorkspace)} type="button" title={t('chat.workspace')}
-            >🗂</button>
+            ><FolderOpen size={16} /></button>
             <UserMenu />
           </div>
         </div>
@@ -779,6 +911,24 @@ export default function ChatPage() {
             onClose={() => { setError(''); setRetryable(false) }}
             onRetry={retryable ? handleRetry : undefined}
           />
+        )}
+
+        {interruptedTasks.length > 0 && !sending && (
+          <div className={styles.interruptedBanner}>
+            <span>
+              {t('session.interruptedPrompt', { count: interruptedTasks.length, defaultValue: `上次任务因服务重启中断（共 ${interruptedTasks.length} 个）` })}
+            </span>
+            {interruptedTasks.map((task) => (
+              <button
+                key={task.id}
+                className={styles.resumeBtn}
+                onClick={() => handleResumeInterruptedTask(task.id)}
+                title={task.prompt}
+              >
+                {t('session.resume', { defaultValue: '重发' })}: {task.prompt.slice(0, 40)}{task.prompt.length > 40 ? '...' : ''}
+              </button>
+            ))}
+          </div>
         )}
 
         <MessageList messages={messages} loading={sending}
@@ -818,7 +968,7 @@ export default function ChatPage() {
         />
       )}
 
-      
-    </div>
+
+    </AppLayout>
   )
 }

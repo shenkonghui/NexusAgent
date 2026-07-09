@@ -1,4 +1,4 @@
-import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution } from '../types'
+import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution, RunningTask } from '../types'
 import { apiFetch } from './client'
 
 // 创建会话（可选 model_value 指定初始模型，可选 workspace_id）
@@ -13,6 +13,11 @@ export function createSession(agentType: string, workspaceId?: number, modelValu
 export function listSessions(source?: 'manual' | 'scheduled' | 'classify'): Promise<{ data: { sessions: Session[] } }> {
   const qs = source ? `?source=${source}` : ''
   return apiFetch(`/sessions${qs}`)
+}
+
+// 获取当前用户正在运行的会话 db_session_id 列表（侧边栏运行状态图标用）
+export function listRunningSessions(): Promise<{ data: { db_session_ids: number[] } }> {
+  return apiFetch('/sessions/running')
 }
 
 // 获取单个会话
@@ -102,4 +107,14 @@ export function respondPermission(
     method: 'POST',
     body: JSON.stringify({ option_id: optionId, cancelled }),
   })
+}
+
+// 获取会话因服务重启而中断的任务列表
+export function getInterruptedTasks(id: number): Promise<{ data: { tasks: RunningTask[] } }> {
+  return apiFetch(`/sessions/${id}/interrupted-tasks`)
+}
+
+// 恢复中断的任务（ResumeSession + 重发原 prompt）
+export function resumeInterruptedTaskURL(taskId: number): string {
+  return `/running-tasks/${taskId}/resume`
 }

@@ -11,6 +11,7 @@ import {
   type DiffLine,
 } from '../utils/diff'
 import { DiffTable } from './DiffView'
+import { X } from 'lucide-react'
 import styles from './ChangesPanel.module.css'
 
 interface ChangesPanelProps {
@@ -104,7 +105,7 @@ export default function ChangesPanel({ messages, sessionId, cwd, onClose }: Chan
           {changes.length > 0 && <span className={styles.count}>{changes.length}</span>}
         </span>
         <button className={styles.closeBtn} onClick={onClose} type="button" title="关闭面板">
-          ×
+          <X size={16} />
         </button>
       </div>
 

@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { readSessionFile, writeSessionFile } from '../api/filesystem'
 import FileExplorer from './FileExplorer'
 import CodeEditor from './CodeEditor'
+import { X, Circle } from 'lucide-react'
 import styles from './FilePanel.module.css'
 
 interface FilePanelProps {
@@ -66,7 +67,7 @@ export default function FilePanel({ sessionId, onClose }: FilePanelProps) {
       <div className={styles.toolbar}>
         <span className={styles.fileName} title={selectedPath}>
           {selectedPath || '未选择文件'}
-          {dirty && <span className={styles.dirtyMark}> ●</span>}
+          {dirty && <span className={styles.dirtyMark}> <Circle size={8} fill="currentColor" strokeWidth={0} /></span>}
         </span>
         <div className={styles.toolbarActions}>
           {selectedPath && (
@@ -81,7 +82,7 @@ export default function FilePanel({ sessionId, onClose }: FilePanelProps) {
             </button>
           )}
           <button className={styles.closeBtn} onClick={onClose} type="button" title="关闭面板">
-            ×
+            <X size={16} />
           </button>
         </div>
       </div>

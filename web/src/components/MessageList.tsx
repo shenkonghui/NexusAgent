@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Message, Execution } from '../types'
-import MessageBubble from './MessageBubble'
+import MessageBubble, { toolSummary } from './MessageBubble'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import styles from './MessageList.module.css'
 
 interface MessageListProps {
@@ -79,6 +80,38 @@ function bubbleCollapseState(
   return { defaultOpen: isLastThoughtStreaming, forceCollapsed }
 }
 
+// 将连续的可折叠消息（思考 + 工具调用）聚合成一个分组段。
+// 单条可折叠消息仍作为独立段渲染，仅当连续出现 2 条及以上时才分组，
+// 这样既能压缩冗长的工具/思考序列，又不破坏单条消息的原有展示。
+type Segment =
+  | { type: 'single'; message: Message; idx: number }
+  | { type: 'group'; messages: Message[]; firstIdx: number }
+
+function segmentMessages(messages: Message[]): Segment[] {
+  const segments: Segment[] = []
+  let group: Message[] = []
+  let groupStart = 0
+  const flushGroup = () => {
+    if (group.length >= 2) {
+      segments.push({ type: 'group', messages: group, firstIdx: groupStart })
+    } else if (group.length === 1) {
+      segments.push({ type: 'single', message: group[0], idx: groupStart })
+    }
+    group = []
+  }
+  messages.forEach((msg, idx) => {
+    if (isCollapsibleMessage(msg)) {
+      if (group.length === 0) groupStart = idx
+      group.push(msg)
+    } else {
+      flushGroup()
+      segments.push({ type: 'single', message: msg, idx })
+    }
+  })
+  flushGroup()
+  return segments
+}
+
 interface ExecutionBlock {
   executionId: number
   startedAt: string
@@ -106,6 +139,31 @@ function groupByExecution(messages: Message[]): ExecutionBlock[] {
   return order
     .sort((a, b) => a - b)
     .map((id) => map.get(id)!)
+}
+
+// 计算分组内思考与工具调用的数量，以及最后一个工具调用的摘要
+function groupStats(messages: Message[]) {
+  let thoughtCount = 0
+  let toolCount = 0
+  let lastToolSummary = ''
+  for (const m of messages) {
+    if (m.kind === 'agent_thought_chunk') {
+      thoughtCount++
+    } else if (m.role === 'tool') {
+      toolCount++
+      lastToolSummary = toolSummary(m.content)
+    }
+  }
+  return { thoughtCount, toolCount, lastToolSummary }
+}
+
+function findLastThoughtKey(messages: Message[]): string | number | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].kind === 'agent_thought_chunk') {
+      return messages[i].id || messages[i].sequence
+    }
+  }
+  return null
 }
 
 export default function MessageList({ messages, loading, scheduled, executions, sessionId, cwd }: MessageListProps) {
@@ -187,14 +245,7 @@ function ExecutionBlockView({
   const { t, i18n } = useTranslation()
   const [open, setOpen] = useState(index === total)
   const displayMessages = filterDisplay(block.messages)
-
-  let lastThoughtKey: string | number | null = null
-  for (let i = displayMessages.length - 1; i >= 0; i--) {
-    if (displayMessages[i].kind === 'agent_thought_chunk') {
-      lastThoughtKey = displayMessages[i].id || displayMessages[i].sequence
-      break
-    }
-  }
+  const lastThoughtKey = findLastThoughtKey(displayMessages)
 
   const locale = i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US'
   const execStatusMap: Record<string, string> = {
@@ -211,7 +262,7 @@ function ExecutionBlockView({
         className={styles.executionHeader}
         onClick={() => setOpen((v) => !v)}
       >
-        <span className={styles.executionArrow}>{open ? '▼' : '▶'}</span>
+        <span className={styles.executionArrow}>{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
         <span className={styles.executionTitle}>{t('scheduledTask.execution')} #{index}</span>
         <span className={styles.executionTime}>
           {new Date(block.startedAt).toLocaleString(locale)}
@@ -225,25 +276,17 @@ function ExecutionBlockView({
       </button>
       {open && (
         <div className={styles.executionBody}>
+          <SegmentList
+            messages={displayMessages}
+            lastUserIdx={findLastUserIndex(displayMessages)}
+            loading={loading}
+            lastThoughtKey={lastThoughtKey}
+            sessionId={sessionId}
+            cwd={cwd}
+          />
           {status === 'failed' && errorMsg && (
             <div className={styles.execError}>{t('status.error')}：{errorMsg}</div>
           )}
-          {displayMessages.map((msg, idx) => {
-            const key = msg.id || msg.sequence
-            const { defaultOpen, forceCollapsed } = bubbleCollapseState(
-              msg, idx, findLastUserIndex(displayMessages), loading, lastThoughtKey, key,
-            )
-            return (
-              <MessageBubble
-                key={key}
-                message={msg}
-                defaultOpen={defaultOpen}
-                forceCollapsed={forceCollapsed}
-                sessionId={sessionId}
-                cwd={cwd}
-              />
-            )
-          })}
         </div>
       )}
     </div>
@@ -267,14 +310,7 @@ function PlainList({
   const endRefObj = endRef as React.RefObject<HTMLDivElement> | undefined
   const displayMessages = filterDisplay(messages)
   const lastUserIdx = findLastUserIndex(displayMessages)
-
-  let lastThoughtKey: string | number | null = null
-  for (let i = displayMessages.length - 1; i >= 0; i--) {
-    if (displayMessages[i].kind === 'agent_thought_chunk') {
-      lastThoughtKey = displayMessages[i].id || displayMessages[i].sequence
-      break
-    }
-  }
+  const lastThoughtKey = findLastThoughtKey(displayMessages)
 
   return (
     <div className={styles.container}>
@@ -283,22 +319,14 @@ function PlainList({
           <p>{t('chat.noMessages')}</p>
         </div>
       )}
-      {displayMessages.map((msg, idx) => {
-        const key = msg.id || msg.sequence
-        const { defaultOpen, forceCollapsed } = bubbleCollapseState(
-          msg, idx, lastUserIdx, !!loading, lastThoughtKey, key,
-        )
-        return (
-          <MessageBubble
-            key={key}
-            message={msg}
-            defaultOpen={defaultOpen}
-            forceCollapsed={forceCollapsed}
-            sessionId={sessionId}
-            cwd={cwd}
-          />
-        )
-      })}
+      <SegmentList
+        messages={displayMessages}
+        lastUserIdx={lastUserIdx}
+        loading={!!loading}
+        lastThoughtKey={lastThoughtKey}
+        sessionId={sessionId}
+        cwd={cwd}
+      />
       {loading && (
         <div className={styles.loading}>
           <span className={styles.dot} />
@@ -307,6 +335,144 @@ function PlainList({
         </div>
       )}
       {endRefObj && <div ref={endRefObj} />}
+    </div>
+  )
+}
+
+// 根据 segment 列表渲染：单条消息走 MessageBubble，连续可折叠消息走 CollapsibleGroup
+function SegmentList({
+  messages,
+  lastUserIdx,
+  loading,
+  lastThoughtKey,
+  sessionId,
+  cwd,
+}: {
+  messages: Message[]
+  lastUserIdx: number
+  loading: boolean
+  lastThoughtKey: string | number | null
+  sessionId?: number
+  cwd?: string
+}) {
+  const segments = segmentMessages(messages)
+  return (
+    <>
+      {segments.map((seg, segIdx) => {
+        if (seg.type === 'single') {
+          const msg = seg.message
+          const key = msg.id || msg.sequence
+          const { defaultOpen, forceCollapsed } = bubbleCollapseState(
+            msg, seg.idx, lastUserIdx, loading, lastThoughtKey, key,
+          )
+          return (
+            <MessageBubble
+              key={key}
+              message={msg}
+              defaultOpen={defaultOpen}
+              forceCollapsed={forceCollapsed}
+              sessionId={sessionId}
+              cwd={cwd}
+            />
+          )
+        }
+        const isLastSegment = segIdx === segments.length - 1
+        const inCurrentTurn = seg.firstIdx > lastUserIdx
+        return (
+          <CollapsibleGroup
+            key={`group-${seg.firstIdx}`}
+            messages={seg.messages}
+            inCurrentTurn={inCurrentTurn}
+            isLastSegment={isLastSegment}
+            loading={loading}
+            sessionId={sessionId}
+            cwd={cwd}
+          />
+        )
+      })}
+    </>
+  )
+}
+
+// 连续思考 + 工具调用消息的折叠分组。
+// 流式中（本轮末尾分组）默认展开以展示实时进度；
+// 助手返回回复或流式结束后自动压缩为一行摘要（如「思考中 ×2 · 工具调用 ×3」）。
+function CollapsibleGroup({
+  messages,
+  inCurrentTurn,
+  isLastSegment,
+  loading,
+  sessionId,
+  cwd,
+}: {
+  messages: Message[]
+  inCurrentTurn: boolean
+  isLastSegment: boolean
+  loading: boolean
+  sessionId?: number
+  cwd?: string
+}) {
+  const { t } = useTranslation()
+
+  const forceCollapsed = !inCurrentTurn || !loading
+  const streaming = loading && inCurrentTurn && isLastSegment
+  const defaultOpen = streaming
+
+  const [open, setOpen] = useState(defaultOpen && !forceCollapsed)
+  useEffect(() => {
+    if (forceCollapsed) {
+      setOpen(false)
+    } else {
+      setOpen(defaultOpen)
+    }
+  }, [defaultOpen, forceCollapsed])
+
+  const { thoughtCount, toolCount, lastToolSummary } = groupStats(messages)
+  const parts: string[] = []
+  if (thoughtCount > 0) parts.push(`${t('chat.thinking')} ×${thoughtCount}`)
+  if (toolCount > 0) parts.push(`${t('chat.toolCall')} ×${toolCount}`)
+  const summary = parts.join(' · ') || t('chat.toolCall')
+
+  const localLastThoughtKey = findLastThoughtKey(messages)
+
+  return (
+    <div className={styles.groupContainer}>
+      <div
+        className={`${styles.groupHeader} ${open ? styles.groupHeaderOpen : ''}`}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className={styles.groupToggle}>{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
+        <span className={styles.groupSummary}>
+          {summary}
+          {toolCount > 0 && lastToolSummary && (
+            <span className={styles.groupLastTool}> · {t(lastToolSummary)}</span>
+          )}
+        </span>
+        {streaming && !forceCollapsed && <span className={styles.groupSpinner} />}
+        <span className={styles.groupToggleHint}>
+          {open ? t('chat.collapse') : t('chat.expand')}
+        </span>
+      </div>
+      {open && (
+        <div className={styles.groupBody}>
+          {messages.map((msg) => {
+            const key = msg.id || msg.sequence
+            const isLocalLastThought =
+              msg.kind === 'agent_thought_chunk' && key === localLastThoughtKey
+            const innerDefaultOpen = streaming && isLocalLastThought
+            return (
+              <MessageBubble
+                key={key}
+                message={msg}
+                defaultOpen={innerDefaultOpen}
+                forceCollapsed={false}
+                sessionId={sessionId}
+                cwd={cwd}
+              />
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

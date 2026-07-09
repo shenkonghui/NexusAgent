@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
+import type { ReactNode } from 'react'
 import { listSessionFiles, type SessionFileEntry } from '../api/filesystem'
+import { ChevronDown, ChevronRight, Folder, FolderOpen, FileCode, FileJson, FileText, File, RefreshCw } from 'lucide-react'
 import styles from './FileExplorer.module.css'
 
 interface FileExplorerProps {
@@ -9,18 +11,18 @@ interface FileExplorerProps {
 }
 
 // 文件图标根据扩展名
-function fileIcon(name: string): string {
-  if (name.endsWith('.go')) return '🐹'
-  if (name.endsWith('.ts') || name.endsWith('.tsx')) return '📘'
-  if (name.endsWith('.js') || name.endsWith('.jsx')) return '📙'
-  if (name.endsWith('.py')) return '🐍'
-  if (name.endsWith('.md')) return '📝'
-  if (name.endsWith('.json')) return '⚙'
-  if (name.endsWith('.css')) return '🎨'
-  if (name.endsWith('.html')) return '🌐'
-  if (name.endsWith('.yaml') || name.endsWith('.yml')) return '📋'
-  if (name.endsWith('.sh')) return '🔧'
-  return '📄'
+function fileIcon(name: string): ReactNode {
+  if (name.endsWith('.go')) return <FileCode size={14} />
+  if (name.endsWith('.ts') || name.endsWith('.tsx')) return <FileCode size={14} />
+  if (name.endsWith('.js') || name.endsWith('.jsx')) return <FileCode size={14} />
+  if (name.endsWith('.py')) return <FileCode size={14} />
+  if (name.endsWith('.md')) return <FileText size={14} />
+  if (name.endsWith('.json')) return <FileJson size={14} />
+  if (name.endsWith('.css')) return <FileCode size={14} />
+  if (name.endsWith('.html')) return <FileCode size={14} />
+  if (name.endsWith('.yaml') || name.endsWith('.yml')) return <FileText size={14} />
+  if (name.endsWith('.sh')) return <FileCode size={14} />
+  return <File size={14} />
 }
 
 export default function FileExplorer({ sessionId, onSelectFile, selectedPath }: FileExplorerProps) {
@@ -86,12 +88,12 @@ export default function FileExplorer({ sessionId, onSelectFile, selectedPath }: 
             onClick={() => (entry.is_dir ? toggleDir(entry.path) : onSelectFile(entry.path))}
           >
             <span className={styles.icon}>
-              {entry.is_dir ? (isExpanded ? '📂' : '📁') : fileIcon(entry.name)}
+              {entry.is_dir ? (isExpanded ? <FolderOpen size={14} /> : <Folder size={14} />) : fileIcon(entry.name)}
             </span>
             <span className={styles.name}>{entry.name}</span>
             {entry.is_dir && (
               <span className={styles.chevron}>
-                {isLoading ? '⋯' : isExpanded ? '▾' : '▸'}
+                {isLoading ? '⋯' : isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
               </span>
             )}
           </div>
@@ -110,7 +112,7 @@ export default function FileExplorer({ sessionId, onSelectFile, selectedPath }: 
       <div className={styles.header}>
         <span className={styles.title}>文件</span>
         <button className={styles.refreshBtn} onClick={loadRoot} title="刷新" type="button">
-          ↻
+          <RefreshCw size={14} />
         </button>
       </div>
       {error && <div className={styles.error}>{error}</div>}

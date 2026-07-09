@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -25,6 +26,7 @@ func setupACPTestDB(t *testing.T) *gorm.DB {
 	db.Exec("DELETE FROM sessions")
 	db.Exec("DELETE FROM messages")
 	db.Exec("DELETE FROM workspaces")
+	db.Exec("DELETE FROM running_tasks")
 	return db
 }
 
@@ -325,5 +327,104 @@ func TestService_DeleteSession_NotFound(t *testing.T) {
 	svc := newTestService(t)
 	if err := svc.DeleteSession(context.Background(), "nonexistent"); err == nil {
 		t.Error("期望不存在的会话删除返回错误")
+	}
+}
+
+// TestMsgBroadcaster_FanOut 验证多订阅者都能收到广播的消息。
+func TestMsgBroadcaster_FanOut(t *testing.T) {
+	bc := newMsgBroadcaster(0)
+	ch1, _ := bc.subscribe(16)
+	ch2, _ := bc.subscribe(16)
+
+	msg := models.Message{Sequence: 1, Content: "hello"}
+	bc.broadcast(msg)
+
+	m1 := <-ch1
+	m2 := <-ch2
+	if m1.Content != "hello" || m2.Content != "hello" {
+		t.Errorf("两个订阅者都应收到消息，得到 %q 和 %q", m1.Content, m2.Content)
+	}
+	if bc.subscriberCount() != 2 {
+		t.Errorf("期望 2 个订阅者，实际 %d", bc.subscriberCount())
+	}
+
+	bc.close()
+	if bc.subscriberCount() != 0 {
+		t.Errorf("关闭后期望 0 个订阅者，实际 %d", bc.subscriberCount())
+	}
+}
+
+// TestService_RecoverActiveSessions_InterruptsRunningTasks 验证启动恢复会将 running 状态的 running_task 标记为 interrupted。
+func TestService_RecoverActiveSessions_InterruptsRunningTasks(t *testing.T) {
+	db := setupACPTestDB(t)
+	skills, commands, rules := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
+
+	// 插入一个 running 状态的 running_task
+	taskRepo := repository.NewRunningTaskRepository(db)
+	_ = taskRepo.Create(&models.RunningTask{
+		DBSessionID: 1,
+		UserID:      1,
+		Prompt:      "test prompt",
+		Status:      models.RunningTaskStatusRunning,
+		StartedAt:   time.Now(),
+	})
+
+	// 触发恢复
+	svc.RecoverActiveSessions()
+
+	tasks, _ := svc.ListInterruptedTasks(1)
+	if len(tasks) != 1 {
+		t.Fatalf("期望 1 个 interrupted 任务，实际 %d", len(tasks))
+	}
+	if tasks[0].Status != models.RunningTaskStatusInterrupted {
+		t.Errorf("期望 status=interrupted，实际 %q", tasks[0].Status)
+	}
+}
+
+// TestRunningTaskRepository_CRUD 验证 running_task 仓库的基本 CRUD。
+func TestRunningTaskRepository_CRUD(t *testing.T) {
+	db := setupACPTestDB(t)
+	repo := repository.NewRunningTaskRepository(db)
+
+	task := &models.RunningTask{
+		DBSessionID: 10,
+		UserID:      5,
+		Prompt:      "hello agent",
+		Status:      models.RunningTaskStatusRunning,
+		StartedAt:   time.Now(),
+	}
+	if err := repo.Create(task); err != nil {
+		t.Fatalf("Create 失败: %v", err)
+	}
+	if task.ID == 0 {
+		t.Fatal("Create 后 ID 应非零")
+	}
+
+	// UpdateLastSeq
+	if err := repo.UpdateLastSeq(task.ID, 42); err != nil {
+		t.Fatalf("UpdateLastSeq 失败: %v", err)
+	}
+	got, _ := repo.FindByID(task.ID)
+	if got.LastSeq != 42 {
+		t.Errorf("期望 LastSeq=42，实际 %d", got.LastSeq)
+	}
+
+	// MarkRunningAsInterrupted
+	if err := repo.MarkRunningAsInterrupted(); err != nil {
+		t.Fatalf("MarkRunningAsInterrupted 失败: %v", err)
+	}
+	interrupted, _ := repo.FindInterruptedByDBSessionID(10)
+	if len(interrupted) != 1 {
+		t.Errorf("期望 1 个 interrupted 任务，实际 %d", len(interrupted))
+	}
+
+	// UpdateStatus done
+	if err := repo.UpdateStatus(task.ID, models.RunningTaskStatusDone, nil); err != nil {
+		t.Fatalf("UpdateStatus 失败: %v", err)
+	}
+	interrupted2, _ := repo.FindInterruptedByDBSessionID(10)
+	if len(interrupted2) != 0 {
+		t.Errorf("标记 done 后期望 0 个 interrupted，实际 %d", len(interrupted2))
 	}
 }

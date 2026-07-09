@@ -1,0 +1,37 @@
+.layout {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* 左侧侧边栏固定宽度容器 */
+.sidebarWrap {
+  width: 240px;
+  flex-shrink: 0;
+  height: 100%;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+/* 折叠状态下展开侧边栏的图标按钮 */
+.iconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.iconBtn:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}

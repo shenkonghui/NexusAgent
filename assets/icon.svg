@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- 深蓝→紫径向渐变背景(中心亮、边缘暗,匹配原图) -->
+    <radialGradient id="bg" cx="50%" cy="42%" r="75%">
+      <stop offset="0%" stop-color="#2E5BFF"/>
+      <stop offset="45%" stop-color="#1E3A8A"/>
+      <stop offset="100%" stop-color="#4C1D95"/>
+    </radialGradient>
+
+    <!-- 节点渐变(高光质感) -->
+    <radialGradient id="node" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="55%" stop-color="#E0E7FF"/>
+      <stop offset="100%" stop-color="#A5B4FC"/>
+    </radialGradient>
+
+    <!-- 中心节点(略带青色,突出焦点) -->
+    <radialGradient id="nodeCenter" cx="35%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="50%" stop-color="#C7D2FE"/>
+      <stop offset="100%" stop-color="#818CF8"/>
+    </radialGradient>
+
+    <!-- 发光滤镜 -->
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="14" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="glowSmall" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="8" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- 背景 -->
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+
+  <!-- 六边形分子结构:中心 (512,512),外接圆半径 250 -->
+  <!-- 六顶点(正六边形,顶点朝上下) -->
+  <g stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" fill="none" opacity="0.92" filter="url(#glow)">
+    <!-- 六边形外框(连接相邻顶点) -->
+    <polygon points="512,262 728.6,387 728.6,637 512,762 295.4,637 295.4,387" stroke-width="9"/>
+    <!-- 从中心到各顶点的辐射线 -->
+    <line x1="512" y1="512" x2="512" y2="262"/>
+    <line x1="512" y1="512" x2="728.6" y2="387"/>
+    <line x1="512" y1="512" x2="728.6" y2="637"/>
+    <line x1="512" y1="512" x2="512" y2="762"/>
+    <line x1="512" y1="512" x2="295.4" y2="637"/>
+    <line x1="512" y1="512" x2="295.4" y2="387"/>
+  </g>
+
+  <!-- 六个顶点节点 -->
+  <g filter="url(#glowSmall)">
+    <circle cx="512"   cy="262" r="46" fill="url(#node)"/>
+    <circle cx="728.6" cy="387" r="46" fill="url(#node)"/>
+    <circle cx="728.6" cy="637" r="46" fill="url(#node)"/>
+    <circle cx="512"   cy="762" r="46" fill="url(#node)"/>
+    <circle cx="295.4" cy="637" r="46" fill="url(#node)"/>
+    <circle cx="295.4" cy="387" r="46" fill="url(#node)"/>
+  </g>
+
+  <!-- 中心节点(略大,焦点) -->
+  <circle cx="512" cy="512" r="58" fill="url(#nodeCenter)" filter="url(#glowSmall)"/>
+</svg>

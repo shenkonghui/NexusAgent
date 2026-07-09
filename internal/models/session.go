@@ -31,6 +31,8 @@ type Session struct {
 	Title string `gorm:"size:128" json:"title"`
 	// Source 标识会话来源：manual（手动创建）或 scheduled（定时任务创建）。
 	Source     string     `gorm:"size:32;not null;default:manual" json:"source"`
+	// Tags 是会话标签 JSON 数组，如 ["后端","mysql"]，由任务自动分类写入。
+	Tags string `gorm:"type:text" json:"tags"`
 	ModelValue string     `gorm:"size:128" json:"-"` // 用户选择的模型，在激活会话时应用
 	CreatedAt  time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`

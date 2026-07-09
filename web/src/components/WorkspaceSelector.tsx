@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { listWorkspaces, createWorkspace, deleteWorkspace, updateWorkspace, saveWorkspace } from '../api/workspaces'
 import type { Workspace } from '../types'
 import CreateWorkspaceDialog from './CreateWorkspaceDialog'
+import { ChevronUp, ChevronDown, Folder, Clock, Plus, MoreHorizontal } from 'lucide-react'
 import styles from './WorkspaceSelector.module.css'
 
 interface Props {
@@ -107,11 +108,11 @@ export default function WorkspaceSelector({ value, onChange, onRefresh, onError 
   return (
     <div className={styles.container} ref={ref}>
       <button type="button" className={styles.trigger} onClick={() => setOpen((v) => !v)} title={t('workspace.title')}>
-        <span className={styles.icon}>{current?.mode === 'temporary' ? '🕐' : '📁'}</span>
+        <span className={styles.icon}>{current?.mode === 'temporary' ? <Clock size={14} /> : <Folder size={14} />}</span>
         <span className={styles.label}>{current?.name || t('workspace.default')}</span>
-        <span className={styles.arrow}>{open ? '▲' : '▼'}</span>
+        <span className={styles.arrow}>{open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</span>
       </button>
-      <button type="button" className={styles.newBtn} onClick={() => setShowCreate(true)} title={t('workspace.create')}>+</button>
+      <button type="button" className={styles.newBtn} onClick={() => setShowCreate(true)} title={t('workspace.create')}><Plus size={14} /></button>
 
       {open && (
         <div className={styles.dropdown}>
@@ -122,7 +123,7 @@ export default function WorkspaceSelector({ value, onChange, onRefresh, onError 
               className={`${styles.item} ${ws.id === value ? styles.itemActive : ''}`}
               onClick={() => renaming !== ws.id && handleSelect(ws.id)}
             >
-              <span>{ws.mode === 'temporary' ? '🕐' : '📁'}</span>
+              <span>{ws.mode === 'temporary' ? <Clock size={14} /> : <Folder size={14} />}</span>
               {renaming === ws.id ? (
                 <input className={styles.renameInput} value={renameValue} autoFocus
                   onChange={(e) => setRenameValue(e.target.value)}
@@ -142,7 +143,7 @@ export default function WorkspaceSelector({ value, onChange, onRefresh, onError 
               {ws.session_count !== undefined && <span className={styles.itemCount}>{ws.session_count}</span>}
               <button type="button" className={styles.menuBtn}
                 onClick={(e) => { e.stopPropagation(); setContextMenu({ id: ws.id, x: e.clientX, y: e.clientY }) }}
-              >⋯</button>
+              ><MoreHorizontal size={14} /></button>
             </div>
           ))}
         </div>

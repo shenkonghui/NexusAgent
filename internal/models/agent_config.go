@@ -10,7 +10,8 @@ type AgentConfig struct {
 	DisplayName string    `gorm:"size:128;not null" json:"display_name"`
 	Description string    `gorm:"size:256" json:"description"`
 	Command     string    `gorm:"size:256;not null" json:"command"`
-	Args        string    `gorm:"type:text" json:"args"` // JSON 编码的 []string
+	Args        string    `gorm:"type:text" json:"args"`  // JSON 编码的 []string
+	Env         string    `gorm:"type:text" json:"env"`   // JSON 编码的 map[string]string，启动 agent 进程时注入（如 HTTPS_PROXY 等代理变量）
 	APIKeyEnv   string    `gorm:"size:64" json:"api_key_env"`
 	Timeout     string    `gorm:"size:32" json:"timeout"` // time.Duration 字符串，如 "300s"
 	Enabled     *bool     `gorm:"not null;default:false" json:"enabled"`

@@ -136,6 +136,8 @@
     "conv_reconnecting": "重新连接",
     "conv_waiting_permission": "等待操作确认",
     "timeoutReconnected": "响应超时，已自动重连",
+    "interruptedPrompt": "上次任务因服务重启中断（共 {{count}} 个），点击重发",
+    "resume": "重发",
     "permission": {
       "title": "需要你的确认",
       "defaultTitle": "Agent 请求执行操作"
@@ -164,16 +166,35 @@
   "settings": {
     "title": "设置",
     "tabLanguage": "语言设置",
-    "tabAgent": "Agent 设置",
-    "tabClassify": "笔记分类",
-    "tabConfig": "配置管理",
+    "tabAgent": "Agent CP 设置",
+    "tabClassify": "笔记设置",
+    "tabConfig": "Agent 设置",
+    "tabTask": "任务设置",
     "languageHint": "选择界面显示语言。",
     "classifyHint": "配置笔记自动分类使用的 Agent、模型与提示词。分类在默认工作区的专用任务会话中执行，可在侧边栏「笔记分类任务」查看每次处理流程。",
     "configHint": "管理 Skills、Commands、Rules 的扫描路径配置。修改后需重启服务生效。Skills 仅针对外部的 SKILL.md 文件。",
+    "taskHint": "配置发起任务时的自动行为：根据任务描述自动打标签、用 AI 生成标题。使用临时会话执行，不影响主对话。",
+    "autoTag": "自动打标签",
+    "autoTagHint": "发起任务时，AI 根据任务描述从预定义标签中选择最匹配的标签。",
+    "autoTitle": "自动生成标题",
+    "autoTitleHint": "发起任务时，AI 根据 prompt 生成简短标题（替代默认的首行截取）。",
+    "predefinedTags": "预定义标签",
+    "predefinedTagsHint": "AI 只会从这些标签中选择，可自由增删。",
+    "addTag": "添加标签",
+    "tagPlaceholder": "输入标签名",
+    "taskAgent": "执行 Agent",
+    "taskModel": "模型",
+    "taskAdvanced": "高级：自定义提示词",
+    "tagPrompt": "分类提示词",
+    "tagPromptHint": "可用占位符：{{tags}}（预定义标签）、{{prompt}}（任务描述）。留空使用默认。",
+    "titlePrompt": "标题提示词",
+    "titlePromptHint": "可用占位符：{{prompt}}（任务描述）。留空使用默认。",
+    "taskSettingsSaved": "任务设置已保存",
     "viewClassifyTask": "查看分类任务流程 →",
     "noteClassifyInterval": "分类间隔（分钟）",
     "noteClassifyIntervalHint": "笔记创建或更新后，至少等待该时间再进行自动分类；无待分类笔记时不触发",
     "agentList": "Agent 列表",
+    "searchAgent": "搜索 Agent（名称 / 类型 / 描述）",
     "addAgent": "添加 Agent",
     "editAgent": "编辑 Agent",
     "type": "类型",
@@ -181,6 +202,8 @@
     "description": "描述",
     "command": "命令",
     "args": "参数",
+    "env": "环境变量",
+    "envHint": "每行一个 KEY=VALUE，将注入到启动的 agent 进程。可设置 HTTPS_PROXY / HTTP_PROXY / NO_PROXY 等代理变量。",
     "apiKeyEnv": "API Key 环境变量",
     "timeout": "超时时间",
     "enabled": "已启用",
@@ -314,7 +337,9 @@
     "clearConfirm": "确定清空当前会话历史吗？",
     "model": "模型",
     "hideDetail": "隐藏详情",
-    "viewDetail": "查看详情"
+    "viewDetail": "查看详情",
+    "expand": "展开",
+    "collapse": "收起"
   },
   "theme": {
     "light": "浅色模式",
@@ -381,5 +406,21 @@
     "classifying": "分类中…",
     "classifyTask": "笔记分类任务",
     "classifyTaskHint": "此为笔记自动分类任务会话，每次分类对应一条执行记录，仅供查看。"
+  },
+  "log": {
+    "title": "日志",
+    "openLogs": "查看日志",
+    "frontend": "前端",
+    "backend": "后端",
+    "clear": "清空",
+    "autoScroll": "自动滚动",
+    "filter": "级别筛选",
+    "empty": "暂无日志",
+    "level": {
+      "debug": "调试",
+      "info": "信息",
+      "warn": "警告",
+      "error": "错误"
+    }
   }
 }

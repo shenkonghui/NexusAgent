@@ -11,6 +11,7 @@ import (
 	"nexusagent/internal/config"
 	"nexusagent/internal/database"
 	"nexusagent/internal/handlers"
+	"nexusagent/internal/logging"
 	"nexusagent/internal/models"
 	"nexusagent/internal/repository"
 	"nexusagent/internal/services"
@@ -49,7 +50,14 @@ func TestSetup_RegistersP5Routes(t *testing.T) {
 
 	skillsCfg := config.SkillsConfig{UserDirs: []string{t.TempDir()}}
 	commandsCfg := config.CommandsConfig{UserDirs: []string{t.TempDir()}}
-	engine := Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, skillsCfg, commandsCfg, gin.TestMode, "", false)
+	rulesCfg := config.RulesConfig{UserDirs: []string{t.TempDir()}}
+	noteRepo := repository.NewNoteRepository(db)
+	noteSettingsRepo := repository.NewNoteSettingsRepository(db)
+	noteH := handlers.NewNoteHandler(noteRepo, noteSettingsRepo)
+	taskSettingsRepo := repository.NewTaskSettingsRepository(db)
+	taskSettingsH := handlers.NewTaskSettingsHandler(taskSettingsRepo)
+	logH := handlers.NewLogHandler(logging.NewLogHub(0))
+	engine := Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, taskSettingsH, nil, logH, skillsCfg, commandsCfg, rulesCfg, gin.TestMode, "", false)
 
 	want := []string{
 		"GET /api/v1/agents",
@@ -75,6 +83,7 @@ func TestSetup_RegistersP5Routes(t *testing.T) {
 		"DELETE /api/v1/scheduled-tasks/:id",
 		"POST /api/v1/scheduled-tasks/:id/run",
 		"GET /api/v1/scheduled-tasks/:id/executions",
+		"GET /api/v1/logs/stream",
 	}
 	got := make(map[string]bool)
 	for _, ri := range engine.Routes() {

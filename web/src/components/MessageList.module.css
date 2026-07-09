@@ -127,3 +127,81 @@
   border-radius: 6px;
   font-size: 12px;
 }
+
+/* 连续思考 + 工具调用折叠分组 */
+.groupContainer {
+  margin: 4px 0;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.groupHeader:hover {
+  background: var(--bg-hover);
+}
+
+.groupHeaderOpen {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.groupToggle {
+  font-size: 10px;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.groupSummary {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.groupLastTool {
+  color: var(--text-muted);
+}
+
+.groupSpinner {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--text-muted);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: groupSpin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes groupSpin {
+  to { transform: rotate(360deg); }
+}
+
+.groupToggleHint {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.groupBody {
+  border: 1px solid var(--border);
+  border-top: none;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 0 8px 8px;
+  background: var(--bubble-thought-bg);
+  padding: 2px 0;
+}

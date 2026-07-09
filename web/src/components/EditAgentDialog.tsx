@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AgentConfig } from '../types'
+import { X } from 'lucide-react'
 import styles from './EditAgentDialog.module.css'
 
 export interface AgentFormPayload {
@@ -9,9 +10,34 @@ export interface AgentFormPayload {
   description: string
   command: string
   args: string[]
+  env: Record<string, string>
   api_key_env: string
   timeout: string
   enabled: boolean
+}
+
+// 将 env map 序列化为 textarea 文本，每行一个 KEY=VALUE，按 key 排序保证稳定展示。
+function envToText(env: Record<string, string> | undefined | null): string {
+  if (!env) return ''
+  return Object.keys(env)
+    .sort()
+    .map((k) => `${k}=${env[k]}`)
+    .join('\n')
+}
+
+// 将 textarea 文本解析回 env map，按首个 = 拆分键值，丢弃无 = 的行。
+function textToEnv(text: string): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const raw of text.split('\n')) {
+    const line = raw.trim()
+    if (!line) continue
+    const idx = line.indexOf('=')
+    if (idx <= 0) continue
+    const key = line.slice(0, idx).trim()
+    const value = line.slice(idx + 1).trim()
+    if (key) env[key] = value
+  }
+  return env
 }
 
 interface Props {
@@ -29,6 +55,7 @@ function toForm(config: AgentConfig) {
     description: config.description,
     command: config.command,
     args: (config.args || []).join('\n'),
+    env: envToText(config.env),
     api_key_env: config.api_key_env,
     timeout: config.timeout,
     enabled: config.enabled,
@@ -60,6 +87,7 @@ export default function EditAgentDialog({ config, saving = false, onSave, onDele
       description: form.description.trim(),
       command: form.command.trim(),
       args: form.args.split('\n').map((s) => s.trim()).filter(Boolean),
+      env: textToEnv(form.env),
       api_key_env: form.api_key_env.trim(),
       timeout: form.timeout.trim(),
       enabled: form.enabled,
@@ -71,7 +99,7 @@ export default function EditAgentDialog({ config, saving = false, onSave, onDele
       <form className={styles.dialog} onClick={(e) => e.stopPropagation()} onSubmit={handleSubmit}>
         <div className={styles.header}>
           <h2 className={styles.title}>{t('settings.editTitle')}</h2>
-          <button type="button" className={styles.closeBtn} onClick={onClose} disabled={saving} aria-label={t('common.close')}>×</button>
+          <button type="button" className={styles.closeBtn} onClick={onClose} disabled={saving} aria-label={t('common.close')}><X size={16} /></button>
         </div>
 
         <div className={styles.grid}>
@@ -122,6 +150,15 @@ export default function EditAgentDialog({ config, saving = false, onSave, onDele
             onChange={(e) => setForm({ ...form, args: e.target.value })}
             placeholder={'-y\n@agentclientprotocol/claude-agent-acp@latest'}
           />
+        </div>
+
+        <div className={styles.field}>
+          <label className={styles.label}>{t('settings.env')}</label>
+          <textarea className={styles.textarea} rows={3} value={form.env}
+            onChange={(e) => setForm({ ...form, env: e.target.value })}
+            placeholder={'HTTPS_PROXY=http://127.0.0.1:7890\nNO_PROXY=localhost,127.0.0.1'}
+          />
+          <span className={styles.hint}>{t('settings.envHint')}</span>
         </div>
 
         <label className={styles.checkbox}>

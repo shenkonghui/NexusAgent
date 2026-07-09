@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getAgentsConfig, updateAgentsConfig, scanSkillFiles, scanCommandFiles, scanRuleFiles, writeFileContent } from '../api/config'
 import type { DirConfigView, AgentsConfigView, ScannedFileItem } from '../api/config'
 import ErrorBanner from './ErrorBanner'
 import FileEditor from './FileEditor'
+import { Zap, SquareTerminal, ClipboardList, X, Trash2, Plus } from 'lucide-react'
 import styles from './ConfigEditor.module.css'
 
 type ConfigSection = 'skills' | 'commands' | 'rules'
@@ -162,11 +164,11 @@ export default function ConfigEditor() {
     }
   }
 
-  function sectionIcon(section: ConfigSection): string {
+  function sectionIcon(section: ConfigSection): ReactNode {
     switch (section) {
-      case 'skills': return '⚡'
-      case 'commands': return '⌨️'
-      case 'rules': return '📋'
+      case 'skills': return <Zap size={14} style={{ verticalAlign: '-2px' }} />
+      case 'commands': return <SquareTerminal size={14} style={{ verticalAlign: '-2px' }} />
+      case 'rules': return <ClipboardList size={14} style={{ verticalAlign: '-2px' }} />
     }
   }
 
@@ -370,7 +372,7 @@ export default function ConfigEditor() {
                 {sectionIcon(editingSection)} {t('common.edit')} {sectionTitle(editingSection)}
               </h3>
               <button type="button" className={styles.closeBtn} onClick={closeEditor} disabled={saving}>
-                ✕
+                <X size={16} />
               </button>
             </div>
 
@@ -379,7 +381,7 @@ export default function ConfigEditor() {
                 <div className={styles.editSectionHeader}>
                   <span className={styles.editSectionTitle}>{t('configEditor.userDirs')}</span>
                   <button type="button" className={styles.addBtn} onClick={() => addDir('user_dirs')} disabled={saving}>
-                    + {t('configEditor.addPath')}
+                    <Plus size={13} style={{ verticalAlign: '-2px', marginRight: 2 }} />{t('configEditor.addPath')}
                   </button>
                 </div>
                 {editDirs.user_dirs.map((dir, i) => (
@@ -399,7 +401,7 @@ export default function ConfigEditor() {
                       disabled={saving}
                       title={t('common.delete')}
                     >
-                      🗑
+                      <Trash2 size={14} />
                     </button>
                   </div>
                 ))}
@@ -410,7 +412,7 @@ export default function ConfigEditor() {
                   <div className={styles.editSectionHeader}>
                     <span className={styles.editSectionTitle}>{t('configEditor.projectDirs')}</span>
                     <button type="button" className={styles.addBtn} onClick={() => addDir('project_dirs')} disabled={saving}>
-                      + {t('configEditor.addPath')}
+                      <Plus size={13} style={{ verticalAlign: '-2px', marginRight: 2 }} />{t('configEditor.addPath')}
                     </button>
                   </div>
                   {editDirs.project_dirs.map((dir, i) => (
@@ -430,7 +432,7 @@ export default function ConfigEditor() {
                         disabled={saving}
                         title={t('common.delete')}
                       >
-                        🗑
+                        <Trash2 size={14} />
                       </button>
                     </div>
                   ))}

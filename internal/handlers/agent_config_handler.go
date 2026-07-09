@@ -52,6 +52,7 @@ type agentConfigRequest struct {
 	Description string `json:"description"`
 	Command     string `json:"command" binding:"required"`
 	Args        []string `json:"args"`
+	Env         map[string]string `json:"env"`
 	APIKeyEnv   string `json:"api_key_env"`
 	Timeout     string `json:"timeout"`
 	Enabled     *bool  `json:"enabled"`
@@ -65,6 +66,7 @@ type agentConfigItem struct {
 	Description string   `json:"description"`
 	Command     string   `json:"command"`
 	Args        []string `json:"args"`
+	Env         map[string]string `json:"env"`
 	APIKeyEnv   string   `json:"api_key_env"`
 	Timeout     string   `json:"timeout"`
 	Enabled     bool     `json:"enabled"`
@@ -75,6 +77,7 @@ func toAgentConfigItem(cfg *models.AgentConfig) agentConfigItem {
 	if cfg.Args != "" {
 		_ = json.Unmarshal([]byte(cfg.Args), &args)
 	}
+	envMap := parseEnvMap(cfg.Env)
 	enabled := false
 	if cfg.Enabled != nil {
 		enabled = *cfg.Enabled
@@ -86,6 +89,7 @@ func toAgentConfigItem(cfg *models.AgentConfig) agentConfigItem {
 		Description: cfg.Description,
 		Command:     cfg.Command,
 		Args:        args,
+		Env:         envMap,
 		APIKeyEnv:   cfg.APIKeyEnv,
 		Timeout:     cfg.Timeout,
 		Enabled:     enabled,
@@ -99,6 +103,25 @@ func parseArgs(args []string) string {
 	}
 	b, _ := json.Marshal(args)
 	return string(b)
+}
+
+// parseEnv 将请求中的 env map 编码为 JSON 字符串，空 map 返回空串。
+func parseEnv(env map[string]string) string {
+	if len(env) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(env)
+	return string(b)
+}
+
+// parseEnvMap 将存储的 JSON 字符串解码为 map，空串或非法 JSON 返回 nil。
+func parseEnvMap(env string) map[string]string {
+	if env == "" {
+		return nil
+	}
+	var m map[string]string
+	_ = json.Unmarshal([]byte(env), &m)
+	return m
 }
 
 // validateTimeout 校验 timeout 字符串可被 time.ParseDuration 解析（空串合法）。
@@ -164,6 +187,7 @@ func (h *AgentConfigHandler) Create(c *gin.Context) {
 		Description: req.Description,
 		Command:     req.Command,
 		Args:        parseArgs(req.Args),
+		Env:         parseEnv(req.Env),
 		APIKeyEnv:   req.APIKeyEnv,
 		Timeout:     req.Timeout,
 		Enabled:     req.Enabled,
@@ -211,6 +235,7 @@ func (h *AgentConfigHandler) Update(c *gin.Context) {
 	cfg.Description = req.Description
 	cfg.Command = req.Command
 	cfg.Args = parseArgs(req.Args)
+	cfg.Env = parseEnv(req.Env)
 	cfg.APIKeyEnv = req.APIKeyEnv
 	cfg.Timeout = req.Timeout
 	cfg.Enabled = req.Enabled

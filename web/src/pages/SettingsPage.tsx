@@ -6,8 +6,10 @@ import { useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
 import { listAgentConfigs, updateAgentConfig, deleteAgentConfig } from '../api/agentConfigs'
 import { listAgents, getAgentModels, probeAgentConfigs, clearAgentProbeCache } from '../api/agents'
 import { getNoteSettings, updateNoteSettings } from '../api/notes'
-import type { AgentConfig, Agent, ModelOption, ConfigOption } from '../types'
-import SessionSidebar from '../components/SessionSidebar'
+import { getTaskSettings, updateTaskSettings } from '../api/tasks'
+import type { AgentConfig, Agent, ModelOption, ConfigOption, TaskSettings } from '../types'
+import { tasksUrl } from '../utils/routes'
+import AppLayout, { SidebarToggleButton } from '../components/AppLayout'
 import EditAgentDialog, { type AgentFormPayload } from '../components/EditAgentDialog'
 import ConfigEditor from '../components/ConfigEditor'
 import UserMenu from '../components/UserMenu'
@@ -17,10 +19,10 @@ import i18n from '../i18n'
 import styles from './SettingsPage.module.css'
 
 const DEFAULT_AGENT_KEY = 'nexus.default.agent'
-type SettingsTab = 'language' | 'agent' | 'classify' | 'config'
+type SettingsTab = 'language' | 'agent' | 'classify' | 'config' | 'task'
 
 function parseSettingsTab(raw: string | null): SettingsTab {
-  if (raw === 'agent' || raw === 'classify' || raw === 'config') return raw
+  if (raw === 'agent' || raw === 'classify' || raw === 'config' || raw === 'task') return raw
   return 'language'
 }
 
@@ -54,6 +56,7 @@ export default function SettingsPage() {
   }
 
   const [configs, setConfigs] = useState<AgentConfig[]>([])
+  const [configSearch, setConfigSearch] = useState('')
   const [agents, setAgents] = useState<Agent[]>([])
   const { workspaceId, sessions } = useCurrentWorkspace(!!user)
   const [defaultAgent, setDefaultAgent] = useState('')
@@ -65,6 +68,16 @@ export default function SettingsPage() {
   const [noteModelOptions, setNoteModelOptions] = useState<ModelOption[]>([])
   const [noteModelProbing, setNoteModelProbing] = useState(false)
   const [noteSettingsSaving, setNoteSettingsSaving] = useState(false)
+  // 任务设置状态
+  const [taskAutoTag, setTaskAutoTag] = useState(true)
+  const [taskAutoTitle, setTaskAutoTitle] = useState(true)
+  const [taskAgent, setTaskAgent] = useState('')
+  const [taskTags, setTaskTags] = useState<string[]>([])
+  const [taskTagInput, setTaskTagInput] = useState('')
+  const [taskTagPrompt, setTaskTagPrompt] = useState('')
+  const [taskTitlePrompt, setTaskTitlePrompt] = useState('')
+  const [taskSettingsSaving, setTaskSettingsSaving] = useState(false)
+  const [taskSettingsSaved, setTaskSettingsSaved] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [editingConfig, setEditingConfig] = useState<AgentConfig | null>(null)
@@ -113,8 +126,8 @@ export default function SettingsPage() {
   async function loadData() {
     setLoading(true); setError('')
     try {
-      const [cfgResp, agentsResp, noteSettingsResp] = await Promise.all([
-        listAgentConfigs(), listAgents(), getNoteSettings(),
+      const [cfgResp, agentsResp, noteSettingsResp, taskSettingsResp] = await Promise.all([
+        listAgentConfigs(), listAgents(), getNoteSettings(), getTaskSettings(),
       ])
       setConfigs(cfgResp.data.agent_configs || [])
       setAgents(agentsResp.data.agents || [])
@@ -124,6 +137,14 @@ export default function SettingsPage() {
       setNoteInterval(noteSettingsResp.data.classify_interval_minutes || 5)
       setNotePrompt(noteSettingsResp.data.classify_prompt || '')
       setNoteClassifySessionId(noteSettingsResp.data.classify_db_session_id || 0)
+      // 任务设置
+      const ts: TaskSettings = taskSettingsResp.data
+      setTaskAutoTag(ts.auto_tag_enabled)
+      setTaskAutoTitle(ts.auto_title_enabled)
+      setTaskAgent(ts.agent_type || (agentsResp.data.agents || [])[0]?.type || '')
+      setTaskTags(ts.tags || [])
+      setTaskTagPrompt(ts.tag_prompt || '')
+      setTaskTitlePrompt(ts.title_prompt || '')
     } catch (err) {
       setError(err instanceof Error ? err.message : t('settings.loadFailed'))
     } finally { setLoading(false) }
@@ -175,6 +196,42 @@ export default function SettingsPage() {
     }
   }
 
+  function handleAddTaskTag() {
+    const v = taskTagInput.trim()
+    if (!v) return
+    if (!taskTags.includes(v)) {
+      setTaskTags([...taskTags, v])
+    }
+    setTaskTagInput('')
+  }
+
+  function handleRemoveTaskTag(tag: string) {
+    setTaskTags(taskTags.filter((t2) => t2 !== tag))
+  }
+
+  async function handleSaveTaskSettings() {
+    setTaskSettingsSaving(true); setError(''); setTaskSettingsSaved(false)
+    try {
+      const resp = await updateTaskSettings({
+        auto_tag_enabled: taskAutoTag,
+        auto_title_enabled: taskAutoTitle,
+        agent_type: taskAgent,
+        model_value: '',
+        tags: taskTags,
+        tag_prompt: taskTagPrompt,
+        title_prompt: taskTitlePrompt,
+      })
+      setTaskTags(resp.data.tags || [])
+      setTaskTagPrompt(resp.data.tag_prompt || '')
+      setTaskTitlePrompt(resp.data.title_prompt || '')
+      setTaskSettingsSaved(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.failed'))
+    } finally {
+      setTaskSettingsSaving(false)
+    }
+  }
+
   function closeEditDialog() {
     if (saving) return
     setEditingConfig(null)
@@ -221,11 +278,13 @@ export default function SettingsPage() {
   if (!user) return null
 
   return (
-    <div className={styles.layout}>
-      <div className={styles.sidebarWrap}><SessionSidebar sessions={sessions} workspaceId={workspaceId} /></div>
+    <AppLayout sidebarProps={{ sessions, workspaceId }}>
       <div className={styles.main}>
         <div className={styles.header}>
-          <h1 className={styles.title}>{t('settings.title')}</h1>
+          <div className={styles.headerLeft}>
+            <SidebarToggleButton />
+            <h1 className={styles.title}>{t('settings.title')}</h1>
+          </div>
           <UserMenu />
         </div>
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}
@@ -259,6 +318,13 @@ export default function SettingsPage() {
                 onClick={() => setTab('config')}
               >
                 {t('settings.tabConfig')}
+              </button>
+              <button
+                type="button"
+                className={`${styles.navItem} ${tab === 'task' ? styles.navItemActive : ''}`}
+                onClick={() => setTab('task')}
+              >
+                {t('settings.tabTask')}
               </button>
             </nav>
             <div className={styles.content}>
@@ -304,10 +370,27 @@ export default function SettingsPage() {
                   </div>
                   <div className={styles.configList}>
                     <h2 className={styles.sectionTitle}>{t('settings.agentList')}（{configs.length}）</h2>
+                    {configs.length > 0 && (
+                      <input
+                        type="search"
+                        className={styles.configSearch}
+                        value={configSearch}
+                        onChange={(e) => setConfigSearch(e.target.value)}
+                        placeholder={t('settings.searchAgent')}
+                      />
+                    )}
                     {configs.length === 0 ? (
                       <p className={styles.empty}>{t('settings.noAgents')}</p>
                     ) : (
-                      configs.map((cfg) => (
+                      configs
+                        .filter((cfg) => {
+                          const q = configSearch.trim().toLowerCase()
+                          if (!q) return true
+                          return cfg.display_name.toLowerCase().includes(q)
+                            || cfg.type.toLowerCase().includes(q)
+                            || (cfg.description || '').toLowerCase().includes(q)
+                        })
+                        .map((cfg) => (
                         <div key={cfg.id} className={styles.configRow}>
                           <div className={styles.configIcon}>{cfg.display_name.slice(0, 2).toUpperCase()}</div>
                           <div className={styles.configInfo}>
@@ -436,7 +519,100 @@ export default function SettingsPage() {
                 </>
               )}
 
-              <button className={styles.backBtn} type="button" onClick={() => navigate('/')}>{t('common.back')}</button>
+              {tab === 'task' && (
+                <>
+                  <p className={styles.hint}>{t('settings.taskHint')}</p>
+
+                  <div className={styles.defaultSection}>
+                    {/* 功能开关 */}
+                    <label className={styles.label}>
+                      <input
+                        type="checkbox"
+                        checked={taskAutoTag}
+                        onChange={(e) => setTaskAutoTag(e.target.checked)}
+                        style={{ marginRight: 8, verticalAlign: 'middle' }}
+                      />
+                      {t('settings.autoTag')}
+                    </label>
+                    <p className={styles.sectionHint}>{t('settings.autoTagHint')}</p>
+
+                    <label className={styles.label}>
+                      <input
+                        type="checkbox"
+                        checked={taskAutoTitle}
+                        onChange={(e) => setTaskAutoTitle(e.target.checked)}
+                        style={{ marginRight: 8, verticalAlign: 'middle' }}
+                      />
+                      {t('settings.autoTitle')}
+                    </label>
+                    <p className={styles.sectionHint}>{t('settings.autoTitleHint')}</p>
+
+                    {/* 执行 Agent 选择 */}
+                    <label className={styles.label}>{t('settings.taskAgent')}</label>
+                    <select className={styles.input} value={taskAgent}
+                      onChange={(e) => setTaskAgent(e.target.value)}
+                    >
+                      <option value="">{t('common.no')}</option>
+                      {agents.map((a) => (
+                        <option key={a.type} value={a.type}>{a.display_name}（{a.type}）</option>
+                      ))}
+                    </select>
+
+                    {/* 预定义标签管理 */}
+                    <label className={styles.label}>{t('settings.predefinedTags')}</label>
+                    <p className={styles.sectionHint}>{t('settings.predefinedTagsHint')}</p>
+                    <div className={styles.inlineRow}>
+                      <input className={styles.input} type="text" value={taskTagInput}
+                        onChange={(e) => setTaskTagInput(e.target.value)}
+                        placeholder={t('settings.tagPlaceholder')}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddTaskTag() } }}
+                      />
+                      <button type="button" className={styles.secondaryBtn} onClick={handleAddTaskTag}>
+                        {t('settings.addTag')}
+                      </button>
+                    </div>
+                    <div className={styles.tagList}>
+                      {taskTags.map((tag) => (
+                        <span key={tag} className={styles.tagChip}>
+                          {tag}
+                          <button type="button" className={styles.tagRemove}
+                            onClick={() => handleRemoveTaskTag(tag)}
+                          >×</button>
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* 高级：自定义提示词 */}
+                    <details className={styles.advancedSection}>
+                      <summary className={styles.advancedSummary}>{t('settings.taskAdvanced')}</summary>
+                      <label className={styles.label}>{t('settings.tagPrompt')}</label>
+                      <p className={styles.sectionHint}>{t('settings.tagPromptHint')}</p>
+                      <textarea className={styles.textarea} rows={6}
+                        value={taskTagPrompt}
+                        onChange={(e) => setTaskTagPrompt(e.target.value)}
+                      />
+                      <label className={styles.label}>{t('settings.titlePrompt')}</label>
+                      <p className={styles.sectionHint}>{t('settings.titlePromptHint')}</p>
+                      <textarea className={styles.textarea} rows={6}
+                        value={taskTitlePrompt}
+                        onChange={(e) => setTaskTitlePrompt(e.target.value)}
+                      />
+                    </details>
+
+                    <button type="button" className={styles.saveNoteBtn}
+                      disabled={taskSettingsSaving}
+                      onClick={handleSaveTaskSettings}
+                    >
+                      {taskSettingsSaving ? t('common.saving') : t('common.save')}
+                    </button>
+                    {taskSettingsSaved && (
+                      <span className={styles.savedHint}>{t('settings.taskSettingsSaved')}</span>
+                    )}
+                  </div>
+                </>
+              )}
+
+              <button className={styles.backBtn} type="button" onClick={() => navigate(tasksUrl(workspaceId))}>{t('common.back')}</button>
             </div>
           </div>
         )}
@@ -451,6 +627,6 @@ export default function SettingsPage() {
           onClose={closeEditDialog}
         />
       )}
-    </div>
+    </AppLayout>
   )
 }

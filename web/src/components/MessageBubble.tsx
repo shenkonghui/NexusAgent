@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { Message } from '../types'
 import { parseDiffsFromMessage } from '../utils/diff'
 import DiffView from './DiffView'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import styles from './MessageBubble.module.css'
 
 interface MessageBubbleProps {
@@ -23,7 +24,8 @@ const kindLabels: Record<string, string> = {
   usage_update: 'chat.usage',
 }
 
-function toolSummary(content: string): string {
+// 从工具调用 content 中提取首行作为摘要，回退到默认标签
+export function toolSummary(content: string): string {
   const firstLine = content.split('\n')[0]?.trim() || ''
   if (firstLine) return firstLine
   return 'chat.toolCall'
@@ -83,7 +85,7 @@ export default function MessageBubble({ message, defaultOpen = false, forceColla
             <span className={styles.summary}>{t(toolSummary(message.content))}</span>
           )}
           {collapsible && (
-            <span className={styles.toggle}>{open ? '▾' : '▸'}</span>
+            <span className={styles.toggle}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
           )}
           {message.raw_json && (!collapsible || open) && (
             <button

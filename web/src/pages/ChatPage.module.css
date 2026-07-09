@@ -1,19 +1,3 @@
-.layout {
-  display: flex;
-  height: 100vh;
-  width: 100vw;
-  overflow: hidden;
-}
-
-/* 左侧侧边栏固定宽度容器 */
-.sidebarWrap {
-  width: 240px;
-  flex-shrink: 0;
-  height: 100%;
-  border-right: 1px solid var(--border);
-  overflow: hidden;
-}
-
 /* 右侧工作区固定宽度容器 */
 .workspaceWrap {
   width: 520px;
@@ -31,28 +15,6 @@
   background: var(--bg-base);
   height: 100%;
   min-width: 0;
-}
-
-/* 展开侧边栏的图标按钮 */
-.iconBtn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-size: 16px;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-  flex-shrink: 0;
-}
-
-.iconBtn:hover {
-  background: var(--bg-hover);
-  color: var(--accent);
 }
 
 .header {
@@ -455,6 +417,39 @@
   color: var(--text-secondary);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
+}
+
+/* ====== 中断任务重发横幅 ====== */
+.interruptedBanner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 24px;
+  background: var(--bg-warning-subtle, #fff8e1);
+  border-bottom: 1px solid var(--border-warning, #ffc107);
+  font-size: 13px;
+  color: var(--text-warning, #8d6e00);
+  flex-shrink: 0;
+}
+
+.resumeBtn {
+  padding: 5px 12px;
+  border: 1px solid var(--border-warning, #ffc107);
+  background: var(--bg, #fff);
+  color: var(--text-warning, #8d6e00);
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.resumeBtn:hover {
+  background: var(--bg-warning-subtle, #fff8e1);
 }
 
 /* ====== 会话恢复栏 ====== */

@@ -130,14 +130,15 @@ func (c *Connection) NewSession(ctx context.Context, cwd string, additionalDirec
 }
 
 // Prompt 发送 prompt 并返回该 session 专属的流式 update channel。
-// channel 在 prompt turn 完成后关闭（由内部 goroutine 注销 stream 时关闭）。
+// 使用 Subscribe 创建独立订阅者（fan-out），prompt turn 完成后仅注销该订阅者，
+// 不影响其他订阅者（如断点续传重连的监听者）。
 func (c *Connection) Prompt(ctx context.Context, sessionID, prompt string) (<-chan acp.SessionUpdate, error) {
 	sid := acp.SessionId(sessionID)
-	ch := c.client.RegisterStream(sid, 256)
+	sub := c.client.Subscribe(sid, 256)
 	slog.Debug("ACP prompt", "session", sessionID, "chars", len(prompt), "preview", logging.Preview(prompt, 120))
 
 	go func() {
-		defer c.client.UnregisterStream(sid)
+		defer c.client.Unsubscribe(sid, sub)
 		_, err := c.conn.Prompt(ctx, acp.PromptRequest{
 			SessionId: sid,
 			Prompt:    []acp.ContentBlock{acp.TextBlock(prompt)},
@@ -149,7 +150,7 @@ func (c *Connection) Prompt(ctx context.Context, sessionID, prompt string) (<-ch
 		}
 	}()
 
-	return ch, nil
+	return sub.ch, nil
 }
 
 // Cancel 取消正在进行的 prompt。

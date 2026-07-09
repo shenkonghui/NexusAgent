@@ -136,6 +136,8 @@
     "conv_reconnecting": "Reconnecting",
     "conv_waiting_permission": "Waiting for approval",
     "timeoutReconnected": "Timed out — reconnected automatically",
+    "interruptedPrompt": "{{count}} task(s) interrupted by server restart — click to resend",
+    "resume": "Resend",
     "permission": {
       "title": "Permission required",
       "defaultTitle": "Agent wants to perform an action"
@@ -160,16 +162,35 @@
   "settings": {
     "title": "Agent Settings",
     "tabLanguage": "Language",
-    "tabAgent": "Agent",
-    "tabClassify": "Note Classification",
-    "tabConfig": "Configuration",
+    "tabAgent": "Agent CP Settings",
+    "tabClassify": "Note Settings",
+    "tabConfig": "Agent Settings",
+    "tabTask": "Task Settings",
     "languageHint": "Choose the interface display language.",
     "classifyHint": "Configure the agent, model and prompt for automatic note tagging. Classification runs in a dedicated task session in the default workspace; open「Note classify task」in the sidebar to view each run.",
     "configHint": "Manage Skills, Commands, and Rules scan path configuration. Changes require a service restart to take effect. Skills only apply to external SKILL.md files.",
+    "taskHint": "Configure automatic behavior when starting a task: auto-tag based on the description and generate a title with AI. Runs in a throwaway session and does not affect the main conversation.",
+    "autoTag": "Auto-tagging",
+    "autoTagHint": "When starting a task, the AI picks the best-matching tags from your predefined list based on the task description.",
+    "autoTitle": "Auto-generate title",
+    "autoTitleHint": "When starting a task, the AI generates a short title from the prompt (replaces the default first-line truncation).",
+    "predefinedTags": "Predefined tags",
+    "predefinedTagsHint": "The AI only picks from these tags. Add or remove freely.",
+    "addTag": "Add tag",
+    "tagPlaceholder": "Enter a tag name",
+    "taskAgent": "Executor Agent",
+    "taskModel": "Model",
+    "taskAdvanced": "Advanced: custom prompts",
+    "tagPrompt": "Tag prompt",
+    "tagPromptHint": "Placeholders: {{tags}} (predefined tags), {{prompt}} (task description). Leave blank for default.",
+    "titlePrompt": "Title prompt",
+    "titlePromptHint": "Placeholder: {{prompt}} (task description). Leave blank for default.",
+    "taskSettingsSaved": "Task settings saved",
     "viewClassifyTask": "View classify task flow →",
     "noteClassifyInterval": "Classification Interval (minutes)",
     "noteClassifyIntervalHint": "Wait at least this long after a note is created or updated before auto-classifying; skipped when no notes are pending",
     "agentList": "Agent List",
+    "searchAgent": "Search agent (name / type / description)",
     "addAgent": "Add Agent",
     "editAgent": "Edit Agent",
     "type": "Type",
@@ -177,6 +198,8 @@
     "description": "Description",
     "command": "Command",
     "args": "Arguments",
+    "env": "Environment Variables",
+    "envHint": "One KEY=VALUE per line. These will be injected into the launched agent process. Use HTTPS_PROXY / HTTP_PROXY / NO_PROXY for proxy settings.",
     "apiKeyEnv": "API Key Env",
     "timeout": "Timeout",
     "enabled": "Enabled",
@@ -308,7 +331,9 @@
     "clearConfirm": "Are you sure you want to clear the session history?",
     "model": "Model",
     "hideDetail": "Hide Details",
-    "viewDetail": "View Details"
+    "viewDetail": "View Details",
+    "expand": "Expand",
+    "collapse": "Collapse"
   },
   "theme": {
     "light": "Light",
@@ -375,5 +400,21 @@
     "classifying": "Classifying…",
     "classifyTask": "Note classify task",
     "classifyTaskHint": "This is the automatic note classification task session. Each classification appears as one execution block (view only)."
+  },
+  "log": {
+    "title": "Logs",
+    "openLogs": "Logs",
+    "frontend": "Frontend",
+    "backend": "Backend",
+    "clear": "Clear",
+    "autoScroll": "Auto-scroll",
+    "filter": "Level filter",
+    "empty": "No logs yet",
+    "level": {
+      "debug": "Debug",
+      "info": "Info",
+      "warn": "Warn",
+      "error": "Error"
+    }
   }
 }

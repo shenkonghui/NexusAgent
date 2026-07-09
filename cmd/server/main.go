@@ -112,6 +112,11 @@ func main() {
 	agentRouter := agent.NewRouter(agentRegistry, acpSvc)
 	agentCfgH := handlers.NewAgentConfigHandler(agentCfgRepo, registrar)
 
+	// 恢复上次服务重启中断的状态：将 running 状态的 running_task 标记为 interrupted，
+	// 将 active 状态的会话标记为 error（agent 进程已随上次退出终止）。
+	// 用户可查看中断任务并手动重发。
+	acpSvc.RecoverActiveSessions()
+
 	// 启动健康检查与自动重连 goroutine（定期检查连接状态，断开自动重连）。
 	acpSvc.StartHealthCheck()
 	// 异步为所有已注册 agent 预建立共享 ACP 连接（每类 agent 一个常驻进程）。
@@ -133,9 +138,21 @@ func main() {
 	noteClassifyWorker := services.NewNoteClassifyWorker(noteClassifier)
 	noteClassifyWorker.Start()
 	noteH := handlers.NewNoteHandler(noteRepo, noteSettingsRepo)
+
+	// 任务元数据：自动打标签 + AI 标题生成（异步，fire-and-forget）
+	taskSettingsRepo := repository.NewTaskSettingsRepository(db)
+	sessionRepo := repository.NewSessionRepository(db)
+	taskMetaSvc := services.NewTaskMetaService(taskSettingsRepo, sessionRepo, agentRouter)
+	acpSvc.SetTaskMetaTrigger(taskMetaSvc)
+	taskSettingsH := handlers.NewTaskSettingsHandler(taskSettingsRepo)
+
 	configH := handlers.NewConfigHandler(cfgPath)
 
-	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, configH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
+	// 日志查看器：复用 logging 包在 Setup 时初始化的日志中心单例，
+	// 通过 SSE 把后端 slog 日志实时推送给前端。
+	logH := handlers.NewLogHandler(logging.DefaultHub())
+
+	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, taskSettingsH, configH, logH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	srv := &http.Server{Addr: addr, Handler: engine}

@@ -147,9 +147,107 @@ jobs:
             dist/*.zip
           if-no-files-found: error
 
+  # ========== Electron 桌面客户端:macOS arm64 (.dmg) + Windows x86_64 (.exe) ==========
+  # 独立 job，与 Pake 流程并存。两者产物都会进 Release。
+  electron:
+    name: Electron ${{ matrix.target }}
+    needs: build
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos-arm64
+            runner: macos-latest
+          - target: windows-x64
+            runner: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            web/package-lock.json
+            electron/package-lock.json
+
+      # CI runner 在国外，使用项目 .npmrc 里的国内镜像反而更慢/不稳定，临时移除
+      - name: Remove China mirror config (CI)
+        shell: bash
+        run: rm -f electron/.npmrc
+
+      - name: Build Frontend
+        run: |
+          cd web
+          npm ci
+          npm run build
+
+      # Go 后端：macOS 用 CGO+真 SQLite；Windows 用纯 Go SQLite（无 gcc 依赖）
+      - name: Build Backend (macOS)
+        if: matrix.target == 'macos-arm64'
+        run: |
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build \
+            -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
+            -o nexusagent ./cmd/server
+
+      - name: Build Backend (Windows)
+        if: matrix.target == 'windows-x64'
+        shell: pwsh
+        run: |
+          $env:GOOS = "windows"
+          $env:GOARCH = "amd64"
+          $env:CGO_ENABLED = "0"
+          go build -tags=sqlite_nocgo `
+            -ldflags="-s -w -X main.version=${{ github.ref_name }}" `
+            -o nexusagent.exe ./cmd/server
+
+      # electron-builder 要求 package.json 的 version 是合法 semver（去掉 tag 前缀 v）
+      - name: Set app version
+        shell: bash
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          node -e "const fs=require('fs');const p=require('./electron/package.json');p.version='$VERSION';fs.writeFileSync('./electron/package.json',JSON.stringify(p,null,2))"
+          cat electron/package.json
+
+      - name: Install & Build (macOS)
+        if: matrix.target == 'macos-arm64'
+        working-directory: electron
+        run: |
+          npm install --no-audit --no-fund
+          npx electron-builder --mac --arm64
+
+      - name: Install & Build (Windows)
+        if: matrix.target == 'windows-x64'
+        working-directory: electron
+        shell: pwsh
+        run: |
+          npm install --no-audit --no-fund
+          npx electron-builder --win --x64
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexusagent-electron-${{ matrix.target }}
+          path: |
+            electron/dist/*.dmg
+            electron/dist/*.exe
+            electron/dist/*.yml
+          if-no-files-found: error
+
   release:
     name: Create Release
-    needs: build
+    needs: [build, electron]
     runs-on: ubuntu-latest
     steps:
       - name: Download Artifacts
@@ -162,7 +260,14 @@ jobs:
           {
             echo "## NexusAgent ${{ github.ref_name }}"
             echo ""
-            echo "### 桌面客户端（推荐）"
+            echo "### Electron 桌面客户端（推荐）"
+            echo ""
+            echo "| 平台 | 文件 | 说明 |"
+            echo "|------|------|------|"
+            echo "| macOS Apple Silicon | \`NexusAgent-*-arm64.dmg\` | 双击安装，拖入 Applications |"
+            echo "| Windows x86_64 | \`NexusAgent-*-x64.exe\` | 双击 NSIS 安装程序 |"
+            echo ""
+            echo "### Pake 桌面客户端（轻量，系统 WebView）"
             echo ""
             echo "| 平台 | 文件 | 说明 |"
             echo "|------|------|------|"
@@ -182,9 +287,9 @@ jobs:
             echo ""
             echo "### 使用方式"
             echo ""
-            echo "- **macOS 桌面版**：解压 \`nexusagent-darwin-desktop.tar.gz\`，双击 \`NexusAgent.app\`"
-            echo "- **Linux 桌面版**：解压 \`nexusagent-linux-desktop.tar.gz\`，执行 \`./NexusAgent/launch.sh\`"
-            echo "- **Windows 桌面版**：解压 \`nexusagent-windows-desktop.zip\`，双击 \`NexusAgent/launch.bat\`"
+            echo "- **Electron macOS**：下载 \`.dmg\`，拖拽安装到 Applications 后启动"
+            echo "- **Electron Windows**：下载 \`.exe\`，按安装向导完成"
+            echo "- **Pake 桌面版**：解压后运行对应启动脚本"
             echo "- **命令行版**：解压后执行 \`./nexusagent\`，浏览器访问 http://127.0.0.1:8080"
           } > release-notes.md
 
@@ -196,5 +301,7 @@ jobs:
           files: |
             artifacts/**/*.tar.gz
             artifacts/**/*.zip
+            artifacts/**/*.dmg
+            artifacts/**/*.exe
           draft: false
           prerelease: false

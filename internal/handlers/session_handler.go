@@ -42,6 +42,16 @@ type SessionStore interface {
 	Prompt(ctx context.Context, sessionID, prompt string) (<-chan models.Message, error)
 	GetWorkspaceCwd(workspaceID uint) (string, error)
 	ListExecutions(sessionID string) ([]repository.ExecutionAggregate, error)
+	// SubscribeSession 订阅会话当前进行中的 prompt 流（断点续传），返回遗漏消息与实时 channel。
+	SubscribeSession(sessionID string, lastSeq int) ([]models.Message, <-chan models.Message, error)
+	// HasActivePrompt 判断会话是否有进行中的 prompt。
+	HasActivePrompt(sessionID string) bool
+	// ListInterruptedTasks 返回指定会话下因服务重启而中断的任务。
+	ListInterruptedTasks(dbSessionID uint) ([]models.RunningTask, error)
+	// ResumeInterruptedTask 恢复中断的任务：ResumeSession + 重新发送原 prompt。
+	ResumeInterruptedTask(ctx context.Context, taskID uint) (<-chan models.Message, error)
+	// ListRunningDBSessionIDs 返回指定用户下所有正在运行的 db_session_id。
+	ListRunningDBSessionIDs(userID uint) ([]uint, error)
 }
 
 // SessionHandler 处理会话相关请求。
@@ -153,6 +163,22 @@ func (h *SessionHandler) List(c *gin.Context) {
 		return
 	}
 	Success(c, http.StatusOK, gin.H{"sessions": sessions})
+}
+
+// RunningSessions GET /api/v1/sessions/running — 返回当前用户正在运行的会话 db_session_id 列表。
+// 侧边栏据此展示哪些会话正在执行（旋转图标）。
+func (h *SessionHandler) RunningSessions(c *gin.Context) {
+	uid, ok := currentUserID(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
+		return
+	}
+	ids, err := h.store.ListRunningDBSessionIDs(uid)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
+		return
+	}
+	Success(c, http.StatusOK, gin.H{"db_session_ids": ids})
 }
 
 // Get GET /api/v1/sessions/:id
@@ -552,7 +578,111 @@ func (h *SessionHandler) Prompt(c *gin.Context) {
 			return false
 		}
 		b, _ := json.Marshal(msg)
-		_, _ = fmt.Fprintf(w, "data: %s\n\n", b)
+		// 每条消息附带 id: <sequence>，供客户端断点续传（Last-Event-ID）
+		_, _ = fmt.Fprintf(w, "id: %d\ndata: %s\n\n", msg.Sequence, b)
+		return true
+	})
+}
+
+// Stream GET /api/v1/sessions/:id/stream
+// 订阅会话当前进行中的 prompt 流（断点续传），不发起新 prompt。
+// 客户端通过 Last-Event-ID 头携带最后收到的 sequence，服务端先从 DB 补齐遗漏消息，再推送实时流。
+func (h *SessionHandler) Stream(c *gin.Context) {
+	sess, ok := h.loadOwnedSession(c)
+	if !ok {
+		return
+	}
+
+	// 解析 Last-Event-ID 头（客户端最后收到的 sequence）
+	lastSeq := 0
+	if lei := c.GetHeader("Last-Event-ID"); lei != "" {
+		if n, err := strconv.Atoi(lei); err == nil && n >= 0 {
+			lastSeq = n
+		}
+	}
+
+	missed, ch, err := h.store.SubscribeSession(sess.SessionID, lastSeq)
+	if err != nil {
+		writeSessionError(c, err)
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+
+	// 先发送 DB 补齐的遗漏消息（每条带 id: sequence）
+	for _, msg := range missed {
+		b, _ := json.Marshal(msg)
+		_, _ = fmt.Fprintf(c.Writer, "id: %d\ndata: %s\n\n", msg.Sequence, b)
+	}
+	c.Writer.Flush()
+
+	// 若无实时 channel（无活跃 prompt），直接结束
+	if ch == nil {
+		_, _ = fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+		return
+	}
+
+	c.Stream(func(w io.Writer) bool {
+		msg, ok := <-ch
+		if !ok {
+			_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+			return false
+		}
+		b, _ := json.Marshal(msg)
+		_, _ = fmt.Fprintf(w, "id: %d\ndata: %s\n\n", msg.Sequence, b)
+		return true
+	})
+}
+
+// InterruptedTasks GET /api/v1/sessions/:id/interrupted-tasks
+// 返回指定会话下因服务重启而中断的任务列表。
+func (h *SessionHandler) InterruptedTasks(c *gin.Context) {
+	sess, ok := h.loadOwnedSession(c)
+	if !ok {
+		return
+	}
+	tasks, err := h.store.ListInterruptedTasks(sess.ID)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "LIST_INTERRUPTED_FAILED", "查询中断任务失败")
+		return
+	}
+	Success(c, http.StatusOK, gin.H{"tasks": tasks})
+}
+
+// ResumeInterruptedTask POST /api/v1/running-tasks/:taskId/resume
+// 恢复中断的任务：自动 ResumeSession 并重新发送原 prompt。
+func (h *SessionHandler) ResumeInterruptedTask(c *gin.Context) {
+	taskIDStr := c.Param("taskId")
+	taskID, err := strconv.ParseUint(taskIDStr, 10, 64)
+	if err != nil || taskID == 0 {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "无效的任务 ID")
+		return
+	}
+
+	ch, err := h.store.ResumeInterruptedTask(c.Request.Context(), uint(taskID))
+	if err != nil {
+		writeSessionError(c, err)
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+
+	c.Stream(func(w io.Writer) bool {
+		msg, ok := <-ch
+		if !ok {
+			_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
+			return false
+		}
+		b, _ := json.Marshal(msg)
+		_, _ = fmt.Fprintf(w, "id: %d\ndata: %s\n\n", msg.Sequence, b)
 		return true
 	})
 }

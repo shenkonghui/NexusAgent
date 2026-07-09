@@ -67,6 +67,16 @@ func (b *ConfigBackend) Env() []string {
 			envs = append(envs, b.cfg.APIKeyEnv+"="+key)
 		}
 	}
+	// 注入自定义环境变量（如 HTTPS_PROXY 等代理设置），追加在末尾以覆盖父进程同名变量。
+	// 附加在 API Key 之后，避免 API Key 逻辑被自定义变量覆盖。
+	if b.cfg.Env != "" {
+		var extra map[string]string
+		if err := json.Unmarshal([]byte(b.cfg.Env), &extra); err == nil {
+			for k, v := range extra {
+				envs = append(envs, k+"="+v)
+			}
+		}
+	}
 	return envs
 }
 

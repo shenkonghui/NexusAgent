@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { readFileContent } from '../api/config'
 import type { ScannedFileItem } from '../api/config'
+import { File, X } from 'lucide-react'
 import styles from './FileEditor.module.css'
 
 interface Props {
@@ -51,7 +52,7 @@ export default function FileEditor({ file, saving, onSave, onClose }: Props) {
         <div className={styles.dialogHeader}>
           <div className={styles.dialogTitleRow}>
             <h3 className={styles.dialogTitle}>
-              📄 {file.name}
+              <File size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />{file.name}
               {file.description && <span className={styles.fileDesc}> — {file.description}</span>}
             </h3>
             <div className={styles.fileMeta}>
@@ -60,7 +61,7 @@ export default function FileEditor({ file, saving, onSave, onClose }: Props) {
             </div>
           </div>
           <button type="button" className={styles.closeBtn} onClick={onClose} disabled={saving}>
-            ✕
+            <X size={16} />
           </button>
         </div>
 

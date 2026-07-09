@@ -1,3 +1,4 @@
+import { X } from 'lucide-react'
 import styles from './ErrorBanner.module.css'
 
 interface ErrorBannerProps {
@@ -21,7 +22,7 @@ export default function ErrorBanner({ message, onClose, onRetry, retryLabel = 'é
         )}
         {onClose && (
           <button className={styles.closeBtn} onClick={onClose} type="button">
-            Ã—
+            <X size={16} />
           </button>
         )}
       </div>

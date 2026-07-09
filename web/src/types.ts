@@ -29,6 +29,7 @@ export interface AgentConfig {
   description: string;
   command: string;
   args: string[];
+  env: Record<string, string>;
   api_key_env: string;
   timeout: string;
   enabled: boolean;
@@ -118,6 +119,8 @@ export interface Session {
   source: 'manual' | 'scheduled' | 'classify';
   created_at: string;
   closed_at: string | null;
+  // 标签 JSON 数组字符串，如 '["后端","mysql"]'，由任务自动分类写入
+  tags?: string;
 }
 
 // 消息
@@ -173,6 +176,19 @@ export interface Execution {
   error: string;
 }
 
+// 进行中任务（用于服务重启后的中断恢复）
+export interface RunningTask {
+  id: number;
+  db_session_id: number;
+  user_id: number;
+  prompt: string;
+  status: 'running' | 'interrupted' | 'done';
+  last_seq: number;
+  execution_id: number | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
 // 认证响应
 export interface AuthResponse {
   access_token: string;
@@ -206,4 +222,33 @@ export interface NoteSettings {
   classify_interval_minutes: number;
   classify_session_id?: string;
   classify_db_session_id?: number;
+}
+
+// 任务设置：自动打标签 + AI 标题生成
+export interface TaskSettings {
+  auto_tag_enabled: boolean;
+  auto_title_enabled: boolean;
+  agent_type: string;
+  model_value: string;
+  // 预定义标签列表
+  tags: string[];
+  tag_prompt: string;
+  title_prompt: string;
+}
+
+// ===== 日志查看器 =====
+
+// 日志等级，与后端 models.LogEntry 的 level 字段一致
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+// 一条日志条目（前端运行时日志与后端推送日志共用此结构）
+export interface LogEntry {
+  // seq 单调递增序号，用于去重；前端日志和后端日志各自独立计数
+  seq: number;
+  // timestamp ISO 时间字符串
+  timestamp: string;
+  level: LogLevel;
+  // source 日志来源，前端为模块名（api/sse/runtime 等），后端为 slog 解析出的包.函数名
+  source: string;
+  message: string;
 }

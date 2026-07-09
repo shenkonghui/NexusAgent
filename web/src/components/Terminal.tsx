@@ -3,6 +3,7 @@ import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
+import { X } from 'lucide-react'
 import styles from './Terminal.module.css'
 
 interface TerminalProps {
@@ -132,11 +133,12 @@ export default function TerminalPanel({ sessionId, onClose }: TerminalProps) {
       sendResize(term, ws, fit)
     })
 
-    // 窗口 resize
-    const handleResize = () => {
-      fit.fit()
-    }
-    window.addEventListener('resize', handleResize)
+    // 容器尺寸变化（Tab 切换 display:none->flex、面板分栏拖动、窗口 resize）
+    // 时重新 fit，避免终端尺寸与容器不符导致留白/错位。
+    const resizeObserver = new ResizeObserver(() => {
+      try { fit.fit() } catch { /* 容器未渲染好时忽略 */ }
+    })
+    resizeObserver.observe(containerRef.current)
 
     // 聚焦终端
     term.focus()
@@ -145,7 +147,7 @@ export default function TerminalPanel({ sessionId, onClose }: TerminalProps) {
       clearTimeout(connectTimeout)
       inputDisposable.dispose()
       resizeDisposable.dispose()
-      window.removeEventListener('resize', handleResize)
+      resizeObserver.disconnect()
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
         ws.close()
       }
@@ -180,7 +182,7 @@ export default function TerminalPanel({ sessionId, onClose }: TerminalProps) {
       <div className={styles.header}>
         <span className={styles.title}>终端</span>
         <button className={styles.closeBtn} onClick={handleClose} type="button" title="关闭终端">
-          ×
+          <X size={16} />
         </button>
       </div>
       <div ref={containerRef} className={styles.terminal} />
