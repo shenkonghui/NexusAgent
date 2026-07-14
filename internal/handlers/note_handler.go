@@ -3,10 +3,12 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -350,4 +352,111 @@ func (h *NoteHandler) Delete(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+type noteImportRequest struct {
+	Notes []noteImportItem `json:"notes" binding:"required"`
+}
+
+type noteImportItem struct {
+	Content string `json:"content"`
+}
+
+type noteImportResult struct {
+	Imported int `json:"imported"`
+	Skipped  int `json:"skipped"`
+}
+
+// Export GET /api/v1/notes/export
+// 将用户全部笔记导出为单个 Markdown 文件，笔记间以独立成行的 === 分隔。
+func (h *NoteHandler) Export(c *gin.Context) {
+	uid, ok := currentUserID(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
+		return
+	}
+	list, err := h.repo.FindAllByUserID(uid)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "INTERNAL", "查询笔记失败")
+		return
+	}
+
+	parts := make([]string, 0, len(list))
+	for i := range list {
+		content := strings.TrimSpace(list[i].Content)
+		if content != "" {
+			parts = append(parts, content)
+		}
+	}
+	body := strings.Join(parts, "\n\n===\n\n")
+
+	filename := fmt.Sprintf("notes-%s.md", time.Now().Format("20060102-150405"))
+	c.Header("Content-Type", "text/markdown; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	c.String(http.StatusOK, body)
+}
+
+// Import POST /api/v1/notes/import
+// 批量导入笔记，按内容（去空白后）去重。
+func (h *NoteHandler) Import(c *gin.Context) {
+	var req noteImportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数无效")
+		return
+	}
+	uid, ok := currentUserID(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
+		return
+	}
+
+	// 构建已有内容集合用于去重
+	existing, err := h.repo.FindAllByUserID(uid)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "INTERNAL", "查询笔记失败")
+		return
+	}
+	seen := make(map[string]struct{}, len(existing))
+	for i := range existing {
+		key := strings.TrimSpace(existing[i].Content)
+		if key != "" {
+			seen[key] = struct{}{}
+		}
+	}
+
+	enqueueClassify := h.shouldEnqueueClassify(uid)
+	var toCreate []*models.Note
+	skipped := 0
+	for _, item := range req.Notes {
+		content := strings.TrimSpace(item.Content)
+		if content == "" {
+			skipped++
+			continue
+		}
+		if _, dup := seen[content]; dup {
+			skipped++
+			continue
+		}
+		seen[content] = struct{}{}
+		title, tags := parseNoteMeta(content)
+		toCreate = append(toCreate, &models.Note{
+			UserID:          uid,
+			Title:           title,
+			Content:         content,
+			Tags:            tagsToJSON(tags),
+			ClassifyPending: enqueueClassify,
+		})
+	}
+
+	if len(toCreate) > 0 {
+		if err := h.repo.CreateBatch(toCreate); err != nil {
+			Fail(c, http.StatusInternalServerError, "INTERNAL", "导入笔记失败")
+			return
+		}
+	}
+
+	Success(c, http.StatusOK, noteImportResult{
+		Imported: len(toCreate),
+		Skipped:  skipped,
+	})
 }

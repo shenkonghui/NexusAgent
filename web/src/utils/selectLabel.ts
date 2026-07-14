@@ -1,4 +1,4 @@
-const DEFAULT_MAX = 20
+const DEFAULT_MAX = 10
 
 export function truncateSelectLabel(text: string, max = DEFAULT_MAX): string {
   const trimmed = text.trim()

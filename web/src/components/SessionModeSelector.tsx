@@ -37,7 +37,7 @@ export default function SessionModeSelector({
             value={mode.id}
             title={fullOptionLabel(mode.name, mode.description)}
           >
-            {formatOptionLabel(mode.name, mode.description, 20)}
+            {formatOptionLabel(mode.name, mode.description, 10)}
           </option>
         ))}
       </select>

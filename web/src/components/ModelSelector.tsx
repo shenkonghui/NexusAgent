@@ -10,7 +10,7 @@ interface ModelSelectorProps {
 
 function optionLabel(opt: ConfigOption, name: string, description?: string): string {
   const isModel = opt.category === 'model'
-  return formatOptionLabel(name, description, isModel ? undefined : 20)
+  return formatOptionLabel(name, description, isModel ? undefined : 10)
 }
 
 function currentSelectTitle(opt: ConfigOption): string | undefined {

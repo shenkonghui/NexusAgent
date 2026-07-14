@@ -134,6 +134,8 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 				notes.PUT("/settings", noteH.UpdateSettings)
 				notes.POST("", noteH.Create)
 				notes.GET("", noteH.List)
+				notes.GET("/export", noteH.Export)
+				notes.POST("/import", noteH.Import)
 				notes.GET("/:id", noteH.Get)
 				notes.PUT("/:id", noteH.Update)
 				notes.DELETE("/:id", noteH.Delete)

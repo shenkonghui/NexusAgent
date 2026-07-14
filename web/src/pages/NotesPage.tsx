@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type KeyboardEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useRequireAuth } from '../hooks/useRequireAuth'
 import { useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
-import { listNotes, listNoteTags, createNote, updateNote, deleteNote } from '../api/notes'
+import { listNotes, listNoteTags, createNote, updateNote, deleteNote, exportNotes, importNotes } from '../api/notes'
 import type { Note } from '../types'
 import AppLayout, { SidebarToggleButton } from '../components/AppLayout'
 import UserMenu from '../components/UserMenu'
@@ -10,7 +11,8 @@ import ErrorBanner from '../components/ErrorBanner'
 import LoadingSpinner from '../components/LoadingSpinner'
 import MarkdownContent from '../components/MarkdownContent'
 import { formatTimeAgo } from '../utils/time'
-import { Pencil, X } from 'lucide-react'
+import { sessionUrl } from '../utils/routes'
+import { Pencil, X, Tag, Download, Upload } from 'lucide-react'
 import styles from './NotesPage.module.css'
 
 export default function NotesPage() {
@@ -27,6 +29,9 @@ export default function NotesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const feedRef = useRef<HTMLDivElement>(null)
+  const importInputRef = useRef<HTMLInputElement>(null)
+
+  const classifySession = sessions.find((s) => s.source === 'classify')
 
   const loadNotes = useCallback(async (tag?: string) => {
     const [notesResp, tagsResp] = await Promise.all([
@@ -129,6 +134,55 @@ export default function NotesPage() {
     }
   }
 
+  async function handleExport() {
+    setError('')
+    try {
+      const blob = await exportNotes()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `notes-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '')}.md`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('notes.exportFailed'))
+    }
+  }
+
+  async function handleImportFiles(files: FileList | null) {
+    if (!files || files.length === 0) return
+    setError('')
+    const mdFiles = Array.from(files).filter((f) => f.name.toLowerCase().endsWith('.md'))
+    if (mdFiles.length === 0) {
+      setError(t('notes.importNoFiles'))
+      return
+    }
+    try {
+      const contents = await Promise.all(mdFiles.map((f) => f.text()))
+      const notes = contents
+        .flatMap((c) => c.split(/\n*=+\n/))   // 按独立成行的 === 拆分（兼容导出格式）
+        .map((c) => c.trim())
+        .filter((c) => c.length > 0)
+        .map((c) => ({ content: c }))
+      if (notes.length === 0) {
+        setError(t('notes.importNoFiles'))
+        return
+      }
+      const resp = await importNotes(notes)
+      const { imported, skipped } = resp.data
+      setError('')
+      await loadNotes(activeTag)
+      window.alert(t('notes.importSuccess', { imported, skipped }))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('notes.importFailed'))
+    } finally {
+      // 重置 input 以便同一文件/文件夹可再次选择
+      if (importInputRef.current) importInputRef.current.value = ''
+    }
+  }
+
   if (authLoading || !user) return <LoadingSpinner />
 
   return (
@@ -139,7 +193,44 @@ export default function NotesPage() {
             <SidebarToggleButton />
             <h1 className={styles.title}>{t('notes.title')}</h1>
           </div>
-          <UserMenu />
+          <div className={styles.headerRight}>
+            {classifySession && (
+              <Link
+                to={sessionUrl(classifySession.id, classifySession.workspace_id)}
+                className={styles.classifyBtn}
+              >
+                <Tag size={14} />
+                <span>{t('notes.classifyTask')}</span>
+              </Link>
+            )}
+            <button
+              type="button"
+              className={styles.importBtn}
+              onClick={handleExport}
+              title={t('notes.export')}
+            >
+              <Download size={14} />
+              <span>{t('notes.export')}</span>
+            </button>
+            <button
+              type="button"
+              className={styles.importBtn}
+              onClick={() => importInputRef.current?.click()}
+              title={t('notes.import')}
+            >
+              <Upload size={14} />
+              <span>{t('notes.import')}</span>
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              multiple
+              accept=".md"
+              style={{ display: 'none' }}
+              onChange={(e) => handleImportFiles(e.target.files)}
+            />
+            <UserMenu />
+          </div>
         </header>
         {error && <ErrorBanner message={error} onClose={() => setError('')} />}
         <div className={styles.statusBar}>

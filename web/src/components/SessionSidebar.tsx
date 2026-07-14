@@ -7,7 +7,7 @@ import type { Session, ScheduledTask, AgentStatus } from '../types'
 import { listScheduledTasks } from '../api/scheduledTasks'
 import { listAgentStatus } from '../api/agents'
 import { listSessions, listRunningSessions } from '../api/sessions'
-import { PanelLeftClose, Star, Pencil, X, Check, Plus, FileText, Calendar, ClipboardList, Timer, Tag, Settings, Zap, ScrollText, Loader2, CheckCircle2, XCircle, Clock3, CircleDashed } from 'lucide-react'
+import { PanelLeftClose, Star, Pencil, X, Check, SquarePlus, FileText, Calendar, ClipboardList, Timer, Settings, Zap, ScrollText, Loader2, CheckCircle2, XCircle, Clock3, CircleDashed } from 'lucide-react'
 import styles from './SessionSidebar.module.css'
 import LogPanel from './LogPanel'
 
@@ -123,7 +123,6 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
   }, [])
 
   const manualSessions = sessions.filter((s) => !s.source || s.source === 'manual')
-  const classifySession = sessions.find((s) => s.source === 'classify')
   const favoriteSessions = useMemo(
     () => sessions.filter((s) => favorites.includes(s.id)),
     [sessions, favorites],
@@ -215,7 +214,7 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
               title={t('session.newSession')}
               onClick={(e) => { e.stopPropagation(); navigate(newTaskUrl(workspaceId)) }}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); navigate(newTaskUrl(workspaceId)) } }}
-            ><Plus size={14} /></span>
+            ><SquarePlus size={14} /></span>
           </button>
           {!collapsed.manual && (
             <div className={styles.groupList}>
@@ -293,7 +292,7 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
               title={t('scheduledTask.newTask')}
               onClick={handleNewScheduledTask}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleNewScheduledTask(e) }}
-            ><Plus size={14} /></span>
+            ><SquarePlus size={14} /></span>
           </button>
           {!collapsed.scheduled && (
             <div className={styles.groupList}>
@@ -365,15 +364,6 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
           <span className={styles.navIcon}><FileText size={15} /></span>
           <span>{t('nav.notes')}</span>
         </Link>
-        {classifySession && (
-          <Link
-            to={sessionUrl(classifySession.id, classifySession.workspace_id)}
-            className={`${styles.navItem} ${location.pathname === sessionUrl(classifySession.id, classifySession.workspace_id) ? styles.navItemActive : ''}`}
-          >
-            <span className={styles.navIcon}><Tag size={15} /></span>
-            <span>{t('notes.classifyTask')}</span>
-          </Link>
-        )}
         <button type="button" className={`${styles.navItem} ${showLogs ? styles.navItemActive : ''}`}
           onClick={() => setShowLogs((v) => !v)}
         >

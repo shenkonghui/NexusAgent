@@ -405,7 +405,13 @@
     "collapse": "收起",
     "classifying": "分类中…",
     "classifyTask": "笔记分类任务",
-    "classifyTaskHint": "此为笔记自动分类任务会话，每次分类对应一条执行记录，仅供查看。"
+    "classifyTaskHint": "此为笔记自动分类任务会话，每次分类对应一条执行记录，仅供查看。",
+    "export": "导出",
+    "import": "导入",
+    "importSuccess": "导入完成：新增 {{imported}} 条，跳过 {{skipped}} 条",
+    "importFailed": "导入失败",
+    "exportFailed": "导出失败",
+    "importNoFiles": "未找到 .md 文件"
   },
   "log": {
     "title": "日志",

@@ -812,7 +812,7 @@ export default function ChatPage() {
                       >
                         {opt.options.map((v) => (
                           <option key={v.value} value={v.value} title={fullOptionLabel(v.name, v.description)}>
-                            {formatOptionLabel(v.name, v.description, 20)}
+                            {formatOptionLabel(v.name, v.description, 10)}
                           </option>
                         ))}
                       </select>

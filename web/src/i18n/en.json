@@ -399,7 +399,13 @@
     "collapse": "Collapse",
     "classifying": "Classifying…",
     "classifyTask": "Note classify task",
-    "classifyTaskHint": "This is the automatic note classification task session. Each classification appears as one execution block (view only)."
+    "classifyTaskHint": "This is the automatic note classification task session. Each classification appears as one execution block (view only).",
+    "export": "Export",
+    "import": "Import",
+    "importSuccess": "Imported {{imported}}, skipped {{skipped}}",
+    "importFailed": "Import failed",
+    "exportFailed": "Export failed",
+    "importNoFiles": "No .md files found"
   },
   "log": {
     "title": "Logs",

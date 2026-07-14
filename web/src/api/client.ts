@@ -110,6 +110,59 @@ export async function apiFetch<T>(
   return resp.json()
 }
 
+// 带认证的 fetch 封装（返回原始 Response，适用于 blob / 流式等非 JSON 响应）
+// 复用与 apiFetch 相同的 token 刷新逻辑。
+export async function apiFetchRaw(
+  path: string,
+  options: ApiFetchOptions = {},
+): Promise<Response> {
+  const { skipAuthRedirect, ...fetchOptions } = options
+  const token = getAccessToken()
+  const headers: Record<string, string> = {
+    ...fetchOptions.headers as Record<string, string>,
+  }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+
+  let resp = await fetch(`${BASE_URL}${path}`, { ...fetchOptions, headers })
+
+  if (resp.status === 401) {
+    const refreshed = await refreshAccessToken()
+    if (refreshed) {
+      const newToken = getAccessToken()
+      if (newToken) {
+        headers['Authorization'] = `Bearer ${newToken}`
+      }
+      resp = await fetch(`${BASE_URL}${path}`, { ...fetchOptions, headers })
+    } else {
+      logger.warn('api', `${fetchOptions.method || 'GET'} ${path} → 401 认证过期`)
+      clearTokensAndRedirect(!skipAuthRedirect)
+      throw new Error('认证已过期，请重新登录')
+    }
+  }
+
+  if (!resp.ok) {
+    logger.warn('api', `${fetchOptions.method || 'GET'} ${path} → ${resp.status}`)
+    let errMsg = `请求失败 (${resp.status})`
+    let errCode = 'UNKNOWN'
+    try {
+      const errBody: ApiError = await resp.json()
+      if (errBody.error) {
+        errMsg = errBody.error.message
+        errCode = errBody.error.code
+      }
+    } catch {
+      // 响应体非 JSON，使用默认错误消息
+    }
+    const err = new Error(errMsg) as Error & { code: string }
+    err.code = errCode
+    throw err
+  }
+
+  return resp
+}
+
 // 获取认证头（供 SSE 使用）
 export function getAuthHeaders(): Record<string, string> {
   const token = getAccessToken()

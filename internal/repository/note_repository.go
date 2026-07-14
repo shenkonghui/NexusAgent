@@ -45,6 +45,21 @@ func (r *NoteRepository) Create(n *models.Note) error {
 	return r.db.Create(n).Error
 }
 
+// CreateBatch 批量创建笔记（事务）。
+func (r *NoteRepository) CreateBatch(notes []*models.Note) error {
+	if len(notes) == 0 {
+		return nil
+	}
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		for _, n := range notes {
+			if err := tx.Create(n).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // Update 更新全部字段。
 func (r *NoteRepository) Update(n *models.Note) error {
 	return r.db.Save(n).Error
@@ -53,6 +68,13 @@ func (r *NoteRepository) Update(n *models.Note) error {
 // Delete 按主键删除。
 func (r *NoteRepository) Delete(id uint) error {
 	return r.db.Delete(&models.Note{}, id).Error
+}
+
+// FindAllByUserID 返回用户全部笔记（不含 tag 过滤），可指定升序。
+func (r *NoteRepository) FindAllByUserID(userID uint) ([]models.Note, error) {
+	var list []models.Note
+	err := r.db.Where("user_id = ?", userID).Order("updated_at ASC").Find(&list).Error
+	return list, err
 }
 
 // FindPendingClassify 返回待自动分类的笔记，按更新时间升序。
