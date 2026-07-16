@@ -111,9 +111,11 @@ ANTHROPIC_API_KEY=sk-xxx make docker-up-d
 | `server.port` | `SERVER_PORT` | 服务端口，默认 `8080` |
 | `server.mode` | `SERVER_MODE` | `debug` / `release`，release 为单端口模式 |
 | `server.web_dist` | `WEB_DIST` | 前端构建产物目录，默认 `./web/dist` |
-| `database.path` | `DATABASE_PATH` | SQLite 数据库路径，默认 `./data/nexus.db` |
+| `database.path` | `DATABASE_PATH` | SQLite 数据库路径，默认 `~/.nextAgent/nexus.db` |
 | `jwt.secret` | `JWT_SECRET` | JWT 签名密钥（生产环境务必修改） |
-| `agents.workspace.session_dir` | `AGENTS_WORKSPACE_SESSION_DIR` | 会话工作区根目录 |
+| `agents.workspace.session_dir` | `AGENTS_WORKSPACE_SESSION_DIR` | 会话工作区根目录，默认 `~/.nextAgent/session` |
+
+配置文件查找顺序：`CONFIG_PATH` → `~/.nextAgent/config.yaml` → `./config.yaml`。数据库与会话数据默认均在 `~/.nextAgent/`。
 
 Agent 的连接命令、参数、API Key 等可在前端「设置」页面动态管理，修改后实时生效。
 

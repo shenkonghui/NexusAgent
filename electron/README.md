@@ -47,15 +47,17 @@ make electron-uninstall
 
 ## 数据目录与日志
 
-与 Pake 版共用同一套约定,数据互通:
+本地开发与桌面安装版共用同一数据根目录：
 
 | 平台 | 数据目录 |
 |------|---------|
-| macOS | `~/Library/Application Support/NexusAgent` |
-| Linux | `${XDG_DATA_HOME:-~/.local/share}/NexusAgent` |
-| Windows | `%LOCALAPPDATA%\NexusAgent` |
+| 全部 | `~/.nextAgent` |
 
-后端日志写入 `<数据目录>/launcher.log`,启动失败时可在此排查。
+目录内容：`nexus.db`（数据库）、`session/`（临时会话工作区）、可选 `config.yaml`。
+
+配置加载顺序：`CONFIG_PATH` → `~/.nextAgent/config.yaml` → 安装包/项目旁的 `config.yaml`。
+
+后端日志写入 `~/.nextAgent/launcher.log`，启动失败时可在此排查。
 
 ## 与 Pake 版的差异
 

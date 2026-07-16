@@ -37,17 +37,9 @@ function pickFreePort() {
   })
 }
 
-// 数据目录(复用 Pake launcher.sh / launch.ps1 的约定,与 Pake 版数据互通)。
+// 数据目录：与本地开发统一为 ~/.nextAgent
 function userDataDir() {
-  const home = os.homedir()
-  switch (process.platform) {
-    case 'win32':
-      return path.join(process.env.LOCALAPPDATA || home, 'NexusAgent')
-    case 'darwin':
-      return path.join(home, 'Library', 'Application Support', 'NexusAgent')
-    default:
-      return path.join(process.env.XDG_DATA_HOME || path.join(home, '.local', 'share'), 'NexusAgent')
-  }
+  return path.join(os.homedir(), '.nextAgent')
 }
 
 // 定位 Go 后端二进制:打包后位于 resources/backend,开发模式为项目根编译产物。
@@ -59,9 +51,8 @@ function backendBinPath() {
   return path.join(__dirname, '..', binName)
 }
 
-// 定位 config.yaml:后端 main.go 优先读 CONFIG_PATH 环境变量,否则用相对路径
-// (依赖 cwd)。这里统一用 CONFIG_PATH 指向绝对路径,避免 cwd 不确定导致加载失败。
-function configPath() {
+// 定位回退用 config.yaml（仅当 ~/.nextAgent/config.yaml 不存在时使用）
+function fallbackConfigPath() {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'config.yaml')
   }
@@ -70,7 +61,7 @@ function configPath() {
 
 // 后端工作目录:开发模式用项目根(便于相对路径/日志定位),打包用 resources 目录。
 function backendCwd() {
-  return path.dirname(configPath())
+  return path.dirname(fallbackConfigPath())
 }
 
 // 拉起 Go 后端。将 stdout/stderr 落盘到数据目录 launcher.log,便于排障。
@@ -83,20 +74,23 @@ function startBackend(port) {
     throw new Error(`后端二进制不存在: ${binPath}\n请先执行 \`make build\` (开发) 或重新打包。`)
   }
 
-  const cfg = configPath()
+  const userCfg = path.join(dataDir, 'config.yaml')
   const env = {
     ...process.env,
     SERVER_PORT: String(port),
     SERVER_MODE: 'release',
-    CONFIG_PATH: cfg,
     WEB_DIST: app.isPackaged
       ? path.join(process.resourcesPath, 'web')
       : path.join(__dirname, '..', 'web', 'dist'),
   }
+  // 用户目录无配置时，回退到 bundle/项目 config（CONFIG_PATH 优先于 ResolveConfigPath 的用户目录）
+  if (!fs.existsSync(userCfg)) {
+    env.CONFIG_PATH = fallbackConfigPath()
+  }
 
   const logFile = path.join(dataDir, 'launcher.log')
   const logStream = fs.createWriteStream(logFile, { flags: 'a' })
-  logStream.write(`\n${LOG_TAG} starting backend at ${new Date().toISOString()} port=${port} config=${cfg}\n`)
+  logStream.write(`\n${LOG_TAG} starting backend at ${new Date().toISOString()} port=${port} config=${env.CONFIG_PATH || userCfg}\n`)
 
   backend = spawn(binPath, ['--data-dir', dataDir], {
     env,

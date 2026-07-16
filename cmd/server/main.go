@@ -55,10 +55,7 @@ func main() {
 		return
 	}
 
-	cfgPath := "config.yaml"
-	if p := os.Getenv("CONFIG_PATH"); p != "" {
-		cfgPath = p
-	}
+	cfgPath := config.ResolveConfigPath()
 
 	cfg, err := config.Load(cfgPath)
 	if err != nil {

@@ -103,8 +103,11 @@ The configuration file is `config.yaml`. Environment variable overrides:
 | `server.port` | `SERVER_PORT` | Server port (default: `8080`) |
 | `server.mode` | `SERVER_MODE` | `debug` / `release` |
 | `server.web_dist` | `WEB_DIST` | Frontend build directory (default: `./web/dist`) |
-| `database.path` | `DATABASE_PATH` | SQLite database path (default: `./data/nexus.db`) |
+| `database.path` | `DATABASE_PATH` | SQLite database path (default: `~/.nextAgent/nexus.db`) |
 | `jwt.secret` | `JWT_SECRET` | JWT signing secret (change in production!) |
+| `agents.workspace.session_dir` | `AGENTS_WORKSPACE_SESSION_DIR` | Session workspace root (default: `~/.nextAgent/session`) |
+
+Config file lookup: `CONFIG_PATH` → `~/.nextAgent/config.yaml` → `./config.yaml`. Database and session data default to `~/.nextAgent/`.
 
 Agent commands, arguments, and API keys can be managed dynamically in the Settings page — changes take effect immediately.
 

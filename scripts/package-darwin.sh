@@ -131,7 +131,7 @@ MACOS_DIR="$(cd "$(dirname "$0")" && pwd)"
 RESOURCES_DIR="$(cd "$MACOS_DIR/../Resources" && pwd)"
 BINARY="$MACOS_DIR/nexusagent"
 CLIENT_APP="$RESOURCES_DIR/NexusAgent-Client.app"
-DATA_DIR="$HOME/Library/Application Support/NexusAgent"
+DATA_DIR="$HOME/.nextAgent"
 LOG_FILE="$DATA_DIR/launcher.log"
 PORT=8080
 
@@ -157,13 +157,15 @@ if [ -n "$EXISTING_PID" ]; then
 fi
 
 # ========== 启动后端服务 ==========
-# 设置 CONFIG_PATH 指向 app bundle 内的 config.yaml
+# 仅当用户目录无 config.yaml 时，回退到 app bundle 内配置
 
 echo "启动 NexusAgent 后端服务..."
-export CONFIG_PATH="$RESOURCES_DIR/config.yaml"
+if [ ! -f "$DATA_DIR/config.yaml" ]; then
+  export CONFIG_PATH="$RESOURCES_DIR/config.yaml"
+  echo "CONFIG_PATH: $CONFIG_PATH"
+fi
 export SERVER_MODE=release
 export WEB_DIST="$RESOURCES_DIR/web"
-echo "CONFIG_PATH: $CONFIG_PATH"
 
 "$BINARY" --data-dir "$DATA_DIR" &
 BACKEND_PID=$!
@@ -260,5 +262,5 @@ fi
 
 echo ""
 echo "✅ macOS 桌面应用已创建: $APP_DIR"
-echo "   双击 $APP_NAME.app 启动，数据保存在 ~/Library/Application Support/NexusAgent/"
+echo "   双击 $APP_NAME.app 启动，数据保存在 ~/.nextAgent/"
 echo "   包含: Go 后端服务 + Pake 桌面客户端"

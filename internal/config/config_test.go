@@ -159,6 +159,50 @@ func TestValidate_WorkspaceSessionDir_Default(t *testing.T) {
 	}
 }
 
+func TestValidate_DatabasePath_Default(t *testing.T) {
+	cfg := &Config{
+		JWT:    JWTConfig{Secret: "this-is-a-very-long-jwt-secret-key-32+bytes!"},
+		Agents: AgentsConfig{Workspace: WorkspaceConfig{DefaultMode: "temporary"}},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate 错误: %v", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(home, ".nextAgent", "nexus.db")
+	if cfg.Database.Path != expected {
+		t.Errorf("Database.Path = %q, 期望 %q", cfg.Database.Path, expected)
+	}
+}
+
+func TestResolveConfigPath_Env(t *testing.T) {
+	t.Setenv("CONFIG_PATH", "/tmp/custom-nexus-config.yaml")
+	if got := ResolveConfigPath(); got != "/tmp/custom-nexus-config.yaml" {
+		t.Errorf("ResolveConfigPath = %q, 期望 /tmp/custom-nexus-config.yaml", got)
+	}
+}
+
+func TestResolveConfigPath_Fallback(t *testing.T) {
+	t.Setenv("CONFIG_PATH", "")
+	got := ResolveConfigPath()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	userCfg := filepath.Join(home, ".nextAgent", "config.yaml")
+	if _, err := os.Stat(userCfg); err == nil {
+		if got != userCfg {
+			t.Errorf("ResolveConfigPath = %q, 期望 %q", got, userCfg)
+		}
+		return
+	}
+	if got != "config.yaml" {
+		t.Errorf("ResolveConfigPath = %q, 期望 config.yaml", got)
+	}
+}
+
 func TestValidate_SkillsUserDirsDefault(t *testing.T) {
 	cfg := &Config{JWT: JWTConfig{Secret: "this-is-a-very-long-jwt-secret-key-32+bytes!"}}
 	if err := cfg.Validate(); err != nil {

@@ -58,7 +58,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 BINARY="$ROOT/bin/nexusagent"
 CLIENT=$(find "$ROOT/bin" -maxdepth 1 -name 'NexusAgent-Client*.AppImage' -print -quit)
-DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/NexusAgent"
+DATA_DIR="$HOME/.nextAgent"
 LOG_FILE="$DATA_DIR/launcher.log"
 PORT=8080
 
@@ -73,7 +73,9 @@ if [ -n "$EXISTING_PID" ]; then
   sleep 1
 fi
 
-export CONFIG_PATH="$ROOT/config.yaml"
+if [ ! -f "$DATA_DIR/config.yaml" ]; then
+  export CONFIG_PATH="$ROOT/config.yaml"
+fi
 export SERVER_MODE=release
 export WEB_DIST="$ROOT/web"
 

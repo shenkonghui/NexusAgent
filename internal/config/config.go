@@ -99,6 +99,22 @@ type ClaudeCodeConfig struct {
 	Timeout   time.Duration `yaml:"timeout"`
 }
 
+// ResolveConfigPath 按优先级解析配置文件路径：
+// CONFIG_PATH → ~/.nextAgent/config.yaml（存在时）→ ./config.yaml
+func ResolveConfigPath() string {
+	if p := os.Getenv("CONFIG_PATH"); p != "" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err == nil {
+		p := filepath.Join(home, ".nextAgent", "config.yaml")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return "config.yaml"
+}
+
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -184,12 +200,8 @@ func (c *Config) Validate() error {
 	if c.Agents.Workspace.TempDirPrefix == "" {
 		c.Agents.Workspace.TempDirPrefix = "nexus-"
 	}
-	if c.Agents.Workspace.SessionDir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("获取用户主目录以设置 session_dir: %w", err)
-		}
-		c.Agents.Workspace.SessionDir = filepath.Join(home, ".nextAgent", "session")
+	if err := c.resolveDataPaths(); err != nil {
+		return err
 	}
 	if c.Agents.ClaudeCode.Command == "" {
 		c.Agents.ClaudeCode.Command = "npx"
@@ -211,6 +223,33 @@ func (c *Config) Validate() error {
 	}
 	if err := c.Agents.Rules.normalize(); err != nil {
 		return err
+	}
+	return nil
+}
+
+// resolveDataPaths 将 database.path 与 session_dir 默认到 ~/.nextAgent 并展开 ~。
+func (c *Config) resolveDataPaths() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("获取用户主目录以设置数据路径: %w", err)
+	}
+	if c.Database.Path == "" {
+		c.Database.Path = filepath.Join(home, ".nextAgent", "nexus.db")
+	} else if c.Database.Path != ":memory:" {
+		abs, err := expandPath(c.Database.Path)
+		if err != nil {
+			return fmt.Errorf("database.path 无效: %w", err)
+		}
+		c.Database.Path = abs
+	}
+	if c.Agents.Workspace.SessionDir == "" {
+		c.Agents.Workspace.SessionDir = filepath.Join(home, ".nextAgent", "session")
+	} else {
+		abs, err := expandPath(c.Agents.Workspace.SessionDir)
+		if err != nil {
+			return fmt.Errorf("session_dir 无效: %w", err)
+		}
+		c.Agents.Workspace.SessionDir = abs
 	}
 	return nil
 }
