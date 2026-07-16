@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { Message } from '../types'
 import { parseDiffsFromMessage } from '../utils/diff'
 import DiffView from './DiffView'
+import MarkdownContent from './MarkdownContent'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import styles from './MessageBubble.module.css'
 
@@ -10,6 +11,7 @@ interface MessageBubbleProps {
   message: Message
   defaultOpen?: boolean
   forceCollapsed?: boolean
+  streaming?: boolean
   sessionId?: number
   cwd?: string
 }
@@ -31,7 +33,7 @@ export function toolSummary(content: string): string {
   return 'chat.toolCall'
 }
 
-export default function MessageBubble({ message, defaultOpen = false, forceCollapsed = false, sessionId, cwd }: MessageBubbleProps) {
+export default function MessageBubble({ message, defaultOpen = false, forceCollapsed = false, streaming = false, sessionId, cwd }: MessageBubbleProps) {
   const { t } = useTranslation()
   const [showRaw, setShowRaw] = useState(false)
   const [open, setOpen] = useState(defaultOpen && !forceCollapsed)
@@ -102,7 +104,16 @@ export default function MessageBubble({ message, defaultOpen = false, forceColla
         </div>
         {!collapsible || open ? (
           <>
-            {message.content && <div className={styles.content}>{message.content}</div>}
+            {message.content && (
+              message.kind === 'agent_message_chunk' && !streaming ? (
+                <MarkdownContent
+                  content={message.content}
+                  className={`markdown-body ${styles.mdContent}`}
+                />
+              ) : (
+                <div className={styles.content}>{message.content}</div>
+              )
+            )}
             {!message.content && !isPlan && (
               <div className={styles.contentMuted}>{t('common.noData')}</div>
             )}

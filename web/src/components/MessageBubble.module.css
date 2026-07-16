@@ -109,6 +109,12 @@
   word-break: break-word;
 }
 
+.mdContent {
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
 .contentMuted {
   font-size: 13px;
   color: var(--text-muted);

@@ -356,6 +356,8 @@ function SegmentList({
   cwd?: string
 }) {
   const segments = segmentMessages(messages)
+  const lastMsg = messages[messages.length - 1]
+  const lastKey = lastMsg ? (lastMsg.id || lastMsg.sequence) : null
   return (
     <>
       {segments.map((seg, segIdx) => {
@@ -365,12 +367,17 @@ function SegmentList({
           const { defaultOpen, forceCollapsed } = bubbleCollapseState(
             msg, seg.idx, lastUserIdx, loading, lastThoughtKey, key,
           )
+          const isStreamingAssistant =
+            !!loading &&
+            msg.kind === 'agent_message_chunk' &&
+            key === lastKey
           return (
             <MessageBubble
               key={key}
               message={msg}
               defaultOpen={defaultOpen}
               forceCollapsed={forceCollapsed}
+              streaming={isStreamingAssistant}
               sessionId={sessionId}
               cwd={cwd}
             />
