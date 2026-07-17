@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -42,7 +43,7 @@ func newPermissionBroker() *permissionBroker {
 }
 
 func (b *permissionBroker) registerWaiter(sessionID acp.SessionId) chan PermissionNotify {
-	ch := make(chan PermissionNotify, 8)
+	ch := make(chan PermissionNotify, 64)
 	b.mu.Lock()
 	b.waiters[sessionID] = ch
 	b.mu.Unlock()
@@ -80,6 +81,11 @@ func (b *permissionBroker) cancelSession(sessionID acp.SessionId) {
 }
 
 func (b *permissionBroker) request(ctx context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+	// 内置 nexus-notes MCP 由本服务注入，自动放行，避免并行 list_notes 把 UI 卡死。
+	if isTrustedMCPTool(params) {
+		return autoApprovePermission(params), nil
+	}
+
 	requestID := fmt.Sprintf("perm-%d", b.seq.Add(1))
 	respCh := make(chan acp.RequestPermissionResponse, 1)
 
@@ -116,25 +122,49 @@ func (b *permissionBroker) request(ctx context.Context, params acp.RequestPermis
 func (b *permissionBroker) respond(requestID, optionID string, cancelled bool) error {
 	b.mu.Lock()
 	item, ok := b.pending[requestID]
-	if ok {
-		delete(b.pending, requestID)
-	}
-	b.mu.Unlock()
 	if !ok {
+		b.mu.Unlock()
 		return ErrPermissionNotFound
 	}
-	if cancelled {
-		item.respCh <- acp.RequestPermissionResponse{
-			Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}},
+	delete(b.pending, requestID)
+	// allow-always：同会话其余挂起权限一并放行，避免并行工具调用逐条卡死。
+	var batch []pendingPermission
+	if !cancelled && optionID == "allow-always" {
+		for id, p := range b.pending {
+			if p.sessionID != item.sessionID {
+				continue
+			}
+			batch = append(batch, p)
+			delete(b.pending, id)
 		}
-		return nil
 	}
-	item.respCh <- acp.RequestPermissionResponse{
-		Outcome: acp.RequestPermissionOutcome{
-			Selected: &acp.RequestPermissionOutcomeSelected{OptionId: acp.PermissionOptionId(optionID)},
-		},
+	b.mu.Unlock()
+
+	send := func(p pendingPermission) {
+		if cancelled {
+			p.respCh <- acp.RequestPermissionResponse{
+				Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}},
+			}
+			return
+		}
+		p.respCh <- acp.RequestPermissionResponse{
+			Outcome: acp.RequestPermissionOutcome{
+				Selected: &acp.RequestPermissionOutcomeSelected{OptionId: acp.PermissionOptionId(optionID)},
+			},
+		}
+	}
+	send(item)
+	for _, p := range batch {
+		send(p)
 	}
 	return nil
+}
+
+func isTrustedMCPTool(params acp.RequestPermissionRequest) bool {
+	if params.ToolCall.Title == nil {
+		return false
+	}
+	return strings.HasPrefix(*params.ToolCall.Title, "nexus-notes")
 }
 
 func (b *permissionBroker) removePending(requestID string) {

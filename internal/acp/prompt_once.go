@@ -21,7 +21,7 @@ func (s *Service) RunPromptOnce(ctx context.Context, agentType, modelValue, prom
 		return "", err
 	}
 	cwd := s.probeCwd()
-	sessionID, configOptions, _, err := conn.NewSession(ctx, cwd, s.skillAdditionalDirs(cwd), nil)
+	sessionID, configOptions, _, err := conn.NewSession(ctx, cwd, s.skillAdditionalDirs(cwd), nil, "")
 	if err != nil {
 		return "", fmt.Errorf("创建临时会话: %w", err)
 	}

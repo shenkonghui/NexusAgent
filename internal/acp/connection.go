@@ -119,17 +119,22 @@ func (c *Connection) AuthenticateIfRequired(ctx context.Context, initResp acp.In
 // NewSession 在当前连接上创建新的 ACP session，返回 session ID、初始 config options 和初始 modes。
 // additionalDirectories 为 ACP 额外可访问根目录（如 skills 目录），路径须为绝对路径。
 // mcpServers 为可选 MCP 配置；nil 时传空数组。
+// systemPrompt 非空时写入 _meta.systemPrompt，由支持该扩展的 Agent 注入为系统提示词。
 // 同一 Connection 可多次调用，每次返回不同的 session ID。
-func (c *Connection) NewSession(ctx context.Context, cwd string, additionalDirectories []string, mcpServers []acp.McpServer) (string, []acp.SessionConfigOption, []acp.SessionMode, error) {
-	slog.Debug("ACP newSession", "cwd", cwd, "extra_dirs", len(additionalDirectories), "mcp_servers", len(mcpServers))
+func (c *Connection) NewSession(ctx context.Context, cwd string, additionalDirectories []string, mcpServers []acp.McpServer, systemPrompt string) (string, []acp.SessionConfigOption, []acp.SessionMode, error) {
+	slog.Debug("ACP newSession", "cwd", cwd, "extra_dirs", len(additionalDirectories), "mcp_servers", len(mcpServers), "system_prompt_chars", len(systemPrompt))
 	if mcpServers == nil {
 		mcpServers = []acp.McpServer{}
 	}
-	resp, err := c.conn.NewSession(ctx, acp.NewSessionRequest{
+	req := acp.NewSessionRequest{
 		Cwd:                   cwd,
 		AdditionalDirectories: additionalDirectories,
 		McpServers:            mcpServers,
-	})
+	}
+	if systemPrompt != "" {
+		req.Meta = map[string]any{"systemPrompt": systemPrompt}
+	}
+	resp, err := c.conn.NewSession(ctx, req)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("ACP newSession: %w", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"runtime"
+	"strings"
 
 	"nexusagent/internal/models"
 )
@@ -18,8 +19,8 @@ type fanoutHandler struct {
 	// downstream 是原有的 stderr 输出 handler，保持控制台行为不变。
 	downstream slog.Handler
 	hub        *LogHub
-	// attrs 与 group 由 WithAttrs/WithGroup 累积，用于传递给 downstream。
-	// 转发给 hub 的 entry 只保留 message + level + source，不携带 attrs（简化前端展示）。
+	// attrs 与 group 由 WithAttrs/WithGroup 累积，用于传递给 downstream，
+	// 并拼入转发给 hub 的 message（如 agent=cursor）。
 	attrs []slog.Attr
 }
 
@@ -51,11 +52,34 @@ func (h *fanoutHandler) Handle(ctx context.Context, r slog.Record) error {
 	entry := models.LogEntry{
 		Timestamp: r.Time,
 		Level:     levelToString(r.Level),
-		Message:   r.Message,
+		Message:   messageWithAttrs(r.Message, h.attrs, &r),
 		Source:    sourceFromRecord(&r),
 	}
 	h.hub.Append(entry)
 	return nil
+}
+
+// messageWithAttrs 把 slog 属性拼到 message 后，便于前端日志面板显示 agent 等字段。
+func messageWithAttrs(msg string, pre []slog.Attr, r *slog.Record) string {
+	var b strings.Builder
+	b.WriteString(msg)
+	write := func(a slog.Attr) {
+		if a.Key == "" {
+			return
+		}
+		b.WriteByte(' ')
+		b.WriteString(a.Key)
+		b.WriteByte('=')
+		b.WriteString(a.Value.String())
+	}
+	for _, a := range pre {
+		write(a)
+	}
+	r.Attrs(func(a slog.Attr) bool {
+		write(a)
+		return true
+	})
+	return b.String()
 }
 
 // WithAttrs 返回一个附带额外属性的新 handler。

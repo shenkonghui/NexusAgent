@@ -33,20 +33,19 @@ agents:
     skills:
         # 用户级 skills 根目录（agentskills.io：递归扫描子目录中的 SKILL.md）
         user_dirs:
-            - ~/.claude/skills
+            - ~/.agents/skills
         # 相对工作区 cwd 的项目级 skills 子目录
         project_dirs:
-            - .claude/skills
             - .agents/skills
     commands:
         # Slash Command 目录（Claude Code 规范：递归扫描 *.md，支持子目录与符号链接目录，文件名即命令名）
         user_dirs:
-            - ~/.claude/commands
+            - ~/.agents/commands
         project_dirs:
-            - .claude/commands
+            - .agents/commands
     rules:
         # Rule 路径：目录（递归扫描 *.mdc / *.md）或单个文件（如 CLAUDE.md）
-        # alwaysApply: true 的规则（或无 frontmatter 的独立文件）会注入每条 prompt
+        # alwaysApply: true 的规则（或无 frontmatter 的独立文件）经 session/new 的 _meta.systemPrompt 注入
         user_dirs:
             - ~/.cursor/rules
             - ~/.claude/CLAUDE.md

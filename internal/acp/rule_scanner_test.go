@@ -76,9 +76,9 @@ func TestScanRules_ConfiguredFile(t *testing.T) {
 		t.Fatalf("user CLAUDE.md 异常: %+v", rules[1])
 	}
 
-	out := ApplyAlwaysApplyRules("hello", projectRoot, []string{claudeMD}, []string{"CLAUDE.md"})
+	out := AlwaysApplySystemPrompt(projectRoot, []string{claudeMD}, []string{"CLAUDE.md"})
 	if !strings.Contains(out, "Project instructions") || !strings.Contains(out, "Global instructions") {
-		t.Fatalf("未注入 CLAUDE.md 内容: %q", out)
+		t.Fatalf("未汇总 CLAUDE.md 内容: %q", out)
 	}
 }
 
@@ -99,7 +99,7 @@ func TestRuleAdditionalDirectories_FileAndDir(t *testing.T) {
 	}
 }
 
-func TestApplyAlwaysApplyRules(t *testing.T) {
+func TestAlwaysApplySystemPrompt(t *testing.T) {
 	root := t.TempDir()
 	userRules := filepath.Join(root, "user-rules")
 	if err := os.MkdirAll(userRules, 0o755); err != nil {
@@ -114,13 +114,13 @@ Rule body here.`
 		t.Fatal(err)
 	}
 
-	out := ApplyAlwaysApplyRules("hello", "", []string{userRules}, nil)
-	if !strings.Contains(out, "Rule body here.") || !strings.Contains(out, "hello") {
-		t.Fatalf("未注入规则: %q", out)
+	out := AlwaysApplySystemPrompt("", []string{userRules}, nil)
+	if out != "Rule body here." {
+		t.Fatalf("期望纯规则正文, 得到: %q", out)
 	}
 
-	unchanged := ApplyAlwaysApplyRules("hello", "", []string{filepath.Join(root, "missing")}, nil)
-	if unchanged != "hello" {
-		t.Fatalf("无规则时应原样返回: %q", unchanged)
+	empty := AlwaysApplySystemPrompt("", []string{filepath.Join(root, "missing")}, nil)
+	if empty != "" {
+		t.Fatalf("无规则时应返回空: %q", empty)
 	}
 }

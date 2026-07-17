@@ -24,11 +24,6 @@ type ruleFrontmatter struct {
 	Globs       string `yaml:"globs"`
 }
 
-const (
-	rulesPreamble = "Follow these rules:\n\n"
-	rulesUserReq  = "\n\nUser request:\n"
-)
-
 // ScanRules 扫描配置的 rules 路径（目录递归 *.mdc / *.md，或直接指定文件如 CLAUDE.md）。
 func ScanRules(cwd string, userPaths, projectPaths []string) []Rule {
 	seen := make(map[string]bool)
@@ -232,8 +227,9 @@ func parseRuleMarkdown(filename string, content []byte, defaultAlwaysApply bool)
 	return name, description, alwaysApply, globs
 }
 
-// ApplyAlwaysApplyRules 将 alwaysApply 规则内容前置到 prompt；无匹配规则时原样返回。
-func ApplyAlwaysApplyRules(prompt, cwd string, userDirs, projectDirs []string) string {
+// AlwaysApplySystemPrompt 汇总 alwaysApply 规则正文，供 session/new 的 _meta.systemPrompt 注入。
+// 无匹配规则时返回空字符串。
+func AlwaysApplySystemPrompt(cwd string, userDirs, projectDirs []string) string {
 	var bodies []string
 	for _, r := range ScanRules(cwd, userDirs, projectDirs) {
 		if !r.AlwaysApply {
@@ -248,9 +244,9 @@ func ApplyAlwaysApplyRules(prompt, cwd string, userDirs, projectDirs []string) s
 		}
 	}
 	if len(bodies) == 0 {
-		return prompt
+		return ""
 	}
-	return rulesPreamble + strings.Join(bodies, "\n\n---\n\n") + rulesUserReq + prompt
+	return strings.Join(bodies, "\n\n---\n\n")
 }
 
 func stripRuleFrontmatter(content []byte) string {

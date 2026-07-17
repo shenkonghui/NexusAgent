@@ -9,6 +9,15 @@ export interface StreamPromptOptions {
   signal?: AbortSignal
   onActivity?: () => void
   onSeq?: (seq: number) => void
+  /** 返回 true 时暂停空闲超时（例如等待用户审批权限） */
+  shouldPauseIdleTimeout?: () => boolean
+}
+
+const PAUSED_IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000
+
+function idleTimeoutMs(options?: StreamPromptOptions): number {
+  if (options?.shouldPauseIdleTimeout?.()) return PAUSED_IDLE_TIMEOUT_MS
+  return IDLE_TIMEOUT_MS
 }
 
 // 判断错误是否为超时/agent 端无响应
@@ -146,7 +155,7 @@ export async function streamPrompt(
     let buffer = ''
 
     while (true) {
-      const { done, value } = await readWithTimeout(reader, IDLE_TIMEOUT_MS, signal)
+      const { done, value } = await readWithTimeout(reader, idleTimeoutMs(options), signal)
       if (done) break
 
       if (value?.length) options?.onActivity?.()
@@ -242,7 +251,7 @@ export async function subscribeStream(
     let buffer = ''
 
     while (true) {
-      const { done, value } = await readWithTimeout(reader, IDLE_TIMEOUT_MS, signal)
+      const { done, value } = await readWithTimeout(reader, idleTimeoutMs(options), signal)
       if (done) break
       if (value?.length) options?.onActivity?.()
       buffer += decoder.decode(value, { stream: true })
@@ -332,7 +341,7 @@ export async function streamResumeTask(
     let buffer = ''
 
     while (true) {
-      const { done, value } = await readWithTimeout(reader, IDLE_TIMEOUT_MS, signal)
+      const { done, value } = await readWithTimeout(reader, idleTimeoutMs(options), signal)
       if (done) break
       if (value?.length) options?.onActivity?.()
       buffer += decoder.decode(value, { stream: true })

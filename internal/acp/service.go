@@ -832,7 +832,7 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 			return nil, fmt.Errorf("激活会话-建立连接: %w", actErr)
 		}
 		s.debugBindPending(session.AgentType, session.ID)
-		newAgentSID, configOptions, modes, actErr := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd), s.notesMCPServers(session.UserID))
+		newAgentSID, configOptions, modes, actErr := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd), s.notesMCPServers(session.UserID), s.rulesSystemPrompt(cwd))
 		s.debugClearPending(session.AgentType)
 		if actErr != nil {
 			return nil, fmt.Errorf("激活会话-创建 ACP 会话: %w", actErr)
@@ -1424,7 +1424,12 @@ func (s *Service) expandPrompt(sessionID string, session *models.Session, prompt
 	if expanded != prompt {
 		slog.Info("slash 调用已展开", "session", sessionID, "chars", len(expanded))
 	}
-	return ApplyAlwaysApplyRules(expanded, cwd, s.ruleUserDirs, s.ruleProjectDirs)
+	return expanded
+}
+
+// rulesSystemPrompt 汇总 alwaysApply 规则，注入 session/new 的 _meta.systemPrompt。
+func (s *Service) rulesSystemPrompt(cwd string) string {
+	return AlwaysApplySystemPrompt(cwd, s.ruleUserDirs, s.ruleProjectDirs)
 }
 
 func (s *Service) mergeCommands(agentCmds []acp.AvailableCommand, cwd string) []acp.AvailableCommand {
@@ -1570,7 +1575,7 @@ func (s *Service) probeConfigViaSession(ctx context.Context, agentType string) (
 	if err != nil {
 		return nil, err
 	}
-	sessionID, configOptions, modes, err := conn.NewSession(ctx, probeCwd, s.skillAdditionalDirs(probeCwd), nil)
+	sessionID, configOptions, modes, err := conn.NewSession(ctx, probeCwd, s.skillAdditionalDirs(probeCwd), nil, "")
 	if err != nil {
 		return nil, fmt.Errorf("探测 NewSession: %w", err)
 	}
@@ -1743,7 +1748,7 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 
 	oldAgentSID := session.AgentSessionID
 	s.debugBindPending(session.AgentType, session.ID)
-	newAgentSID, configOptions, modes, err := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd), s.notesMCPServers(session.UserID))
+	newAgentSID, configOptions, modes, err := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd), s.notesMCPServers(session.UserID), s.rulesSystemPrompt(cwd))
 	s.debugClearPending(session.AgentType)
 	if err != nil {
 		return nil, fmt.Errorf("恢复会话-创建 ACP 会话: %w", err)

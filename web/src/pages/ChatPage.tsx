@@ -79,6 +79,35 @@ export default function ChatPage() {
   const [currentModeId, setCurrentModeId] = useState('')
   const [pendingPermission, setPendingPermission] = useState<PermissionRequestPayload | null>(null)
   const [permissionResponding, setPermissionResponding] = useState(false)
+  const permissionQueueRef = useRef<PermissionRequestPayload[]>([])
+  const waitingPermissionRef = useRef(false)
+
+  function enqueuePermission(req: PermissionRequestPayload) {
+    waitingPermissionRef.current = true
+    setPendingPermission((prev) => {
+      if (prev?.request_id === req.request_id) return prev
+      if (!prev) return req
+      if (!permissionQueueRef.current.some((p) => p.request_id === req.request_id)) {
+        permissionQueueRef.current = [...permissionQueueRef.current, req]
+      }
+      return prev
+    })
+    setConvState('waiting_permission')
+  }
+
+  function clearPermissions() {
+    permissionQueueRef.current = []
+    waitingPermissionRef.current = false
+    setPendingPermission(null)
+  }
+
+  function advancePermissionQueue() {
+    const next = permissionQueueRef.current.shift() || null
+    waitingPermissionRef.current = !!next
+    setPendingPermission(next)
+    if (next) setConvState('waiting_permission')
+    else setConvState((s) => (s === 'waiting_permission' ? 'streaming' : s))
+  }
 
   // 无会话模式下的 agent / 模型选择状态
   const [agents, setAgents] = useState<Agent[]>([])
@@ -392,7 +421,7 @@ export default function ChatPage() {
       if (!mountedRef.current) return
       // 已在流式接收则无需重连；等待权限时也不抢占
       if (abortRef.current) return
-      if (convState === 'waiting_permission') return
+      if (convState === 'waiting_permission' || waitingPermissionRef.current) return
       // 尝试订阅会话当前进行中的 prompt 流（若服务端无活跃 prompt 会立即返回）
       setConvState('reconnecting')
       const ac = new AbortController()
@@ -402,23 +431,27 @@ export default function ChatPage() {
         lastSeqRef.current,
         (msg) => {
           if (!mountedRef.current) return
+          if (msg.kind === 'permission_request') {
+            const req = parsePermissionRequest(msg.raw_json)
+            if (req) enqueuePermission(req)
+          }
           setMessages((prev) => {
             if (prev.some((m) => m.sequence === msg.sequence)) return prev
             return [...prev, msg]
           })
-          setConvState('streaming')
+          setConvState((s) => (s === 'waiting_permission' ? s : 'streaming'))
         },
         () => {
           if (!mountedRef.current) return
           abortRef.current = null
-          setConvState('idle')
+          setConvState(waitingPermissionRef.current ? 'waiting_permission' : 'idle')
           loadData({ quiet: true })
         },
         () => {
           if (!mountedRef.current) return
           abortRef.current = null
           // 静默处理重连失败（服务端可能无活跃 prompt）
-          setConvState('idle')
+          setConvState(waitingPermissionRef.current ? 'waiting_permission' : 'idle')
           loadData({ quiet: true })
         },
         {
@@ -428,6 +461,7 @@ export default function ChatPage() {
           onActivity: () => {
             if (mountedRef.current) setConvState((s) => (s === 'idle' ? 'streaming' : s))
           },
+          shouldPauseIdleTimeout: () => waitingPermissionRef.current,
         },
       )
     }
@@ -448,26 +482,31 @@ export default function ChatPage() {
       lastSeqRef.current,
       (msg) => {
         if (!mountedRef.current) return
+        if (msg.kind === 'permission_request') {
+          const req = parsePermissionRequest(msg.raw_json)
+          if (req) enqueuePermission(req)
+        }
         setMessages((prev) => {
           if (prev.some((m) => m.sequence === msg.sequence)) return prev
           return [...prev, msg]
         })
-        setConvState('streaming')
+        setConvState((s) => (s === 'waiting_permission' ? s : 'streaming'))
       },
       () => {
         if (!mountedRef.current) return
         abortRef.current = null
-        setConvState('idle')
+        setConvState(waitingPermissionRef.current ? 'waiting_permission' : 'idle')
       },
       () => {
         if (!mountedRef.current) return
         abortRef.current = null
-        setConvState('idle')
+        setConvState(waitingPermissionRef.current ? 'waiting_permission' : 'idle')
       },
       {
         signal: ac.signal,
         onSeq: (seq) => { if (seq > lastSeqRef.current) lastSeqRef.current = seq },
         onActivity: () => { if (mountedRef.current) setConvState((s) => (s === 'idle' ? 'streaming' : s)) },
+        shouldPauseIdleTimeout: () => waitingPermissionRef.current,
       },
     )
     return () => { ac.abort() }
@@ -554,10 +593,7 @@ export default function ChatPage() {
         if (msg.role !== 'user') gotAgentReply = true
         if (msg.kind === 'permission_request') {
           const req = parsePermissionRequest(msg.raw_json)
-          if (req) {
-            setPendingPermission(req)
-            setConvState('waiting_permission')
-          }
+          if (req) enqueuePermission(req)
         }
         // 按 sequence 去重：避免轮询补齐与实时流重复
         setMessages((prev) => {
@@ -565,14 +601,13 @@ export default function ChatPage() {
           const noOptimistic = rest.filter((m) => m.id !== optimisticId)
           return [...noOptimistic, msg]
         })
-        if (msg.role === 'user') setConvState('streaming')
-        else setConvState('streaming')
+        setConvState((s) => (s === 'waiting_permission' ? s : 'streaming'))
       },
       () => {
         if (!mountedRef.current) return
         abortRef.current = null
+        clearPermissions()
         setConvState('idle')
-        setPendingPermission(null)
         setLastFailedPrompt('')
         setRetryable(false)
         loadData({ quiet: true })
@@ -585,6 +620,7 @@ export default function ChatPage() {
           await recoverFromTimeout(prompt, gotAgentReply)
           return
         }
+        clearPermissions()
         setConvState('idle')
         setError(err.message)
       },
@@ -592,6 +628,7 @@ export default function ChatPage() {
         signal: ac.signal,
         onSeq: (seq) => { if (seq > lastSeqRef.current) lastSeqRef.current = seq },
         onActivity: () => { if (mountedRef.current) setConvState((s) => (s === 'waiting_permission' ? s : 'streaming')) },
+        shouldPauseIdleTimeout: () => waitingPermissionRef.current,
       },
     )
   }
@@ -600,6 +637,7 @@ export default function ChatPage() {
 
   async function recoverFromTimeout(prompt: string, gotAgentReply: boolean) {
     setConvState('reconnecting')
+    clearPermissions()
     setError('')
     try {
       try { await cancelSession(sessionId) } catch { /* 尽力取消挂起的 prompt */ }
@@ -638,27 +676,25 @@ export default function ChatPage() {
         if (!mountedRef.current) return
         if (msg.kind === 'permission_request') {
           const req = parsePermissionRequest(msg.raw_json)
-          if (req) {
-            setPendingPermission(req)
-            setConvState('waiting_permission')
-          }
+          if (req) enqueuePermission(req)
         }
         setMessages((prev) => {
           if (prev.some((m) => m.sequence === msg.sequence)) return prev
           return [...prev, msg]
         })
-        setConvState('streaming')
+        setConvState((s) => (s === 'waiting_permission' ? s : 'streaming'))
       },
       () => {
         if (!mountedRef.current) return
         abortRef.current = null
+        clearPermissions()
         setConvState('idle')
-        setPendingPermission(null)
         loadData({ quiet: true })
       },
       (err) => {
         if (!mountedRef.current) return
         abortRef.current = null
+        clearPermissions()
         setConvState('idle')
         setError(err.message)
       },
@@ -666,6 +702,7 @@ export default function ChatPage() {
         signal: ac.signal,
         onSeq: (seq) => { if (seq > lastSeqRef.current) lastSeqRef.current = seq },
         onActivity: () => { if (mountedRef.current) setConvState((s) => (s === 'waiting_permission' ? s : 'streaming')) },
+        shouldPauseIdleTimeout: () => waitingPermissionRef.current,
       },
     )
   }
@@ -674,7 +711,7 @@ export default function ChatPage() {
     abortRef.current?.abort()
     abortRef.current = null
     try { await cancelSession(sessionId) } catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) }
-    setPendingPermission(null)
+    clearPermissions()
     setConvState('idle')
   }
 
@@ -695,9 +732,21 @@ export default function ChatPage() {
     setPermissionResponding(true)
     setError('')
     try {
-      await respondPermission(sessionId, pendingPermission.request_id, optionId)
-      setPendingPermission(null)
-      if (convState === 'waiting_permission') setConvState('streaming')
+      const current = pendingPermission
+      const queued = optionId === 'allow-always' ? [...permissionQueueRef.current] : []
+      if (optionId === 'allow-always') permissionQueueRef.current = []
+      await respondPermission(sessionId, current.request_id, optionId)
+      // allow-always 已由后端批量放行；前端同步清队列，避免弹窗连环弹出
+      for (const req of queued) {
+        try { await respondPermission(sessionId, req.request_id, optionId) } catch { /* 后端可能已批量处理 */ }
+      }
+      if (optionId === 'allow-always') {
+        waitingPermissionRef.current = false
+        setPendingPermission(null)
+        setConvState('streaming')
+      } else {
+        advancePermissionQueue()
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.failed'))
     } finally {
@@ -711,8 +760,7 @@ export default function ChatPage() {
     setError('')
     try {
       await respondPermission(sessionId, pendingPermission.request_id, '', true)
-      setPendingPermission(null)
-      if (convState === 'waiting_permission') setConvState('streaming')
+      advancePermissionQueue()
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.failed'))
     } finally {
