@@ -5,6 +5,7 @@ import { getAgentsConfig, updateAgentsConfig, scanSkillFiles, scanCommandFiles, 
 import type { DirConfigView, AgentsConfigView, ScannedFileItem } from '../api/config'
 import ErrorBanner from './ErrorBanner'
 import FileEditor from './FileEditor'
+import McpConfigCard from './McpConfigCard'
 import { Zap, SquareTerminal, ClipboardList, X, Trash2, Plus } from 'lucide-react'
 import styles from './ConfigEditor.module.css'
 
@@ -361,6 +362,11 @@ export default function ConfigEditor() {
             </div>
           )
         })}
+      </div>
+
+      {/* MCP 配置卡片（全局共享，注入给所有 agent 会话） */}
+      <div className={styles.cards}>
+        <McpConfigCard />
       </div>
 
       {/* 路径配置编辑弹窗 */}

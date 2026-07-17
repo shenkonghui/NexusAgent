@@ -139,12 +139,15 @@ func main() {
 	noteClassifier := services.NewNoteClassifier(noteSettingsRepo, noteRepo, agentRouter)
 	noteClassifyWorker := services.NewNoteClassifyWorker(noteClassifier)
 	noteClassifyWorker.Start()
-	noteH := handlers.NewNoteHandler(noteRepo, noteSettingsRepo, noteClassifier)
 	publicBase := strings.TrimRight(strings.TrimSpace(cfg.Server.PublicBaseURL), "/")
 	if publicBase == "" {
 		publicBase = fmt.Sprintf("http://127.0.0.1:%d", cfg.Server.Port)
 	}
+	noteH := handlers.NewNoteHandler(noteRepo, noteSettingsRepo, noteClassifier, cfg.Agents.MCP.ConfigPath, publicBase)
+	// 启动时把已生成 token 的笔记 MCP 同步到全局 mcp.json（为存量 token 补写配置）。
+	noteH.SyncAllNotesMCP()
 	acpSvc.SetNotesMCP(noteSettingsRepo, publicBase)
+	acpSvc.SetMCPConfigPath(cfg.Agents.MCP.ConfigPath)
 
 	// 任务元数据：自动打标签 + AI 标题生成（异步，fire-and-forget）
 	taskSettingsRepo := repository.NewTaskSettingsRepository(db)
@@ -155,13 +158,14 @@ func main() {
 	agentPrefsH := handlers.NewAgentPrefsHandler(repository.NewUserAgentPrefsRepository(db))
 
 	configH := handlers.NewConfigHandler(cfgPath)
+	mcpH := handlers.NewMCPHandler(cfg.Agents.MCP.ConfigPath)
 
 	// 日志查看器：复用 logging 包在 Setup 时初始化的日志中心单例，
 	// 通过 SSE 把后端 slog 日志实时推送给前端。
 	logH := handlers.NewLogHandler(logging.DefaultHub())
 	debugH := handlers.NewDebugHandler(agentRouter, acpSvc.Debugger())
 
-	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, taskSettingsH, agentPrefsH, configH, logH, debugH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
+	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, taskSettingsH, agentPrefsH, configH, mcpH, logH, debugH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
 	engine.Any("/mcp/notes", gin.WrapH(notesmcp.Handler(noteRepo, noteSettingsRepo)))
 	engine.Any("/mcp/notes/*path", gin.WrapH(notesmcp.Handler(noteRepo, noteSettingsRepo)))
 

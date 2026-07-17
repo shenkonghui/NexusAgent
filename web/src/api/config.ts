@@ -73,3 +73,45 @@ export function writeFileContent(filePath: string, content: string): Promise<{ d
     body: JSON.stringify({ path: filePath, content }),
   })
 }
+
+// MCP 配置（全局共享 mcpServers JSON）
+export interface MCPConfigResponse {
+  config: string // 文件原始文本
+  path: string   // 配置文件绝对路径
+  count: number  // 解析到的 server 数量
+}
+
+// 获取 MCP 配置（mcp.json 原始内容）
+export function getMCPConfig(): Promise<{ data: MCPConfigResponse }> {
+  return apiFetch('/config/mcp')
+}
+
+// 更新 MCP 配置（保存即生效，新建会话自动注入）
+export function updateMCPConfig(config: string): Promise<{ data: MCPConfigResponse }> {
+  return apiFetch('/config/mcp', {
+    method: 'PUT',
+    body: JSON.stringify({ config }),
+  })
+}
+
+// 单个 MCP 工具信息
+export interface MCPToolInfo {
+  name: string
+  title?: string
+  description?: string
+}
+
+// 单个 MCP server 探测结果
+export interface MCPServerStatus {
+  name: string
+  type: string         // stdio | http | sse
+  connected: boolean
+  error?: string
+  server_info?: string // InitializeResult.ServerInfo.Name
+  tools: MCPToolInfo[]
+}
+
+// 探测所有 MCP server 的连接状态与工具列表
+export function getMCPStatus(): Promise<{ data: { servers: MCPServerStatus[]; error?: string } }> {
+  return apiFetch('/config/mcp/status')
+}

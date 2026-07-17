@@ -291,3 +291,36 @@ func TestValidate_WorkspaceSessionDir_EnvOverride(t *testing.T) {
 		t.Errorf("SessionDir 未被环境变量覆盖: %q", cfg.Agents.Workspace.SessionDir)
 	}
 }
+
+func TestValidate_MCPConfigPath_Default(t *testing.T) {
+	cfg := &Config{JWT: JWTConfig{Secret: "this-is-a-very-long-jwt-secret-key-32+bytes!"}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate 错误: %v", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(home, ".agents", "mcp.json")
+	if cfg.Agents.MCP.ConfigPath != expected {
+		t.Errorf("MCP.ConfigPath = %q, 期望 %q", cfg.Agents.MCP.ConfigPath, expected)
+	}
+}
+
+func TestValidate_MCPConfigPath_RelativeExpand(t *testing.T) {
+	cfg := &Config{
+		JWT:    JWTConfig{Secret: "this-is-a-very-long-jwt-secret-key-32+bytes!"},
+		Agents: AgentsConfig{MCP: MCPConfig{ConfigPath: "~/custom/mcp.json"}},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate 错误: %v", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := filepath.Join(home, "custom", "mcp.json")
+	if cfg.Agents.MCP.ConfigPath != expected {
+		t.Errorf("MCP.ConfigPath = %q, 期望 %q", cfg.Agents.MCP.ConfigPath, expected)
+	}
+}

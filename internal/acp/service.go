@@ -53,10 +53,10 @@ const (
 //   - 进程退出后标记 disconnected，定时任务自动重连
 //   - 重连带指数退避，避免频繁重试
 type Service struct {
-	sessions  *repository.SessionRepository
-	messages  *repository.MessageRepository
+	sessions   *repository.SessionRepository
+	messages   *repository.MessageRepository
 	workspaces *repository.WorkspaceRepository
-	backends map[string]Backend
+	backends   map[string]Backend
 	// pool 按 agentType+cwd 共享一条 Connection（进程 cwd 与 ACP session cwd 对齐）。
 	pool map[string]*Connection
 	// states 记录每个连接池键的状态（connecting/connected/disconnected）。
@@ -65,31 +65,32 @@ type Service struct {
 	connectDone map[string]chan struct{}
 	// sessionPoolKey 记录 sessionID → 连接池键，用于定位所属连接。
 	sessionPoolKey map[string]string
-	commands     map[string][]acp.AvailableCommand
-	configs      map[string][]acp.SessionConfigOption
-	modes        map[string][]acp.SessionMode
+	commands       map[string][]acp.AvailableCommand
+	configs        map[string][]acp.SessionConfigOption
+	modes          map[string][]acp.SessionMode
 	// probeCache 缓存探测结果，按 agentType 存储，避免重复创建临时会话探测。
 	probeCache map[string][]acp.SessionConfigOption
 	// agentCommands / agentModes 按 agentType 缓存，供新建任务页使用（无会话时）。
-	agentCommands map[string][]acp.AvailableCommand
-	agentModes    map[string][]acp.SessionMode
-	probeLock     sync.Mutex // 缓存未命中时串行探测，避免并发重复建临时 session
-	mu            sync.RWMutex
-	wsConfig      config.WorkspaceConfig
-	skillUserDirs    []string
-	skillProjectDirs []string
-	noteSettings  *repository.NoteSettingsRepository
-	publicBaseURL string
+	agentCommands      map[string][]acp.AvailableCommand
+	agentModes         map[string][]acp.SessionMode
+	probeLock          sync.Mutex // 缓存未命中时串行探测，避免并发重复建临时 session
+	mu                 sync.RWMutex
+	wsConfig           config.WorkspaceConfig
+	skillUserDirs      []string
+	skillProjectDirs   []string
+	noteSettings       *repository.NoteSettingsRepository
+	publicBaseURL      string
+	mcpConfigPath      string
 	commandUserDirs    []string
 	commandProjectDirs []string
 	ruleUserDirs       []string
 	ruleProjectDirs    []string
 
 	// 健康检查与自动重连控制
-	hcCtx         context.Context
-	hcCancel      context.CancelFunc
-	hcWG          sync.WaitGroup
-	shuttingDown  atomic.Bool
+	hcCtx        context.Context
+	hcCancel     context.CancelFunc
+	hcWG         sync.WaitGroup
+	shuttingDown atomic.Bool
 
 	// activePrompts 记录每个会话正在进行的 prompt 广播器，支持多客户端订阅（断点续传重连）。
 	activePrompts map[string]*msgBroadcaster
@@ -116,25 +117,25 @@ func (s *Service) SetTaskMetaTrigger(t TaskMetaTrigger) {
 // NewService 创建新的 Service。
 func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig, skillsConfig config.SkillsConfig, commandsConfig config.CommandsConfig, rulesConfig config.RulesConfig) *Service {
 	return &Service{
-		sessions:     repository.NewSessionRepository(db),
-		messages:     repository.NewMessageRepository(db),
-		workspaces:   repository.NewWorkspaceRepository(db),
-		backends:     make(map[string]Backend),
-		pool:         make(map[string]*Connection),
-		states:       make(map[string]string),
-		connectDone:  make(map[string]chan struct{}),
-		sessionPoolKey: make(map[string]string),
-		commands:     make(map[string][]acp.AvailableCommand),
-		configs:      make(map[string][]acp.SessionConfigOption),
-		modes:        make(map[string][]acp.SessionMode),
-		probeCache:    make(map[string][]acp.SessionConfigOption),
-		agentCommands: make(map[string][]acp.AvailableCommand),
-		agentModes:    make(map[string][]acp.SessionMode),
-		activePrompts: make(map[string]*msgBroadcaster),
-		runningTasks:  repository.NewRunningTaskRepository(db),
-		wsConfig:         wsConfig,
-		skillUserDirs:    append([]string(nil), skillsConfig.UserDirs...),
-		skillProjectDirs: append([]string(nil), skillsConfig.ProjectDirs...),
+		sessions:           repository.NewSessionRepository(db),
+		messages:           repository.NewMessageRepository(db),
+		workspaces:         repository.NewWorkspaceRepository(db),
+		backends:           make(map[string]Backend),
+		pool:               make(map[string]*Connection),
+		states:             make(map[string]string),
+		connectDone:        make(map[string]chan struct{}),
+		sessionPoolKey:     make(map[string]string),
+		commands:           make(map[string][]acp.AvailableCommand),
+		configs:            make(map[string][]acp.SessionConfigOption),
+		modes:              make(map[string][]acp.SessionMode),
+		probeCache:         make(map[string][]acp.SessionConfigOption),
+		agentCommands:      make(map[string][]acp.AvailableCommand),
+		agentModes:         make(map[string][]acp.SessionMode),
+		activePrompts:      make(map[string]*msgBroadcaster),
+		runningTasks:       repository.NewRunningTaskRepository(db),
+		wsConfig:           wsConfig,
+		skillUserDirs:      append([]string(nil), skillsConfig.UserDirs...),
+		skillProjectDirs:   append([]string(nil), skillsConfig.ProjectDirs...),
 		commandUserDirs:    append([]string(nil), commandsConfig.UserDirs...),
 		commandProjectDirs: append([]string(nil), commandsConfig.ProjectDirs...),
 		ruleUserDirs:       append([]string(nil), rulesConfig.UserDirs...),
@@ -146,6 +147,58 @@ func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig, skillsConfig confi
 func (s *Service) SetNotesMCP(settings *repository.NoteSettingsRepository, publicBaseURL string) {
 	s.noteSettings = settings
 	s.publicBaseURL = strings.TrimRight(strings.TrimSpace(publicBaseURL), "/")
+}
+
+// SetMCPConfigPath 注入全局共享 MCP server 配置文件路径（供 NewSession 注入）。
+// 该文件（标准 mcpServers 格式）中的 server 会注入给所有 agent 会话。
+func (s *Service) SetMCPConfigPath(path string) {
+	s.mcpConfigPath = strings.TrimSpace(path)
+}
+
+// configuredMCPServers 读取全局共享 MCP 配置文件并转换为 ACP server 列表。
+// 文件不存在或解析失败时返回 nil 并记日志，不影响会话创建。
+func (s *Service) configuredMCPServers() []acp.McpServer {
+	if s.mcpConfigPath == "" {
+		return nil
+	}
+	servers, err := LoadMCPServers(s.mcpConfigPath)
+	if err != nil {
+		slog.Warn("加载全局 MCP 配置失败，跳过注入", "path", s.mcpConfigPath, "err", err)
+		return nil
+	}
+	return servers
+}
+
+// sessionMCPServers 汇总注入给指定会话的全部 MCP server：全局共享 + 笔记 MCP。
+//
+// 去重：若全局 mcp.json 已含 nexus-notes 条目（生成 token 时自动写入），
+// 则不再追加按用户 token 动态注入的笔记 MCP，避免同名 server 重复注入。
+func (s *Service) sessionMCPServers(userID uint) []acp.McpServer {
+	configured := s.configuredMCPServers()
+	if hasServerNamed(configured, notesMCPName) {
+		return configured
+	}
+	return append(configured, s.notesMCPServers(userID)...)
+}
+
+// notesMCPName 是笔记 MCP server 的固定名称（与 mcp.json 中写入的条目名一致）。
+const notesMCPName = "nexus-notes"
+
+// hasServerNamed 判断 server 列表中是否存在指定名称的条目（任意传输类型）。
+func hasServerNamed(servers []acp.McpServer, name string) bool {
+	for _, s := range servers {
+		switch {
+		case s.Stdio != nil && s.Stdio.Name == name:
+			return true
+		case s.Http != nil && s.Http.Name == name:
+			return true
+		case s.Sse != nil && s.Sse.Name == name:
+			return true
+		case s.Acp != nil && s.Acp.Name == name:
+			return true
+		}
+	}
+	return false
 }
 
 // SetDebugConfig 注入 ACP 调试配置；enabled=false 时清空 debugger。
@@ -832,7 +885,7 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 			return nil, fmt.Errorf("激活会话-建立连接: %w", actErr)
 		}
 		s.debugBindPending(session.AgentType, session.ID)
-		newAgentSID, configOptions, modes, actErr := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd), s.notesMCPServers(session.UserID), s.rulesSystemPrompt(cwd))
+		newAgentSID, configOptions, modes, actErr := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd), s.sessionMCPServers(session.UserID), s.rulesSystemPrompt(cwd))
 		s.debugClearPending(session.AgentType)
 		if actErr != nil {
 			return nil, fmt.Errorf("激活会话-创建 ACP 会话: %w", actErr)
@@ -1116,7 +1169,6 @@ func (s *Service) HasActivePrompt(sessionID string) bool {
 	s.mu.RUnlock()
 	return ok
 }
-
 
 func (s *Service) detachSession(sessionID string) (string, bool) {
 	s.mu.Lock()
@@ -1748,7 +1800,7 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 
 	oldAgentSID := session.AgentSessionID
 	s.debugBindPending(session.AgentType, session.ID)
-	newAgentSID, configOptions, modes, err := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd), s.notesMCPServers(session.UserID), s.rulesSystemPrompt(cwd))
+	newAgentSID, configOptions, modes, err := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd), s.sessionMCPServers(session.UserID), s.rulesSystemPrompt(cwd))
 	s.debugClearPending(session.AgentType)
 	if err != nil {
 		return nil, fmt.Errorf("恢复会话-创建 ACP 会话: %w", err)

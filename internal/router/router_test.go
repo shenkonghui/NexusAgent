@@ -54,12 +54,12 @@ func TestSetup_RegistersP5Routes(t *testing.T) {
 	rulesCfg := config.RulesConfig{UserDirs: []string{t.TempDir()}}
 	noteRepo := repository.NewNoteRepository(db)
 	noteSettingsRepo := repository.NewNoteSettingsRepository(db)
-	noteH := handlers.NewNoteHandler(noteRepo, noteSettingsRepo, nil)
+	noteH := handlers.NewNoteHandler(noteRepo, noteSettingsRepo, nil, "", "")
 	taskSettingsRepo := repository.NewTaskSettingsRepository(db)
 	taskSettingsH := handlers.NewTaskSettingsHandler(taskSettingsRepo)
 	agentPrefsH := handlers.NewAgentPrefsHandler(repository.NewUserAgentPrefsRepository(db))
 	logH := handlers.NewLogHandler(logging.NewLogHub(0))
-	engine := Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, taskSettingsH, agentPrefsH, nil, logH, nil, skillsCfg, commandsCfg, rulesCfg, gin.TestMode, "", false)
+	engine := Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, taskSettingsH, agentPrefsH, nil, nil, logH, nil, skillsCfg, commandsCfg, rulesCfg, gin.TestMode, "", false)
 
 	want := []string{
 		"GET /api/v1/agents",

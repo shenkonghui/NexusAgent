@@ -69,7 +69,15 @@ type AgentsConfig struct {
 	Skills     SkillsConfig     `yaml:"skills"`
 	Commands   CommandsConfig   `yaml:"commands"`
 	Rules      RulesConfig      `yaml:"rules"`
+	MCP        MCPConfig        `yaml:"mcp"`
 	ClaudeCode ClaudeCodeConfig `yaml:"claude_code"`
+}
+
+// MCPConfig 配置全局共享的 MCP server 列表来源（标准 mcpServers JSON 格式）。
+type MCPConfig struct {
+	// ConfigPath 是 MCP server 配置文件路径，默认 ~/.agents/mcp.json。
+	// 该文件中的 mcpServers 会注入给所有 agent 会话。
+	ConfigPath string `yaml:"config_path"`
 }
 
 // SkillsConfig 配置 Agent Skills 扫描目录（agentskills.io 规范）。
@@ -237,6 +245,9 @@ func (c *Config) Validate() error {
 	if err := c.Agents.Rules.normalize(); err != nil {
 		return err
 	}
+	if err := c.Agents.MCP.normalize(); err != nil {
+		return err
+	}
 	if err := c.Debug.ACP.normalize(); err != nil {
 		return err
 	}
@@ -363,6 +374,24 @@ func (r *RulesConfig) normalize() error {
 	if len(r.ProjectDirs) == 0 {
 		r.ProjectDirs = []string{".cursor/rules", "CLAUDE.md"}
 	}
+	return nil
+}
+
+// normalize 填充 MCP 配置文件路径默认值并展开 ~。
+func (m *MCPConfig) normalize() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("获取用户主目录以设置 MCP 配置路径: %w", err)
+	}
+	if m.ConfigPath == "" {
+		m.ConfigPath = filepath.Join(home, ".agents", "mcp.json")
+		return nil
+	}
+	abs, err := expandPath(m.ConfigPath)
+	if err != nil {
+		return fmt.Errorf("mcp.config_path 路径 %q 无效: %w", m.ConfigPath, err)
+	}
+	m.ConfigPath = abs
 	return nil
 }
 

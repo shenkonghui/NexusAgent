@@ -52,6 +52,16 @@ func (r *NoteSettingsRepository) FindByMCPToken(token string) (*models.NoteSetti
 	return &s, nil
 }
 
+// FindAllWithMcpToken 返回所有已生成 MCP Token 的笔记设置（token 非空）。
+func (r *NoteSettingsRepository) FindAllWithMcpToken() ([]models.NoteSettings, error) {
+	var list []models.NoteSettings
+	err := r.db.Where("mcp_token IS NOT NULL AND mcp_token != ''").Find(&list).Error
+	if err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
 // SetMCPTokenOnce 为用户生成一次 MCP Token；已存在则拒绝。
 func (r *NoteSettingsRepository) SetMCPTokenOnce(userID uint, token string) error {
 	s, err := r.FindByUserID(userID)

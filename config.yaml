@@ -52,3 +52,7 @@ agents:
         project_dirs:
             - .cursor/rules
             - CLAUDE.md
+    mcp:
+        # 全局共享 MCP server 配置文件（标准 mcpServers JSON 格式）。
+        # 该文件中的 mcpServers 会注入给所有 agent 会话。可在设置页「MCP」Tab 编辑。
+        config_path: ~/.agents/mcp.json
