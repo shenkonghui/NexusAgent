@@ -26,6 +26,7 @@ func (noopRegistrar) UnregisterBackend(string)                   {}
 func (noopRegistrar) RegisterAgent(*agent.AgentDescriptor) error { return nil }
 func (noopRegistrar) ReplaceAgent(*agent.AgentDescriptor)        {}
 func (noopRegistrar) UnregisterAgent(string)                     {}
+func (noopRegistrar) PreconnectAgent(string)                     {}
 
 // noopSchedulerMgr 是测试用的空 SchedulerManager。
 type noopSchedulerMgr struct{}
@@ -53,11 +54,12 @@ func TestSetup_RegistersP5Routes(t *testing.T) {
 	rulesCfg := config.RulesConfig{UserDirs: []string{t.TempDir()}}
 	noteRepo := repository.NewNoteRepository(db)
 	noteSettingsRepo := repository.NewNoteSettingsRepository(db)
-	noteH := handlers.NewNoteHandler(noteRepo, noteSettingsRepo)
+	noteH := handlers.NewNoteHandler(noteRepo, noteSettingsRepo, nil)
 	taskSettingsRepo := repository.NewTaskSettingsRepository(db)
 	taskSettingsH := handlers.NewTaskSettingsHandler(taskSettingsRepo)
+	agentPrefsH := handlers.NewAgentPrefsHandler(repository.NewUserAgentPrefsRepository(db))
 	logH := handlers.NewLogHandler(logging.NewLogHub(0))
-	engine := Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, taskSettingsH, nil, logH, skillsCfg, commandsCfg, rulesCfg, gin.TestMode, "", false)
+	engine := Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, taskSettingsH, agentPrefsH, nil, logH, skillsCfg, commandsCfg, rulesCfg, gin.TestMode, "", false)
 
 	want := []string{
 		"GET /api/v1/agents",
@@ -84,6 +86,8 @@ func TestSetup_RegistersP5Routes(t *testing.T) {
 		"POST /api/v1/scheduled-tasks/:id/run",
 		"GET /api/v1/scheduled-tasks/:id/executions",
 		"GET /api/v1/logs/stream",
+		"GET /api/v1/agent-prefs",
+		"PATCH /api/v1/agent-prefs",
 	}
 	got := make(map[string]bool)
 	for _, ri := range engine.Routes() {

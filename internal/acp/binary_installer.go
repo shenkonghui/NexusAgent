@@ -114,7 +114,7 @@ func downloadArchive(url string) (string, error) {
 		}
 		lastErr = err
 	}
-	return "", lastErr
+	return "", fmt.Errorf("下载 %s 失败（已重试 %d 次）: %w", url, binaryDownloadRetries, lastErr)
 }
 
 func downloadArchiveOnce(client *http.Client, url string) (string, error) {

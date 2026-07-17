@@ -19,6 +19,14 @@ interface AuthContextValue extends AuthState {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
+const AUTH_INIT_RETRIES = 3
+const AUTH_INIT_RETRY_DELAY = 1000
+
+async function waitForBackend(attempt: number): Promise<void> {
+  if (attempt >= AUTH_INIT_RETRIES - 1) return
+  await new Promise((resolve) => setTimeout(resolve, AUTH_INIT_RETRY_DELAY))
+}
+
 // AuthProvider 提供认证状态管理
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -30,14 +38,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const token = localStorage.getItem('access_token')
         if (token) {
-          try {
-            const resp = await authApi.getMe({ skipAuthRedirect: true })
-            setUser(resp.data)
-            return
-          } catch {
-            localStorage.removeItem('access_token')
-            localStorage.removeItem('refresh_token')
+          for (let attempt = 0; attempt < AUTH_INIT_RETRIES; attempt += 1) {
+            try {
+              const resp = await authApi.getMe({ skipAuthRedirect: true })
+              setUser(resp.data)
+              return
+            } catch {
+              await waitForBackend(attempt)
+            }
           }
+          localStorage.removeItem('access_token')
+          localStorage.removeItem('refresh_token')
         }
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')

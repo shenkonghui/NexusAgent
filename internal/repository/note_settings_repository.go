@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -9,6 +10,8 @@ import (
 )
 
 var ErrNoteSettingsNotFound = errors.New("笔记设置不存在")
+var ErrMCPTokenAlreadySet = errors.New("mcp token 已存在")
+var ErrMCPTokenNotFound = errors.New("mcp token 无效")
 
 // NoteSettingsRepository 管理笔记分类设置。
 type NoteSettingsRepository struct {
@@ -32,6 +35,41 @@ func (r *NoteSettingsRepository) FindByUserID(userID uint) (*models.NoteSettings
 	return &s, nil
 }
 
+// FindByMCPToken 按 MCP Token 查找设置。
+func (r *NoteSettingsRepository) FindByMCPToken(token string) (*models.NoteSettings, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, ErrMCPTokenNotFound
+	}
+	var s models.NoteSettings
+	err := r.db.Where("mcp_token = ?", token).First(&s).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrMCPTokenNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// SetMCPTokenOnce 为用户生成一次 MCP Token；已存在则拒绝。
+func (r *NoteSettingsRepository) SetMCPTokenOnce(userID uint, token string) error {
+	s, err := r.FindByUserID(userID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(s.McpToken) != "" {
+		return ErrMCPTokenAlreadySet
+	}
+	if s.ID == 0 {
+		s.UserID = userID
+		s.McpToken = token
+		return r.db.Create(s).Error
+	}
+	s.McpToken = token
+	return r.db.Save(s).Error
+}
+
 // Upsert 创建或更新用户笔记设置。
 func (r *NoteSettingsRepository) Upsert(s *models.NoteSettings) error {
 	var existing models.NoteSettings
@@ -45,6 +83,7 @@ func (r *NoteSettingsRepository) Upsert(s *models.NoteSettings) error {
 	s.ID = existing.ID
 	s.ClassifySessionID = existing.ClassifySessionID
 	s.ClassifyDBSessionID = existing.ClassifyDBSessionID
+	s.McpToken = existing.McpToken
 	return r.db.Save(s).Error
 }
 

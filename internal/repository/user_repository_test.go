@@ -19,6 +19,9 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	db.Exec("DELETE FROM refresh_tokens")
 	db.Exec("DELETE FROM sessions")
 	db.Exec("DELETE FROM messages")
+	db.Exec("DELETE FROM note_settings")
+	db.Exec("DELETE FROM notes")
+	db.Exec("DELETE FROM user_agent_prefs")
 	return db
 }
 

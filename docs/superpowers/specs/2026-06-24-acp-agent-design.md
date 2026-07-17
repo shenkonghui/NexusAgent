@@ -113,13 +113,13 @@ internal/
 type Backend interface {
     Name() string                              // "claude-code"
     Command() string                           // "npx"
-    Args() []string                            // ["-y", "@zed-industries/claude-code-acp@latest"]
+    Args() []string                            // ["-y", "@agentclientprotocol/claude-agent-acp@latest"]
     Env() []string                             // 环境变量
     Authenticate(conn *Connection) error       // 认证（如需要）
 }
 ```
 
-`ClaudeCodeBackend` 实现：通过 `npx @zed-industries/claude-code-acp@latest` 启动，环境变量注入 `ANTHROPIC_API_KEY`。
+`ClaudeCodeBackend` 实现：通过 `npx @agentclientprotocol/claude-agent-acp@latest` 启动，环境变量注入 `ANTHROPIC_API_KEY`。
 
 ### 6.2 Process — 子进程管理
 
@@ -295,7 +295,7 @@ agents:                        # 新增
   claude_code:
     enabled: true
     command: npx               # 可覆盖命令路径
-    args: ["-y", "@zed-industries/claude-code-acp@latest"]
+    args: ["-y", "@agentclientprotocol/claude-agent-acp@latest"]
     api_key_env: ANTHROPIC_API_KEY   # 从哪个环境变量读 API key
     timeout: 300s              # 单次 prompt 超时
 ```
@@ -382,7 +382,7 @@ type ClaudeCodeConfig struct {
 - 不实现会话恢复（`session/resume`）—— 留待 P4。
 - 不实现 Codex / Gemini 后端（P1 只内置 Claude Code，其他后端后续添加）。
 - 不实现权限交互（自动批准所有权限请求）。
-- 不实现 MCP server 配置（`NewSessionRequest.McpServers` 传空数组）。
+- 通用 MCP server 配置 UI 不实现；例外：笔记只读 MCP（`nexus-notes`）在用户已生成 Token 时由服务端注入 `NewSessionRequest.McpServers`（见 `docs/superpowers/specs/2026-07-16-notes-mcp-design.md`）。
 
 ## 11. 成功标准
 

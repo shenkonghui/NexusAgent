@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useRequireAuth } from '../hooks/useRequireAuth'
 import { useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
-import { listNotes, listNoteTags, createNote, updateNote, deleteNote, exportNotes, importNotes } from '../api/notes'
+import { listNotes, listNoteTags, createNote, updateNote, deleteNote, exportNotes, importNotes, classifyNoteNow } from '../api/notes'
 import type { Note } from '../types'
 import AppLayout, { SidebarToggleButton } from '../components/AppLayout'
 import UserMenu from '../components/UserMenu'
@@ -12,8 +12,41 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import MarkdownContent from '../components/MarkdownContent'
 import { formatTimeAgo } from '../utils/time'
 import { sessionUrl } from '../utils/routes'
-import { Pencil, X, Tag, Download, Upload } from 'lucide-react'
+import { Pencil, X, Tag, Download, Upload, Sparkles } from 'lucide-react'
 import styles from './NotesPage.module.css'
+
+/** 解析导出 frontmatter；失败则整段当 content。 */
+function parseImportedChunk(raw: string): { content: string; title?: string; tags?: string[] } {
+  const trimmed = raw.trim()
+  const m = trimmed.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/)
+  if (!m) return { content: trimmed }
+  const fm = m[1]
+  const content = m[2].replace(/^\r?\n/, '')
+  const titleMatch = fm.match(/^title:\s*(.*)$/m)
+  let title = titleMatch ? titleMatch[1].trim() : ''
+  if ((title.startsWith('"') && title.endsWith('"')) || (title.startsWith("'") && title.endsWith("'"))) {
+    title = title.slice(1, -1)
+  }
+  const tags: string[] = []
+  const tagsBlock = fm.match(/^tags:\s*\n((?:\s*-\s+.+\n?)*)/m)
+  if (tagsBlock) {
+    for (const line of tagsBlock[1].split('\n')) {
+      const tm = line.match(/^\s*-\s+(.+)$/)
+      if (tm) tags.push(tm[1].trim())
+    }
+  } else {
+    const inline = fm.match(/^tags:\s*\[(.*)\]\s*$/m)
+    if (inline) {
+      for (const part of inline[1].split(',')) {
+        const t = part.trim().replace(/^["']|["']$/g, '')
+        if (t) tags.push(t)
+      }
+    }
+  }
+  return { content, title: title || undefined, tags: tags.length ? tags : undefined }
+}
+
+const NOTE_PAGE_SIZE = 20
 
 export default function NotesPage() {
   const { t } = useTranslation()
@@ -21,59 +54,72 @@ export default function NotesPage() {
   const { workspaceId, sessions } = useCurrentWorkspace(!!user)
 
   const [notes, setNotes] = useState<Note[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
   const [allTags, setAllTags] = useState<string[]>([])
   const [activeTag, setActiveTag] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [debouncedQ, setDebouncedQ] = useState('')
   const [input, setInput] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState('')
   const feedRef = useRef<HTMLDivElement>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
 
   const classifySession = sessions.find((s) => s.source === 'classify')
+  const hasMore = notes.length < total
 
-  const loadNotes = useCallback(async (tag?: string) => {
-    const [notesResp, tagsResp] = await Promise.all([
-      listNotes(tag || undefined),
-      listNoteTags(),
-    ])
-    setNotes(notesResp.data.notes || [])
-    setAllTags(tagsResp.data.tags || [])
+  useEffect(() => {
+    const tmr = window.setTimeout(() => setDebouncedQ(searchQuery.trim()), 300)
+    return () => window.clearTimeout(tmr)
+  }, [searchQuery])
+
+  const loadNotes = useCallback(async (opts: {
+    tag?: string
+    q?: string
+    page?: number
+    append?: boolean
+  } = {}) => {
+    const p = opts.page ?? 1
+    const resp = await listNotes(opts.tag || undefined, {
+      q: opts.q || undefined,
+      page: p,
+      limit: NOTE_PAGE_SIZE,
+    })
+    const list = resp.data.notes || []
+    setTotal(resp.data.total || 0)
+    setPage(resp.data.page || p)
+    setNotes((prev) => (opts.append ? [...prev, ...list] : list))
   }, [])
+
+  const reloadFirstPage = useCallback(async () => {
+    const tagsResp = await listNoteTags()
+    setAllTags(tagsResp.data.tags || [])
+    await loadNotes({ tag: activeTag, q: debouncedQ, page: 1, append: false })
+  }, [activeTag, debouncedQ, loadNotes])
 
   useEffect(() => {
     if (!user) return
     setLoading(true)
     setError('')
-    loadNotes(activeTag)
+    reloadFirstPage()
       .catch((err) => setError(err instanceof Error ? err.message : t('notes.loadFailed')))
       .finally(() => setLoading(false))
-  }, [user, activeTag, loadNotes, t])
+  }, [user, activeTag, debouncedQ, reloadFirstPage, t])
 
-  const filteredNotes = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
-    const list = q
-      ? notes.filter(
-          (n) =>
-            n.title.toLowerCase().includes(q)
-            || n.content.toLowerCase().includes(q)
-            || n.tags.some((tag) => tag.toLowerCase().includes(q)),
-        )
-      : notes
-    return [...list].reverse()
-  }, [notes, searchQuery])
-
-  function scrollFeedToBottom() {
-    requestAnimationFrame(() => {
-      const el = feedRef.current
-      if (el) el.scrollTop = el.scrollHeight
-    })
+  async function handleLoadMore() {
+    if (loadingMore || !hasMore) return
+    setLoadingMore(true)
+    try {
+      await loadNotes({ tag: activeTag, q: debouncedQ, page: page + 1, append: true })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('notes.loadFailed'))
+    } finally {
+      setLoadingMore(false)
+    }
   }
-
-  useEffect(() => {
-    if (!loading) scrollFeedToBottom()
-  }, [loading, filteredNotes.length])
 
   const hasPendingClassify = useMemo(
     () => notes.some((n) => n.classify_pending),
@@ -83,10 +129,10 @@ export default function NotesPage() {
   useEffect(() => {
     if (!user || !hasPendingClassify) return
     const timer = window.setInterval(() => {
-      loadNotes(activeTag).catch(() => {})
+      reloadFirstPage().catch(() => {})
     }, 30_000)
     return () => window.clearInterval(timer)
-  }, [user, hasPendingClassify, activeTag, loadNotes])
+  }, [user, hasPendingClassify, reloadFirstPage])
 
   async function handleCreate() {
     const content = input.trim()
@@ -96,8 +142,8 @@ export default function NotesPage() {
     try {
       await createNote(content)
       setInput('')
-      await loadNotes(activeTag)
-      scrollFeedToBottom()
+      await reloadFirstPage()
+      feedRef.current?.scrollTo({ top: 0 })
     } catch (err) {
       setError(err instanceof Error ? err.message : t('notes.createFailed'))
     } finally {
@@ -106,7 +152,7 @@ export default function NotesPage() {
   }
 
   function handleInputKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault()
       handleCreate()
     }
@@ -116,7 +162,7 @@ export default function NotesPage() {
     setError('')
     try {
       await updateNote(id, content)
-      await loadNotes(activeTag)
+      await reloadFirstPage()
     } catch (err) {
       setError(err instanceof Error ? err.message : t('notes.saveFailed'))
       throw err
@@ -128,9 +174,20 @@ export default function NotesPage() {
     setError('')
     try {
       await deleteNote(id)
-      await loadNotes(activeTag)
+      await reloadFirstPage()
     } catch (err) {
       setError(err instanceof Error ? err.message : t('notes.deleteFailed'))
+    }
+  }
+
+  async function handleClassifyNow(id: number) {
+    setError('')
+    try {
+      const resp = await classifyNoteNow(id)
+      setNotes((prev) => prev.map((n) => (n.id === id ? resp.data : n)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('notes.classifyNowFailed'))
+      throw err
     }
   }
 
@@ -165,7 +222,7 @@ export default function NotesPage() {
         .flatMap((c) => c.split(/\n*=+\n/))   // 按独立成行的 === 拆分（兼容导出格式）
         .map((c) => c.trim())
         .filter((c) => c.length > 0)
-        .map((c) => ({ content: c }))
+        .map((c) => parseImportedChunk(c))
       if (notes.length === 0) {
         setError(t('notes.importNoFiles'))
         return
@@ -173,7 +230,7 @@ export default function NotesPage() {
       const resp = await importNotes(notes)
       const { imported, skipped } = resp.data
       setError('')
-      await loadNotes(activeTag)
+      await reloadFirstPage()
       window.alert(t('notes.importSuccess', { imported, skipped }))
     } catch (err) {
       setError(err instanceof Error ? err.message : t('notes.importFailed'))
@@ -200,7 +257,7 @@ export default function NotesPage() {
                 className={styles.classifyBtn}
               >
                 <Tag size={14} />
-                <span>{t('notes.classifyTask')}</span>
+                <span>{classifySession.title || t('notes.classifyTask')}</span>
               </Link>
             )}
             <button
@@ -266,17 +323,30 @@ export default function NotesPage() {
         ) : (
           <>
             <div className={styles.feed} ref={feedRef}>
-              {filteredNotes.length === 0 ? (
+              {notes.length === 0 ? (
                 <p className={styles.empty}>{t('notes.empty')}</p>
               ) : (
-                filteredNotes.map((note) => (
-                  <NoteCard
-                    key={note.id}
-                    note={note}
-                    onUpdate={(content) => handleUpdate(note.id, content)}
-                    onDelete={() => handleDelete(note.id)}
-                  />
-                ))
+                <>
+                  {notes.map((note) => (
+                    <NoteCard
+                      key={note.id}
+                      note={note}
+                      onUpdate={(content) => handleUpdate(note.id, content)}
+                      onClassify={() => handleClassifyNow(note.id)}
+                      onDelete={() => handleDelete(note.id)}
+                    />
+                  ))}
+                  {hasMore && (
+                    <button
+                      type="button"
+                      className={styles.loadMoreBtn}
+                      onClick={handleLoadMore}
+                      disabled={loadingMore}
+                    >
+                      {loadingMore ? t('common.loading') : t('notes.loadMore')}
+                    </button>
+                  )}
+                </>
               )}
             </div>
             <div className={styles.inputBar}>
@@ -311,10 +381,12 @@ export default function NotesPage() {
 function NoteCard({
   note,
   onUpdate,
+  onClassify,
   onDelete,
 }: {
   note: Note
   onUpdate: (content: string) => Promise<void>
+  onClassify: () => Promise<void>
   onDelete: () => void
 }) {
   const { t } = useTranslation()
@@ -322,6 +394,7 @@ function NoteCard({
   const [editing, setEditing] = useState(false)
   const [editContent, setEditContent] = useState(note.content)
   const [saving, setSaving] = useState(false)
+  const [classifying, setClassifying] = useState(false)
   const contentRef = useRef<HTMLDivElement>(null)
   const editRef = useRef<HTMLTextAreaElement>(null)
   const [truncated, setTruncated] = useState(false)
@@ -355,6 +428,18 @@ function NoteCard({
     }
   }
 
+  async function handleClassify() {
+    if (classifying || note.classify_pending) return
+    setClassifying(true)
+    try {
+      await onClassify()
+    } catch {
+      // error handled by parent
+    } finally {
+      setClassifying(false)
+    }
+  }
+
   function handleCancel() {
     setEditContent(note.content)
     setEditing(false)
@@ -371,7 +456,7 @@ function NoteCard({
     <article className={styles.noteCard}>
       <div className={styles.noteHeader}>
         <div className={styles.noteHeaderMain}>
-          <h2 className={styles.noteTitle}>{note.title}</h2>
+          <h2 className={styles.noteTitle}>{note.title || t('notes.titlePending')}</h2>
           <div className={styles.noteMeta}>
             {note.tags.length > 0 && (
               <span className={styles.noteTags}>
@@ -380,7 +465,7 @@ function NoteCard({
                 ))}
               </span>
             )}
-            {note.classify_pending && (
+            {(note.classify_pending || classifying) && (
               <span className={styles.classifyingBadge}>{t('notes.classifying')}</span>
             )}
             <time className={styles.noteTime} title={note.updated_at}>
@@ -390,14 +475,25 @@ function NoteCard({
         </div>
         <div className={styles.noteActions}>
           {!editing && (
-            <button
-              type="button"
-              className={styles.editBtn}
-              onClick={() => setEditing(true)}
-              title={t('common.edit')}
-            >
-              <Pencil size={14} />
-            </button>
+            <>
+              <button
+                type="button"
+                className={styles.classifyNowBtn}
+                onClick={handleClassify}
+                title={t('notes.classifyNow')}
+                disabled={classifying || note.classify_pending}
+              >
+                <Sparkles size={14} />
+              </button>
+              <button
+                type="button"
+                className={styles.editBtn}
+                onClick={() => setEditing(true)}
+                title={t('common.edit')}
+              >
+                <Pencil size={14} />
+              </button>
+            </>
           )}
           <button
             type="button"

@@ -78,6 +78,8 @@ type Service struct {
 	wsConfig      config.WorkspaceConfig
 	skillUserDirs    []string
 	skillProjectDirs []string
+	noteSettings  *repository.NoteSettingsRepository
+	publicBaseURL string
 	commandUserDirs    []string
 	commandProjectDirs []string
 	ruleUserDirs       []string
@@ -135,6 +137,33 @@ func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig, skillsConfig confi
 		ruleUserDirs:       append([]string(nil), rulesConfig.UserDirs...),
 		ruleProjectDirs:    append([]string(nil), rulesConfig.ProjectDirs...),
 	}
+}
+
+// SetNotesMCP 注入笔记 MCP 设置仓库与对外 Base URL（供 NewSession 注入）。
+func (s *Service) SetNotesMCP(settings *repository.NoteSettingsRepository, publicBaseURL string) {
+	s.noteSettings = settings
+	s.publicBaseURL = strings.TrimRight(strings.TrimSpace(publicBaseURL), "/")
+}
+
+func (s *Service) notesMCPServers(userID uint) []acp.McpServer {
+	if s.noteSettings == nil || userID == 0 || s.publicBaseURL == "" {
+		return nil
+	}
+	st, err := s.noteSettings.FindByUserID(userID)
+	if err != nil || strings.TrimSpace(st.McpToken) == "" {
+		return nil
+	}
+	return []acp.McpServer{{
+		Http: &acp.McpServerHttpInline{
+			Name: "nexus-notes",
+			Type: "http",
+			Url:  s.publicBaseURL + "/mcp/notes",
+			Headers: []acp.HttpHeader{{
+				Name:  "Authorization",
+				Value: "Bearer " + st.McpToken,
+			}},
+		},
+	}}
 }
 
 // connectionKey 生成 agent 连接池键（agentType + 绝对 cwd）。
@@ -316,24 +345,55 @@ func (s *Service) buildConnection(ctx context.Context, agentType, cwd string) (*
 	if err != nil {
 		return nil, err
 	}
+	// 若后端需要预处理（如 BinaryBackend 下载二进制），在启动进程前执行。
+	// 失败时透传错误，让用户看到真正的失败原因（如下载失败）而非误导性的 PATH 错误。
+	if p, ok := backend.(Preparable); ok {
+		if err := p.Prepare(); err != nil {
+			slog.Error("建立 agent 连接失败：准备后端失败",
+				"agent", agentType, "err", err)
+			return nil, fmt.Errorf("准备 agent 后端: %w", err)
+		}
+	}
+	slog.Info("开始建立 agent 连接",
+		"agent", agentType,
+		"cwd", cwd,
+		"command", backend.Command(),
+		"args", backend.Args(),
+	)
 	if cwd != "" {
 		if err := os.MkdirAll(cwd, 0o755); err != nil {
+			slog.Error("建立 agent 连接失败：创建工作目录失败",
+				"agent", agentType, "cwd", cwd, "err", err)
 			return nil, fmt.Errorf("创建工作目录 %s: %w", cwd, err)
 		}
 	}
 	newConn, err := NewConnection(backend, cwd)
 	if err != nil {
+		slog.Error("建立 agent 连接失败：启动 agent 进程失败",
+			"agent", agentType,
+			"cwd", cwd,
+			"command", backend.Command(),
+			"args", backend.Args(),
+			"err", err)
 		return nil, fmt.Errorf("建立共享连接: %w", err)
 	}
 	initResp, err := newConn.Initialize(ctx)
 	if err != nil {
 		_ = newConn.Close()
+		slog.Error("建立 agent 连接失败：ACP 握手失败",
+			"agent", agentType,
+			"command", backend.Command(),
+			"err", err)
 		return nil, fmt.Errorf("ACP 握手: %w", err)
 	}
 	if err := newConn.AuthenticateIfRequired(ctx, initResp); err != nil {
 		_ = newConn.Close()
+		slog.Error("建立 agent 连接失败：ACP 认证失败",
+			"agent", agentType, "err", err)
 		return nil, err
 	}
+	slog.Debug("建立 agent 连接成功",
+		"agent", agentType, "cwd", cwd, "protocol", initResp.ProtocolVersion)
 	return newConn, nil
 }
 
@@ -401,12 +461,17 @@ func (s *Service) PreconnectAllAsync() {
 
 	for _, agentType := range types {
 		go func(at string) {
-			slog.Info("开始预连接 agent", "agent", at)
-			if _, err := s.ensureConnection(s.hcCtx, at, s.probeCwd()); err != nil {
-				slog.Error("预连接 agent 失败", "agent", at, "err", err)
+			cwd := s.probeCwd()
+			slog.Info("开始预连接 agent", "agent", at, "cwd", cwd)
+			if _, err := s.ensureConnection(s.hcCtx, at, cwd); err != nil {
+				slog.Error("预连接 agent 失败",
+					"agent", at,
+					"cwd", cwd,
+					"command", s.backendCommandSafe(at),
+					"err", err)
 				return
 			}
-			slog.Info("预连接 agent 成功", "agent", at)
+			slog.Info("预连接 agent 成功", "agent", at, "cwd", cwd)
 			s.prefetchProbeConfig(s.hcCtx, at)
 		}(agentType)
 	}
@@ -525,7 +590,9 @@ func (s *Service) checkConnectionKey(poolKey string, delays map[string]time.Dura
 		delay = reconnectBaseDelay
 	}
 
-	slog.Info("尝试重连 agent", "agent", agentType, "cwd", cwd, "delay", delay)
+	slog.Info("尝试重连 agent",
+		"agent", agentType, "cwd", cwd,
+		"poolKey", poolKey, "prevState", state, "delay", delay)
 	select {
 	case <-s.hcCtx.Done():
 		return
@@ -533,17 +600,25 @@ func (s *Service) checkConnectionKey(poolKey string, delays map[string]time.Dura
 	}
 
 	if _, err := s.ensureConnection(s.hcCtx, agentType, cwd); err != nil {
-		slog.Error("重连 agent 失败", "agent", agentType, "cwd", cwd, "err", err)
 		// 指数退避，上限 reconnectMaxDelay
 		next := delay * 2
 		if next > reconnectMaxDelay {
 			next = reconnectMaxDelay
 		}
 		delays[poolKey] = next
+		slog.Error("重连 agent 失败",
+			"agent", agentType,
+			"cwd", cwd,
+			"poolKey", poolKey,
+			"prevState", state,
+			"delay", delay,
+			"nextDelay", next,
+			"command", s.backendCommandSafe(agentType),
+			"err", err)
 		return
 	}
 
-	slog.Info("重连 agent 成功", "agent", agentType, "cwd", cwd)
+	slog.Info("重连 agent 成功", "agent", agentType, "cwd", cwd, "delay", delay)
 	delays[poolKey] = 0
 	s.prefetchProbeConfig(s.hcCtx, agentType)
 }
@@ -689,7 +764,7 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 		if actErr != nil {
 			return nil, fmt.Errorf("激活会话-建立连接: %w", actErr)
 		}
-		newSessionID, configOptions, modes, actErr := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd))
+		newSessionID, configOptions, modes, actErr := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd), s.notesMCPServers(session.UserID))
 		if actErr != nil {
 			return nil, fmt.Errorf("激活会话-创建 ACP 会话: %w", actErr)
 		}
@@ -1393,7 +1468,7 @@ func (s *Service) probeConfigViaSession(ctx context.Context, agentType string) (
 	if err != nil {
 		return nil, err
 	}
-	sessionID, configOptions, modes, err := conn.NewSession(ctx, probeCwd, s.skillAdditionalDirs(probeCwd))
+	sessionID, configOptions, modes, err := conn.NewSession(ctx, probeCwd, s.skillAdditionalDirs(probeCwd), nil)
 	if err != nil {
 		return nil, fmt.Errorf("探测 NewSession: %w", err)
 	}
@@ -1558,7 +1633,7 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 		return nil, fmt.Errorf("恢复会话-建立连接: %w", err)
 	}
 
-	newSessionID, configOptions, modes, err := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd))
+	newSessionID, configOptions, modes, err := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd), s.notesMCPServers(session.UserID))
 	if err != nil {
 		return nil, fmt.Errorf("恢复会话-创建 ACP 会话: %w", err)
 	}
@@ -1765,6 +1840,16 @@ func (s *Service) applyModelValue(ctx context.Context, sessionID string, opts []
 // logWarn 统一警告日志输出。
 func (s *Service) logWarn(msg, agent string) {
 	slog.Warn(msg, "agent", agent)
+}
+
+// backendCommandSafe 返回指定 agent 后端的命令字符串，仅用于日志展示。
+// 后端不存在或读取失败时返回空串，绝不返回 error，避免污染调用方日志。
+func (s *Service) backendCommandSafe(agentType string) string {
+	b, err := s.GetBackend(agentType)
+	if err != nil {
+		return ""
+	}
+	return b.Command()
 }
 
 // Workspace delegation methods

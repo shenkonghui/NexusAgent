@@ -3,6 +3,7 @@ package repository
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -20,15 +21,43 @@ func NewNoteRepository(db *gorm.DB) *NoteRepository {
 	return &NoteRepository{db: db}
 }
 
-// FindByUserID 返回用户笔记，按更新时间降序；tag 非空时按标签过滤。
+// FindByUserID 返回用户全部匹配笔记，按更新时间降序；tag 非空时按标签过滤。
 func (r *NoteRepository) FindByUserID(userID uint, tag string) ([]models.Note, error) {
-	var list []models.Note
-	q := r.db.Where("user_id = ?", userID)
+	dbq := r.db.Where("user_id = ?", userID)
 	if tag != "" {
-		q = q.Where("tags LIKE ?", "%\""+tag+"\"%")
+		dbq = dbq.Where("tags LIKE ?", "%\""+tag+"\"%")
 	}
-	err := q.Order("updated_at DESC").Find(&list).Error
+	var list []models.Note
+	err := dbq.Order("updated_at DESC").Find(&list).Error
 	return list, err
+}
+
+// FindByUserIDPaged 分页查询用户笔记（updated_at 降序，最新在前）。
+func (r *NoteRepository) FindByUserIDPaged(userID uint, tag, q string, page, limit int) ([]models.Note, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	dbq := r.db.Model(&models.Note{}).Where("user_id = ?", userID)
+	if tag != "" {
+		dbq = dbq.Where("tags LIKE ?", "%\""+tag+"\"%")
+	}
+	if q = strings.TrimSpace(q); q != "" {
+		like := "%" + q + "%"
+		dbq = dbq.Where("title LIKE ? OR content LIKE ?", like, like)
+	}
+	var total int64
+	if err := dbq.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var list []models.Note
+	err := dbq.Order("updated_at DESC").Offset((page - 1) * limit).Limit(limit).Find(&list).Error
+	return list, total, err
 }
 
 // FindByID 按主键查询。
@@ -88,6 +117,18 @@ func (r *NoteRepository) FindPendingClassify(limit int) ([]models.Note, error) {
 		Limit(limit).
 		Find(&list).Error
 	return list, err
+}
+
+// CountClassifyProgress 返回用户笔记完成数（非 pending）与总数。
+func (r *NoteRepository) CountClassifyProgress(userID uint) (done, total int64, err error) {
+	if err = r.db.Model(&models.Note{}).Where("user_id = ?", userID).Count(&total).Error; err != nil {
+		return 0, 0, err
+	}
+	var pending int64
+	if err = r.db.Model(&models.Note{}).Where("user_id = ? AND classify_pending = ?", userID, true).Count(&pending).Error; err != nil {
+		return 0, 0, err
+	}
+	return total - pending, total, nil
 }
 
 // ListTags 返回用户所有标签（去重、排序）。

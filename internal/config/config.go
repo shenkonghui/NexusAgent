@@ -32,9 +32,10 @@ type AuthConfig struct {
 }
 
 type ServerConfig struct {
-	Port    int    `yaml:"port"`
-	Mode    string `yaml:"mode"`
-	WebDist string `yaml:"web_dist"`
+	Port          int    `yaml:"port"`
+	Mode          string `yaml:"mode"`
+	WebDist       string `yaml:"web_dist"`
+	PublicBaseURL string `yaml:"public_base_url"` // 对外 Base URL，供 ACP 注入 Notes MCP；空则用 http://127.0.0.1:{port}
 }
 
 type DatabaseConfig struct {
@@ -207,7 +208,7 @@ func (c *Config) Validate() error {
 		c.Agents.ClaudeCode.Command = "npx"
 	}
 	if len(c.Agents.ClaudeCode.Args) == 0 {
-		c.Agents.ClaudeCode.Args = []string{"-y", "@zed-industries/claude-code-acp@latest"}
+		c.Agents.ClaudeCode.Args = []string{"-y", "@agentclientprotocol/claude-agent-acp@latest"}
 	}
 	if c.Agents.ClaudeCode.APIKeyEnv == "" {
 		c.Agents.ClaudeCode.APIKeyEnv = "ANTHROPIC_API_KEY"

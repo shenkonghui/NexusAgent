@@ -12,8 +12,11 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/gin-gonic/gin"
 
 	"nexusagent/internal/acp"
 	"nexusagent/internal/agent"
@@ -21,6 +24,7 @@ import (
 	"nexusagent/internal/database"
 	"nexusagent/internal/handlers"
 	"nexusagent/internal/logging"
+	notesmcp "nexusagent/internal/mcp/notes"
 	"nexusagent/internal/models"
 	"nexusagent/internal/repository"
 	"nexusagent/internal/router"
@@ -134,7 +138,12 @@ func main() {
 	noteClassifier := services.NewNoteClassifier(noteSettingsRepo, noteRepo, agentRouter)
 	noteClassifyWorker := services.NewNoteClassifyWorker(noteClassifier)
 	noteClassifyWorker.Start()
-	noteH := handlers.NewNoteHandler(noteRepo, noteSettingsRepo)
+	noteH := handlers.NewNoteHandler(noteRepo, noteSettingsRepo, noteClassifier)
+	publicBase := strings.TrimRight(strings.TrimSpace(cfg.Server.PublicBaseURL), "/")
+	if publicBase == "" {
+		publicBase = fmt.Sprintf("http://127.0.0.1:%d", cfg.Server.Port)
+	}
+	acpSvc.SetNotesMCP(noteSettingsRepo, publicBase)
 
 	// 任务元数据：自动打标签 + AI 标题生成（异步，fire-and-forget）
 	taskSettingsRepo := repository.NewTaskSettingsRepository(db)
@@ -142,6 +151,7 @@ func main() {
 	taskMetaSvc := services.NewTaskMetaService(taskSettingsRepo, sessionRepo, agentRouter)
 	acpSvc.SetTaskMetaTrigger(taskMetaSvc)
 	taskSettingsH := handlers.NewTaskSettingsHandler(taskSettingsRepo)
+	agentPrefsH := handlers.NewAgentPrefsHandler(repository.NewUserAgentPrefsRepository(db))
 
 	configH := handlers.NewConfigHandler(cfgPath)
 
@@ -149,7 +159,9 @@ func main() {
 	// 通过 SSE 把后端 slog 日志实时推送给前端。
 	logH := handlers.NewLogHandler(logging.DefaultHub())
 
-	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, taskSettingsH, configH, logH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
+	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, taskSettingsH, agentPrefsH, configH, logH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
+	engine.Any("/mcp/notes", gin.WrapH(notesmcp.Handler(noteRepo, noteSettingsRepo)))
+	engine.Any("/mcp/notes/*path", gin.WrapH(notesmcp.Handler(noteRepo, noteSettingsRepo)))
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	srv := &http.Server{Addr: addr, Handler: engine}

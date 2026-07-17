@@ -94,7 +94,14 @@ func (b *ConfigBackend) Timeout() time.Duration {
 	return d
 }
 
-// BinaryBackend 是二进制分发 agent 的后端，Command() 时自动下载解压。
+// Preparable 是可选的后端预处理接口。
+// 实现该接口的后端在启动进程前需要执行准备工作（如下载二进制），
+// 失败时返回的 error 会经由 buildConnection 透传给用户。
+type Preparable interface {
+	Prepare() error
+}
+
+// BinaryBackend 是二进制分发 agent 的后端，通过 Prepare() 触发下载解压。
 // 嵌入 ConfigBackend，仅覆盖 Command() 方法的返回值。
 // 下载失败时允许后续调用重试（配合健康检查重连）。
 type BinaryBackend struct {
@@ -102,6 +109,7 @@ type BinaryBackend struct {
 	info    BinaryInstallInfo
 	mu      sync.Mutex
 	cmdPath string
+	prepareErr error // 上次 Prepare() 的错误，供未调用 Prepare 时 Command() 返回有意义信息
 }
 
 // NewBinaryBackend 根据已有的 AgentConfig 和 BinaryInstallInfo 创建延迟下载的后端。
@@ -112,14 +120,16 @@ func NewBinaryBackend(cfg models.AgentConfig, info BinaryInstallInfo) *BinaryBac
 	}
 }
 
-// Command 返回二进制文件的完整路径，必要时触发下载解压。
-func (b *BinaryBackend) Command() string {
+// Prepare 下载并解压二进制文件到缓存目录，成功后缓存路径供 Command() 使用。
+// 并发安全：多次调用时，已成功则跳过，已失败则重新下载。
+func (b *BinaryBackend) Prepare() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	// 已有缓存路径且文件仍存在 → 跳过
 	if b.cmdPath != "" {
 		if _, err := os.Stat(b.cmdPath); err == nil {
-			return b.cmdPath
+			return nil
 		}
 		b.cmdPath = ""
 	}
@@ -127,10 +137,21 @@ func (b *BinaryBackend) Command() string {
 	slog.Info("开始安装 binary agent", "agent", b.cfg.Type, "url", b.info.ArchiveURL)
 	path, err := ensureBinaryInstalled(b.cfg.Type, b.info.Version, b.info.ArchiveURL, b.info.BinaryCmd)
 	if err != nil {
+		b.prepareErr = err
 		slog.Error("安装 binary agent 失败", "agent", b.cfg.Type, "err", err)
-		return ""
+		return fmt.Errorf("二进制下载失败: %w", err)
 	}
 	b.cmdPath = path
+	b.prepareErr = nil
+	return nil
+}
+
+// Command 返回二进制文件的完整路径。
+// 不再触发下载——下载由 Prepare() 负责，buildConnection 会在启动进程前调用。
+// 若 Prepare() 未调用或失败，返回空串，由 process.go 给出 PATH 相关提示。
+func (b *BinaryBackend) Command() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	return b.cmdPath
 }
 

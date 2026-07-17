@@ -208,13 +208,14 @@ interface AuthContextValue extends AuthState {
 
 ### 6.4 Vite 开发代理
 
-`vite.config.ts` 配置 dev server 代理，将 `/api` 请求转发到 Go 后端（默认 `http://localhost:8080`），避免 CORS 问题：
+`vite.config.ts` 配置 dev server 代理，将 `/api` 与 `/mcp` 请求转发到 Go 后端（默认 `http://localhost:8080`），避免 CORS 问题：
 
 ```typescript
 export default defineConfig({
   server: {
     proxy: {
       '/api': 'http://localhost:8080',
+      '/mcp': 'http://localhost:8080',
     },
   },
 });

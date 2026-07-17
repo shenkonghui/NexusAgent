@@ -147,6 +147,28 @@
   font-size: 14px;
 }
 
+.loadMoreBtn {
+  align-self: center;
+  margin: 8px 0 4px;
+  padding: 8px 20px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.loadMoreBtn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.loadMoreBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .noteCard {
   padding: 12px 14px;
   border: 1px solid var(--border);
@@ -239,6 +261,7 @@
 }
 
 .editBtn,
+.classifyNowBtn,
 .deleteBtn {
   width: 24px;
   height: 24px;
@@ -255,9 +278,15 @@
   font-size: 18px;
 }
 
-.editBtn:hover {
+.editBtn:hover,
+.classifyNowBtn:hover:not(:disabled) {
   background: var(--bg-hover);
   color: var(--accent);
+}
+
+.classifyNowBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .deleteBtn:hover:not(:disabled) {

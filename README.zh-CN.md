@@ -158,7 +158,7 @@ Agent 的连接命令、参数、API Key 等可在前端「设置」页面动态
 
 ```bash
 # npx 类型（以 Claude Code 为例）
-npm exec --include=optional --yes @zed-industries/claude-code-acp@latest -- --help
+npm exec --include=optional --yes @agentclientprotocol/claude-agent-acp@latest -- --help
 
 # 启用后在设置页点击「获取配置」，或观察侧边栏连接状态变为「已连接」
 ```

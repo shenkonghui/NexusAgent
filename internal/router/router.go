@@ -16,7 +16,7 @@ import (
 	"nexusagent/internal/services"
 )
 
-func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, schedTaskH *handlers.ScheduledTaskHandler, noteH *handlers.NoteHandler, taskSettingsH *handlers.TaskSettingsHandler, configH *handlers.ConfigHandler, logH *handlers.LogHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, rulesCfg config.RulesConfig, mode, webDist string, autoLogin bool) *gin.Engine {
+func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, schedTaskH *handlers.ScheduledTaskHandler, noteH *handlers.NoteHandler, taskSettingsH *handlers.TaskSettingsHandler, agentPrefsH *handlers.AgentPrefsHandler, configH *handlers.ConfigHandler, logH *handlers.LogHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, rulesCfg config.RulesConfig, mode, webDist string, autoLogin bool) *gin.Engine {
 	gin.SetMode(mode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -132,12 +132,14 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 				notes.GET("/tags", noteH.ListTags)
 				notes.GET("/settings", noteH.GetSettings)
 				notes.PUT("/settings", noteH.UpdateSettings)
+				notes.POST("/settings/mcp-token", noteH.GenerateMCPToken)
 				notes.POST("", noteH.Create)
 				notes.GET("", noteH.List)
 				notes.GET("/export", noteH.Export)
 				notes.POST("/import", noteH.Import)
 				notes.GET("/:id", noteH.Get)
 				notes.PUT("/:id", noteH.Update)
+				notes.POST("/:id/classify", noteH.ClassifyNow)
 				notes.DELETE("/:id", noteH.Delete)
 			}
 
@@ -147,6 +149,10 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 				tasks.GET("/settings", taskSettingsH.GetSettings)
 				tasks.PUT("/settings", taskSettingsH.UpdateSettings)
 			}
+
+			// 用户 agent 最近使用偏好
+			protected.GET("/agent-prefs", agentPrefsH.Get)
+			protected.PATCH("/agent-prefs", agentPrefsH.Patch)
 
 			// 实时日志流（SSE，供前端日志查看器订阅）
 			protected.GET("/logs/stream", logH.Stream)

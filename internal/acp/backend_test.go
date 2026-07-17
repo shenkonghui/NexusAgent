@@ -11,7 +11,7 @@ func TestClaudeCodeBackend_Name(t *testing.T) {
 	b := NewClaudeCodeBackend(config.ClaudeCodeConfig{
 		Enabled:   true,
 		Command:   "npx",
-		Args:      []string{"-y", "@zed-industries/claude-code-acp@latest"},
+		Args:      []string{"-y", "@agentclientprotocol/claude-agent-acp@latest"},
 		APIKeyEnv: "ANTHROPIC_API_KEY",
 		Timeout:   60 * time.Second,
 	})
@@ -23,7 +23,7 @@ func TestClaudeCodeBackend_Name(t *testing.T) {
 func TestClaudeCodeBackend_Command(t *testing.T) {
 	b := NewClaudeCodeBackend(config.ClaudeCodeConfig{
 		Command: "npx",
-		Args:    []string{"-y", "@zed-industries/claude-code-acp@latest"},
+		Args:    []string{"-y", "@agentclientprotocol/claude-agent-acp@latest"},
 	})
 	if b.Command() != "npx" {
 		t.Errorf("Command() = %q, 期望 npx", b.Command())

@@ -367,7 +367,7 @@ export default function PromptInput({
     try {
       const [tagsResp, notesResp] = await Promise.all([
         tag ? Promise.resolve(null) : listNoteTags(),
-        listNotes(tag),
+        listNotes(tag, { limit: 100 }),
       ])
       if (tagsResp) setNoteTags(tagsResp.data.tags || [])
       setNotes(notesResp.data.notes || [])

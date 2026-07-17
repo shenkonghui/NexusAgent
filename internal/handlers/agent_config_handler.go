@@ -33,6 +33,7 @@ type AgentRegistrar interface {
 	RegisterAgent(desc *agent.AgentDescriptor) error
 	ReplaceAgent(desc *agent.AgentDescriptor)
 	UnregisterAgent(agentType string)
+	PreconnectAgent(agentType string)
 }
 
 // AgentConfigHandler 处理 agent 配置的 CRUD 请求。
@@ -149,6 +150,7 @@ func (h *AgentConfigHandler) applyToRegistrar(cfg *models.AgentConfig) {
 		Description: cfg.Description,
 		Backend:     acp.NewConfigBackend(*cfg),
 	})
+	h.registrar.PreconnectAgent(cfg.Type)
 }
 
 // List GET /api/v1/agent-configs

@@ -5,8 +5,9 @@ import { useRequireAuth } from '../hooks/useRequireAuth'
 import { useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
 import { listAgentConfigs, updateAgentConfig, deleteAgentConfig } from '../api/agentConfigs'
 import { listAgents, getAgentModels, probeAgentConfigs, clearAgentProbeCache } from '../api/agents'
-import { getNoteSettings, updateNoteSettings } from '../api/notes'
+import { getNoteSettings, updateNoteSettings, generateNoteMCPToken } from '../api/notes'
 import { getTaskSettings, updateTaskSettings } from '../api/tasks'
+import { getAgentPrefs, patchAgentPrefs } from '../api/agentPrefs'
 import type { AgentConfig, Agent, ModelOption, ConfigOption, TaskSettings } from '../types'
 import { tasksUrl } from '../utils/routes'
 import AppLayout, { SidebarToggleButton } from '../components/AppLayout'
@@ -18,7 +19,6 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import i18n from '../i18n'
 import styles from './SettingsPage.module.css'
 
-const DEFAULT_AGENT_KEY = 'nexus.default.agent'
 type SettingsTab = 'language' | 'agent' | 'classify' | 'config' | 'task'
 
 function parseSettingsTab(raw: string | null): SettingsTab {
@@ -38,6 +38,18 @@ function modelOptFromConfig(modelOpt: ConfigOption): ModelOption {
 function findModelConfigOption(opts: ConfigOption[]) {
   return opts.find((o) => o.category === 'model' && o.type === 'select')
     || opts.find((o) => o.category === 'model')
+}
+
+function buildNoteMcpConfig(endpoint: string, token: string): string {
+  return JSON.stringify({
+    mcpServers: {
+      'nexus-notes': {
+        type: 'http',
+        url: endpoint,
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    },
+  }, null, 2)
 }
 
 export default function SettingsPage() {
@@ -65,6 +77,8 @@ export default function SettingsPage() {
   const [noteInterval, setNoteInterval] = useState(5)
   const [notePrompt, setNotePrompt] = useState('')
   const [noteClassifySessionId, setNoteClassifySessionId] = useState(0)
+  const [noteMcpToken, setNoteMcpToken] = useState('')
+  const [noteMcpGenerating, setNoteMcpGenerating] = useState(false)
   const [noteModelOptions, setNoteModelOptions] = useState<ModelOption[]>([])
   const [noteModelProbing, setNoteModelProbing] = useState(false)
   const [noteSettingsSaving, setNoteSettingsSaving] = useState(false)
@@ -82,6 +96,8 @@ export default function SettingsPage() {
   const [error, setError] = useState('')
   const [editingConfig, setEditingConfig] = useState<AgentConfig | null>(null)
   const [saving, setSaving] = useState(false)
+  const noteMcpEndpoint = `${window.location.origin}/mcp/notes`
+  const noteMcpConfig = noteMcpToken ? buildNoteMcpConfig(noteMcpEndpoint, noteMcpToken) : ''
 
   useEffect(() => { if (user) loadData() }, [user])
 
@@ -131,12 +147,14 @@ export default function SettingsPage() {
       ])
       setConfigs(cfgResp.data.agent_configs || [])
       setAgents(agentsResp.data.agents || [])
-      setDefaultAgent(localStorage.getItem(DEFAULT_AGENT_KEY) || '')
+      const prefsResp = await getAgentPrefs().catch(() => ({ data: { last_agent_type: '' } }))
+      setDefaultAgent(prefsResp.data.last_agent_type || '')
       setNoteAgent(noteSettingsResp.data.agent_type || '')
       setNoteModel(noteSettingsResp.data.model_value || '')
       setNoteInterval(noteSettingsResp.data.classify_interval_minutes || 5)
       setNotePrompt(noteSettingsResp.data.classify_prompt || '')
       setNoteClassifySessionId(noteSettingsResp.data.classify_db_session_id || 0)
+      setNoteMcpToken(noteSettingsResp.data.mcp_token || '')
       // 任务设置
       const ts: TaskSettings = taskSettingsResp.data
       setTaskAutoTag(ts.auto_tag_enabled)
@@ -150,8 +168,13 @@ export default function SettingsPage() {
     } finally { setLoading(false) }
   }
 
-  function handleSetDefault(agentType: string) {
-    localStorage.setItem(DEFAULT_AGENT_KEY, agentType); setDefaultAgent(agentType)
+  async function handleSetDefault(agentType: string) {
+    setDefaultAgent(agentType)
+    try {
+      await patchAgentPrefs({ last_agent_type: agentType })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.failed'))
+    }
   }
 
   async function handleProbeNoteModel() {
@@ -189,10 +212,31 @@ export default function SettingsPage() {
       setNoteInterval(resp.data.classify_interval_minutes || 5)
       setNotePrompt(resp.data.classify_prompt || '')
       setNoteClassifySessionId(resp.data.classify_db_session_id || 0)
+      setNoteMcpToken(resp.data.mcp_token || '')
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.failed'))
     } finally {
       setNoteSettingsSaving(false)
+    }
+  }
+
+  async function handleGenerateNoteMcpToken() {
+    setNoteMcpGenerating(true); setError('')
+    try {
+      const resp = await generateNoteMCPToken()
+      setNoteMcpToken(resp.data.mcp_token || '')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.failed'))
+    } finally {
+      setNoteMcpGenerating(false)
+    }
+  }
+
+  async function copyText(text: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      setError(t('settings.noteMcpCopyFailed'))
     }
   }
 
@@ -363,7 +407,11 @@ export default function SettingsPage() {
                       </select>
                       {defaultAgent && (
                         <button type="button" className={styles.clearDefaultBtn}
-                          onClick={() => { localStorage.removeItem(DEFAULT_AGENT_KEY); setDefaultAgent('') }}
+                          onClick={async () => {
+                            setDefaultAgent('')
+                            try { await patchAgentPrefs({ last_agent_type: '' }) }
+                            catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) }
+                          }}
                         >{t('common.cancel')}</button>
                       )}
                     </div>
@@ -507,6 +555,64 @@ export default function SettingsPage() {
                       <Link className={styles.classifyTaskLink} to={`/sessions/${noteClassifySessionId}`}>
                         {t('settings.viewClassifyTask')}
                       </Link>
+                    )}
+
+                    <label className={styles.label}>{t('settings.noteMcpTitle')}</label>
+                    <p className={styles.sectionHint}>{t('settings.noteMcpHint')}</p>
+                    {!noteMcpToken ? (
+                      <button
+                        type="button"
+                        className={styles.secondaryBtn}
+                        disabled={noteMcpGenerating}
+                        onClick={handleGenerateNoteMcpToken}
+                      >
+                        {noteMcpGenerating ? t('common.loading') : t('settings.noteMcpGenerate')}
+                      </button>
+                    ) : (
+                      <>
+                        <label className={styles.label}>{t('settings.noteMcpEndpoint')}</label>
+                        <div className={styles.inlineRow}>
+                          <input
+                            className={styles.input}
+                            type="text"
+                            readOnly
+                            value={noteMcpEndpoint}
+                          />
+                          <button
+                            type="button"
+                            className={styles.secondaryBtn}
+                            onClick={() => copyText(noteMcpEndpoint)}
+                          >
+                            {t('settings.noteMcpCopy')}
+                          </button>
+                        </div>
+                        <label className={styles.label}>{t('settings.noteMcpToken')}</label>
+                        <div className={styles.inlineRow}>
+                          <input className={styles.input} type="text" readOnly value={noteMcpToken} />
+                          <button
+                            type="button"
+                            className={styles.secondaryBtn}
+                            onClick={() => copyText(noteMcpToken)}
+                          >
+                            {t('settings.noteMcpCopy')}
+                          </button>
+                        </div>
+                        <label className={styles.label}>{t('settings.noteMcpConfig')}</label>
+                        <textarea
+                          className={styles.textarea}
+                          rows={8}
+                          readOnly
+                          value={noteMcpConfig}
+                        />
+                        <button
+                          type="button"
+                          className={styles.secondaryBtn}
+                          onClick={() => copyText(noteMcpConfig)}
+                        >
+                          {t('settings.noteMcpCopyConfig')}
+                        </button>
+                        <p className={styles.sectionHint}>{t('settings.noteMcpAuthHint')}</p>
+                      </>
                     )}
                   </div>
                 </>

@@ -7,12 +7,13 @@ import { getWorkspace } from '../api/workspaces'
 import { listScheduledTasks, listExecutions } from '../api/scheduledTasks'
 import { listAgents, probeAgentConfigs, preconnectAgent, listAgentCommands, listAgentModes } from '../api/agents'
 import { listSkillsByPath } from '../api/filesystem'
+import { getAgentPrefs, patchAgentPrefs } from '../api/agentPrefs'
 import { WORKSPACE_STORAGE_KEY, useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
-import { getLastAgentModel, resolveAgentModel, setLastAgentModel } from '../utils/agentModel'
+import { applyPrefsToConfigs, configsFromProbe, takeLegacyLocalAgentPrefs } from '../utils/agentPrefs'
 import { streamPrompt, subscribeStream, streamResumeTask, isTimeoutError } from '../api/sse'
 import { parseDiffsFromMessage } from '../utils/diff'
 import { tasksUrl, newTaskUrl, sessionUrl, isNewTaskPath } from '../utils/routes'
-import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution, Agent, PermissionRequestPayload, RunningTask } from '../types'
+import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution, Agent, PermissionRequestPayload, RunningTask, AgentPrefs } from '../types'
 import { parsePermissionRequest } from '../utils/permission'
 import { formatOptionLabel, fullOptionLabel } from '../utils/selectLabel'
 import AppLayout, { SidebarToggleButton } from '../components/AppLayout'
@@ -31,8 +32,6 @@ import SessionModeSelector from '../components/SessionModeSelector'
 import ConvStatusBar, { type ConvState as ConvStatusState } from '../components/ConvStatusBar'
 import { FolderOpen, Plus } from 'lucide-react'
 import styles from './ChatPage.module.css'
-
-const DEFAULT_AGENT_KEY = 'nexus.default.agent'
 
 type NavigateState = { initialPrompt?: string; createdSession?: Session }
 
@@ -92,6 +91,10 @@ export default function ChatPage() {
   const [homeModes, setHomeModes] = useState<SessionMode[]>([])
   const [homeSkills, setHomeSkills] = useState<AgentSkill[]>([])
   const [workspaceCwd, setWorkspaceCwd] = useState('')
+  const [agentPrefs, setAgentPrefs] = useState<AgentPrefs>({ last_agent_type: '', prefs: {} })
+  const prefsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const agentPrefsRef = useRef(agentPrefs)
+  agentPrefsRef.current = agentPrefs
 
   const bootstrapSession = navState?.createdSession?.id === sessionId ? navState.createdSession : null
   const isCreateMode = !hasSession && isNewTaskPath(location.pathname, workspaceId)
@@ -154,10 +157,6 @@ export default function ChatPage() {
       listConfigOptions(sessionId).then((r) => {
         const opts = r.data.config_options || []
         setConfigOptions(opts)
-        const modelOpt = opts.find((o) => o.category === 'model')
-        if (modelOpt?.current_value && sessionResp.data.agent_type) {
-          setLastAgentModel(sessionResp.data.agent_type, modelOpt.current_value)
-        }
       }).catch(() => setConfigOptions([]))
     } catch (err) {
       if (!opts?.quiet) setError(err instanceof Error ? err.message : t('common.failed'))
@@ -168,23 +167,71 @@ export default function ChatPage() {
   const loadHomeData = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const [agentsResp, wsResp] = await Promise.all([
+      const [agentsResp, wsResp, prefsResp] = await Promise.all([
         listAgents(),
         workspaceId ? getWorkspace(workspaceId) : Promise.resolve(null),
+        getAgentPrefs().catch(() => ({ data: { last_agent_type: '', prefs: {} } as AgentPrefs })),
       ])
       setAgents(agentsResp.data.agents || [])
-      // 会话列表由 useCurrentWorkspace 统一加载；此处仅取工作目录用于输入框
       setWorkspaceCwd(wsResp?.data.workspace?.cwd || '')
+
+      let prefs = prefsResp.data
+      if (!prefs.last_agent_type && Object.keys(prefs.prefs || {}).length === 0) {
+        const legacy = takeLegacyLocalAgentPrefs()
+        if (legacy) {
+          try {
+            for (const [agentType, configs] of Object.entries(legacy.prefs)) {
+              prefs = (await patchAgentPrefs({
+                last_agent_type: legacy.last_agent_type || undefined,
+                agent_type: agentType,
+                configs,
+              })).data
+            }
+            if (legacy.last_agent_type && Object.keys(legacy.prefs).length === 0) {
+              prefs = (await patchAgentPrefs({ last_agent_type: legacy.last_agent_type })).data
+            }
+          } catch { /* 迁移失败不影响主流程 */ }
+        }
+      }
+      setAgentPrefs(prefs)
+
       if (agentsResp.data.agents?.length > 0) {
-        const saved = localStorage.getItem(DEFAULT_AGENT_KEY)
         const types = agentsResp.data.agents.map((a: Agent) => a.type)
-        if (saved && types.includes(saved)) setSelectedAgent(saved)
-        else setSelectedAgent(agentsResp.data.agents[0].type)
+        if (prefs.last_agent_type && types.includes(prefs.last_agent_type)) {
+          setSelectedAgent(prefs.last_agent_type)
+        } else {
+          setSelectedAgent(agentsResp.data.agents[0].type)
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.failed'))
     } finally { setLoading(false) }
   }, [workspaceId])
+
+  function schedulePrefsPatch(payload: { last_agent_type?: string; agent_type?: string; configs?: Record<string, string> }) {
+    setAgentPrefs((prev) => {
+      const next: AgentPrefs = {
+        last_agent_type: payload.last_agent_type ?? prev.last_agent_type,
+        prefs: { ...prev.prefs },
+      }
+      if (payload.agent_type && payload.configs) {
+        const cur = { ...(next.prefs[payload.agent_type] || {}) }
+        for (const [k, v] of Object.entries(payload.configs)) {
+          if (!v) delete cur[k]
+          else cur[k] = v
+        }
+        if (Object.keys(cur).length === 0) delete next.prefs[payload.agent_type]
+        else next.prefs[payload.agent_type] = cur
+      }
+      return next
+    })
+    if (prefsSaveTimer.current) clearTimeout(prefsSaveTimer.current)
+    prefsSaveTimer.current = setTimeout(() => {
+      patchAgentPrefs(payload)
+        .then((r) => setAgentPrefs(r.data))
+        .catch(() => { /* 静默 */ })
+    }, 300)
+  }
 
   function handleWorkspaceChange(id: number) {
     if (hasSession) {
@@ -215,19 +262,16 @@ export default function ChatPage() {
       .then((r) => {
         if (!alive) return
         const opts = r.data.config_options || []
-        const modelOpt = opts.find((o) => o.category === 'model')
-        // 优先恢复上次使用的模型，否则用 agent 探测返回的默认值
-        const model = resolveAgentModel(selectedAgent, modelOpt)
-        setProbeConfigs(modelOpt && model
-          ? opts.map((o) => (o.id === modelOpt.id ? { ...o, current_value: model } : o))
-          : opts)
-        setSelectedModel(model)
+        const applied = applyPrefsToConfigs(opts, agentPrefsRef.current.prefs[selectedAgent])
+        setProbeConfigs(applied)
+        const modelOpt = applied.find((o) => o.category === 'model')
+        setSelectedModel(modelOpt?.current_value || '')
       })
       .catch((err) => {
         if (!alive) return
         setProbeConfigs([])
-        // 探测失败时仍保留上次使用的模型，避免用户已选的模型被清空
-        setSelectedModel(getLastAgentModel(selectedAgent))
+        const savedModel = agentPrefsRef.current.prefs[selectedAgent]?.model || ''
+        setSelectedModel(savedModel)
         setError(err instanceof Error ? err.message : '探测配置失败')
       })
       .finally(() => { if (alive) setProbing(false) })
@@ -309,6 +353,7 @@ export default function ChatPage() {
 
   // 定时轮询执行状态：当会话活跃或为定时/分类任务时，每 5 秒刷新消息和执行列表。
   // 即使前端重启，也能通过 loadData 从数据库获取最新状态。
+  // 同时清理「UI 仍显示生成中但已无 SSE」的陈旧状态（ACP 恢复后常见）。
   useEffect(() => {
     if (!hasSession || !session) return
     const needPoll = session.status === 'active' || session.status === 'pending' ||
@@ -317,6 +362,11 @@ export default function ChatPage() {
 
     const interval = setInterval(() => {
       if (!mountedRef.current) return
+      if (abortRef.current == null) {
+        setConvState((s) => (
+          s === 'streaming' || s === 'reconnecting' || s === 'connecting' ? 'idle' : s
+        ))
+      }
       loadData({ quiet: true })
     }, 5000)
 
@@ -340,9 +390,9 @@ export default function ChatPage() {
     const handleVisible = () => {
       if (document.visibilityState !== 'visible') return
       if (!mountedRef.current) return
-      // 已在流式接收则无需重连
+      // 已在流式接收则无需重连；等待权限时也不抢占
       if (abortRef.current) return
-      if (convState === 'streaming' || convState === 'connecting' || convState === 'waiting_permission') return
+      if (convState === 'waiting_permission') return
       // 尝试订阅会话当前进行中的 prompt 流（若服务端无活跃 prompt 会立即返回）
       setConvState('reconnecting')
       const ac = new AbortController()
@@ -361,18 +411,23 @@ export default function ChatPage() {
         () => {
           if (!mountedRef.current) return
           abortRef.current = null
+          setConvState('idle')
           loadData({ quiet: true })
         },
         () => {
           if (!mountedRef.current) return
           abortRef.current = null
           // 静默处理重连失败（服务端可能无活跃 prompt）
+          setConvState('idle')
           loadData({ quiet: true })
         },
         {
           signal: ac.signal,
           onSeq: (seq) => { if (seq > lastSeqRef.current) lastSeqRef.current = seq },
-          onActivity: () => { if (mountedRef.current) setConvState('streaming') },
+          // 仅真正收到消息才进入 streaming；连接建立本身不改状态，避免误显「生成中」
+          onActivity: () => {
+            if (mountedRef.current) setConvState((s) => (s === 'idle' ? 'streaming' : s))
+          },
         },
       )
     }
@@ -439,8 +494,23 @@ export default function ChatPage() {
     setCreating(true); setError('')
     try {
       const resp = await createSession(selectedAgent, workspaceId || 0, selectedModel || undefined)
-      localStorage.setItem(DEFAULT_AGENT_KEY, selectedAgent)
-      if (selectedModel) setLastAgentModel(selectedAgent, selectedModel)
+      const extras = probeConfigs.filter((o) => o.type === 'select' && o.category !== 'model' && o.current_value)
+      for (const o of extras) {
+        try { await setConfigOption(resp.data.id, o.id, o.current_value) } catch { /* 部分失败可接受 */ }
+      }
+      const configs = configsFromProbe(
+        selectedModel
+          ? probeConfigs.map((o) => (o.category === 'model' ? { ...o, current_value: selectedModel } : o))
+          : probeConfigs,
+      )
+      try {
+        const r = await patchAgentPrefs({
+          last_agent_type: selectedAgent,
+          agent_type: selectedAgent,
+          configs: Object.keys(configs).length > 0 ? configs : undefined,
+        })
+        setAgentPrefs(r.data)
+      } catch { /* 静默 */ }
       navigate(`/workspaces/${resp.data.workspace_id}/sessions/${resp.data.id}`, {
         state: { initialPrompt: prompt, createdSession: resp.data },
       })
@@ -654,11 +724,16 @@ export default function ChatPage() {
     setError('')
     const opt = configOptions.find((o) => o.id === configId)
     setConfigOptions((prev) => prev.map((o) => (o.id === configId ? { ...o, current_value: value } : o)))
-    if (opt?.category === 'model' && activeSession?.agent_type && value) {
-      setLastAgentModel(activeSession.agent_type, value)
-    }
-    try { await setConfigOption(sessionId, configId, value) }
-    catch (err) {
+    try {
+      await setConfigOption(sessionId, configId, value)
+      if (opt?.category && activeSession?.agent_type) {
+        schedulePrefsPatch({
+          last_agent_type: activeSession.agent_type,
+          agent_type: activeSession.agent_type,
+          configs: { [opt.category]: value },
+        })
+      }
+    } catch (err) {
       setError(err instanceof Error ? err.message : t('common.failed'))
       listConfigOptions(sessionId).then((r) => setConfigOptions(r.data.config_options || [])).catch(() => {})
     }
@@ -773,7 +848,11 @@ export default function ChatPage() {
                 <label className={styles.homeConfigLabel}>Agent</label>
                 <select className={styles.homeConfigSelect}
                   value={selectedAgent}
-                  onChange={(e) => setSelectedAgent(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setSelectedAgent(val)
+                    if (val) schedulePrefsPatch({ last_agent_type: val })
+                  }}
                   disabled={creating}
                 >
                   {agents.length === 0 && <option value="">无可用 Agent</option>}
@@ -798,8 +877,14 @@ export default function ChatPage() {
                         options={opt.options}
                         onChange={(val) => {
                           setSelectedModel(val)
-                          setLastAgentModel(selectedAgent, val)
                           setProbeConfigs((prev) => prev.map((o) => (o.id === opt.id ? { ...o, current_value: val } : o)))
+                          if (selectedAgent) {
+                            schedulePrefsPatch({
+                              last_agent_type: selectedAgent,
+                              agent_type: selectedAgent,
+                              configs: { [opt.category || 'model']: val },
+                            })
+                          }
                         }}
                         disabled={probing || creating}
                         placeholder={t('session.selectModel')}
@@ -808,7 +893,17 @@ export default function ChatPage() {
                       <select className={styles.homeConfigSelect}
                         value={opt.current_value || ''}
                         disabled={probing || creating}
-                        onChange={(ev) => setProbeConfigs((prev) => prev.map((o) => (o.id === opt.id ? { ...o, current_value: ev.target.value } : o)))}
+                        onChange={(ev) => {
+                          const val = ev.target.value
+                          setProbeConfigs((prev) => prev.map((o) => (o.id === opt.id ? { ...o, current_value: val } : o)))
+                          if (selectedAgent && opt.category) {
+                            schedulePrefsPatch({
+                              last_agent_type: selectedAgent,
+                              agent_type: selectedAgent,
+                              configs: { [opt.category]: val },
+                            })
+                          }
+                        }}
                       >
                         {opt.options.map((v) => (
                           <option key={v.value} value={v.value} title={fullOptionLabel(v.name, v.description)}>
@@ -829,7 +924,13 @@ export default function ChatPage() {
                     onChange={(e) => {
                       const val = e.target.value
                       setSelectedModel(val)
-                      if (val) setLastAgentModel(selectedAgent, val)
+                      if (val && selectedAgent) {
+                        schedulePrefsPatch({
+                          last_agent_type: selectedAgent,
+                          agent_type: selectedAgent,
+                          configs: { model: val },
+                        })
+                      }
                     }}
                     placeholder="手动输入模型 ID"
                     disabled={creating}

@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gopkg.in/yaml.v3"
 
 	"nexusagent/internal/models"
 	"nexusagent/internal/repository"
@@ -23,13 +26,15 @@ var noteTagRe = regexp.MustCompile(`#([^\s#]+)`)
 type NoteHandler struct {
 	repo         *repository.NoteRepository
 	settingsRepo *repository.NoteSettingsRepository
+	classifier   *services.NoteClassifier
 }
 
 func NewNoteHandler(
 	repo *repository.NoteRepository,
 	settingsRepo *repository.NoteSettingsRepository,
+	classifier *services.NoteClassifier,
 ) *NoteHandler {
-	return &NoteHandler{repo: repo, settingsRepo: settingsRepo}
+	return &NoteHandler{repo: repo, settingsRepo: settingsRepo, classifier: classifier}
 }
 
 type noteItem struct {
@@ -53,6 +58,7 @@ type noteSettingsItem struct {
 	ClassifyIntervalMinutes int    `json:"classify_interval_minutes"`
 	ClassifySessionID       string `json:"classify_session_id"`
 	ClassifyDBSessionID     uint   `json:"classify_db_session_id"`
+	McpToken                string `json:"mcp_token"`
 }
 
 type noteSettingsRequest struct {
@@ -71,37 +77,72 @@ func parseNoteID(c *gin.Context) (uint, bool) {
 	return uint(id), true
 }
 
-func parseNoteMeta(content string) (title string, tags []string) {
+func parseNoteTags(content string) []string {
 	lines := strings.Split(content, "\n")
 	if len(lines) == 0 {
-		return "无标题", nil
+		return nil
 	}
-	first := lines[0]
-	for _, m := range noteTagRe.FindAllStringSubmatch(first, -1) {
+	var tags []string
+	for _, m := range noteTagRe.FindAllStringSubmatch(lines[0], -1) {
 		if len(m) > 1 {
 			tags = append(tags, m[1])
 		}
 	}
-	titlePart := strings.TrimSpace(noteTagRe.ReplaceAllString(first, ""))
-	if titlePart != "" {
-		return truncateTitle(titlePart), tags
-	}
-	for _, line := range lines[1:] {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			return truncateTitle(line), tags
-		}
-	}
-	return "无标题", tags
+	return tags
 }
 
-func truncateTitle(s string) string {
-	s = strings.TrimSpace(s)
-	if len([]rune(s)) <= 80 {
-		return s
+type noteFrontmatter struct {
+	Title string   `yaml:"title"`
+	Tags  []string `yaml:"tags"`
+}
+
+func formatNoteMarkdown(title, content string, tags []string) string {
+	if tags == nil {
+		tags = []string{}
 	}
-	runes := []rune(s)
-	return string(runes[:80]) + "…"
+	meta, err := yaml.Marshal(noteFrontmatter{Title: title, Tags: tags})
+	if err != nil {
+		return content
+	}
+	return "---\n" + string(meta) + "---\n" + content
+}
+
+func parseNoteMarkdown(raw string) (title, content string, tags []string) {
+	raw = strings.TrimSpace(raw)
+	if !strings.HasPrefix(raw, "---") {
+		return "", raw, nil
+	}
+	rest := strings.TrimPrefix(raw, "---")
+	rest = strings.TrimLeft(rest, "\r\n")
+	idx := strings.Index(rest, "\n---")
+	if idx < 0 {
+		return "", raw, nil
+	}
+	fm := rest[:idx]
+	body := strings.TrimLeft(rest[idx+len("\n---"):], "\r\n")
+	var meta noteFrontmatter
+	if err := yaml.Unmarshal([]byte(fm), &meta); err != nil {
+		return "", raw, nil
+	}
+	return strings.TrimSpace(meta.Title), body, meta.Tags
+}
+
+func mergeNoteTags(a, b []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(a)+len(b))
+	for _, t := range append(append([]string{}, a...), b...) {
+		t = strings.TrimSpace(strings.TrimPrefix(t, "#"))
+		if t == "" {
+			continue
+		}
+		key := strings.ToLower(t)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, t)
+	}
+	return out
 }
 
 func tagsToJSON(tags []string) string {
@@ -179,18 +220,43 @@ func (h *NoteHandler) GetSettings(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", "查询笔记设置失败")
 		return
 	}
-	prompt := s.ClassifyPrompt
-	if prompt == "" {
-		prompt = services.DefaultNoteClassifyPrompt
+	Success(c, http.StatusOK, toNoteSettingsItem(s, services.EffectiveClassifyPrompt(s.ClassifyPrompt)))
+}
+
+// GenerateMCPToken POST /api/v1/notes/settings/mcp-token
+func (h *NoteHandler) GenerateMCPToken(c *gin.Context) {
+	uid, ok := currentUserID(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
+		return
 	}
-	Success(c, http.StatusOK, noteSettingsItem{
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		Fail(c, http.StatusInternalServerError, "INTERNAL", "生成 token 失败")
+		return
+	}
+	token := hex.EncodeToString(b)
+	if err := h.settingsRepo.SetMCPTokenOnce(uid, token); err != nil {
+		if errors.Is(err, repository.ErrMCPTokenAlreadySet) {
+			Fail(c, http.StatusConflict, "MCP_TOKEN_EXISTS", "MCP Token 已生成，不可重复生成")
+			return
+		}
+		Fail(c, http.StatusInternalServerError, "INTERNAL", "保存 MCP Token 失败")
+		return
+	}
+	Success(c, http.StatusOK, gin.H{"mcp_token": token})
+}
+
+func toNoteSettingsItem(s *models.NoteSettings, prompt string) noteSettingsItem {
+	return noteSettingsItem{
 		AgentType:               s.AgentType,
 		ModelValue:              s.ModelValue,
 		ClassifyPrompt:          prompt,
 		ClassifyIntervalMinutes: services.NormalizeClassifyIntervalMinutes(s.ClassifyIntervalMinutes),
 		ClassifySessionID:       s.ClassifySessionID,
 		ClassifyDBSessionID:     s.ClassifyDBSessionID,
-	})
+		McpToken:                s.McpToken,
+	}
 }
 
 // UpdateSettings PUT /api/v1/notes/settings
@@ -221,21 +287,10 @@ func (h *NoteHandler) UpdateSettings(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", "查询笔记设置失败")
 		return
 	}
-	prompt := saved.ClassifyPrompt
-	if prompt == "" {
-		prompt = services.DefaultNoteClassifyPrompt
-	}
-	Success(c, http.StatusOK, noteSettingsItem{
-		AgentType:               saved.AgentType,
-		ModelValue:              saved.ModelValue,
-		ClassifyPrompt:          prompt,
-		ClassifyIntervalMinutes: services.NormalizeClassifyIntervalMinutes(saved.ClassifyIntervalMinutes),
-		ClassifySessionID:       saved.ClassifySessionID,
-		ClassifyDBSessionID:     saved.ClassifyDBSessionID,
-	})
+	Success(c, http.StatusOK, toNoteSettingsItem(saved, services.EffectiveClassifyPrompt(saved.ClassifyPrompt)))
 }
 
-// List GET /api/v1/notes?tag=xxx
+// List GET /api/v1/notes?tag=xxx&q=xxx&page=1&limit=20
 func (h *NoteHandler) List(c *gin.Context) {
 	uid, ok := currentUserID(c)
 	if !ok {
@@ -243,7 +298,10 @@ func (h *NoteHandler) List(c *gin.Context) {
 		return
 	}
 	tag := strings.TrimSpace(c.Query("tag"))
-	list, err := h.repo.FindByUserID(uid, tag)
+	q := strings.TrimSpace(c.Query("q"))
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	list, total, err := h.repo.FindByUserIDPaged(uid, tag, q, page, limit)
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", "查询笔记失败")
 		return
@@ -252,7 +310,21 @@ func (h *NoteHandler) List(c *gin.Context) {
 	for i := range list {
 		items = append(items, toNoteItem(&list[i]))
 	}
-	Success(c, http.StatusOK, gin.H{"notes": items})
+	if page < 1 {
+		page = 1
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	Success(c, http.StatusOK, gin.H{
+		"notes": items,
+		"total": total,
+		"page":  page,
+		"limit": limit,
+	})
 }
 
 // ListTags GET /api/v1/notes/tags
@@ -290,10 +362,10 @@ func (h *NoteHandler) Create(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "内容不能为空")
 		return
 	}
-	title, tags := parseNoteMeta(content)
+	tags := parseNoteTags(content)
 	n := &models.Note{
 		UserID:          uid,
-		Title:           title,
+		Title:           "",
 		Content:         content,
 		Tags:            tagsToJSON(tags),
 		ClassifyPending: h.shouldEnqueueClassify(uid),
@@ -330,10 +402,12 @@ func (h *NoteHandler) Update(c *gin.Context) {
 		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "内容不能为空")
 		return
 	}
-	title, tags := parseNoteMeta(content)
-	n.Title = title
+	tags := parseNoteTags(content)
 	n.Content = content
 	n.Tags = tagsToJSON(tags)
+	if n.Title == "" && h.shouldEnqueueClassify(n.UserID) {
+		n.ClassifyPending = true
+	}
 	if err := h.repo.Update(n); err != nil {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", "更新笔记失败")
 		return
@@ -354,12 +428,36 @@ func (h *NoteHandler) Delete(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// ClassifyNow POST /api/v1/notes/:id/classify — 立即分类（忽略间隔）。
+func (h *NoteHandler) ClassifyNow(c *gin.Context) {
+	n, ok := h.loadOwnedNote(c)
+	if !ok {
+		return
+	}
+	if h.classifier == nil {
+		Fail(c, http.StatusServiceUnavailable, "UNAVAILABLE", "分类服务未就绪")
+		return
+	}
+	if !h.shouldEnqueueClassify(n.UserID) {
+		Fail(c, http.StatusBadRequest, "AGENT_REQUIRED", "请先在笔记设置中配置分类 Agent")
+		return
+	}
+	updated, err := h.classifier.ClassifyNow(c.Request.Context(), n.UserID, n.ID)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "CLASSIFY_FAILED", err.Error())
+		return
+	}
+	Success(c, http.StatusOK, toNoteItem(updated))
+}
+
 type noteImportRequest struct {
 	Notes []noteImportItem `json:"notes" binding:"required"`
 }
 
 type noteImportItem struct {
-	Content string `json:"content"`
+	Content string   `json:"content"`
+	Title   string   `json:"title"`
+	Tags    []string `json:"tags"`
 }
 
 type noteImportResult struct {
@@ -384,9 +482,10 @@ func (h *NoteHandler) Export(c *gin.Context) {
 	parts := make([]string, 0, len(list))
 	for i := range list {
 		content := strings.TrimSpace(list[i].Content)
-		if content != "" {
-			parts = append(parts, content)
+		if content == "" {
+			continue
 		}
+		parts = append(parts, formatNoteMarkdown(list[i].Title, content, tagsFromJSON(list[i].Tags)))
 	}
 	body := strings.Join(parts, "\n\n===\n\n")
 
@@ -438,7 +537,8 @@ func (h *NoteHandler) Import(c *gin.Context) {
 			continue
 		}
 		seen[content] = struct{}{}
-		title, tags := parseNoteMeta(content)
+		title := strings.TrimSpace(item.Title)
+		tags := mergeNoteTags(item.Tags, parseNoteTags(content))
 		toCreate = append(toCreate, &models.Note{
 			UserID:          uid,
 			Title:           title,

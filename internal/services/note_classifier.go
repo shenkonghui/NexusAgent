@@ -6,19 +6,40 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"nexusagent/internal/models"
 	"nexusagent/internal/repository"
 )
 
-// DefaultNoteClassifyPrompt 是笔记自动分类的默认提示词模板。
-const DefaultNoteClassifyPrompt = `你是一个笔记分类助手。根据笔记内容，从已有标签中选择或创建合适的新标签（小写英文或中文，不含空格和 #）。
+// DefaultNoteClassifyPrompt 是笔记自动分类与标题的默认提示词模板。
+const DefaultNoteClassifyPrompt = `你是一个笔记分类与标题助手。根据笔记内容：
+1) 从已有标签中选择或创建合适新标签（小写英文或中文，不含空格和 #）
+2) 生成简短标题（建议 ≤40 字，概括主题，不要引号）
+
+已有标签：{{existing_tags}}
+笔记内容：
+{{content}}
+
+仅输出 JSON 对象，例如 {"tags":["工作","想法"],"title":"周会纪要"}, 不要输出其他任何文字。`
+
+// legacyNoteClassifyPrompt 旧版仅分类默认词；库中若仍存此文案则视同未自定义。
+const legacyNoteClassifyPrompt = `你是一个笔记分类助手。根据笔记内容，从已有标签中选择或创建合适的新标签（小写英文或中文，不含空格和 #）。
 已有标签：{{existing_tags}}
 笔记内容：
 {{content}}
 
 仅输出 JSON 数组，例如 ["工作","想法"]，不要输出其他任何文字。`
+
+// EffectiveClassifyPrompt 返回实际使用的分类提示词（空或旧默认 → 新默认）。
+func EffectiveClassifyPrompt(stored string) string {
+	stored = strings.TrimSpace(stored)
+	if stored == "" || stored == legacyNoteClassifyPrompt {
+		return DefaultNoteClassifyPrompt
+	}
+	return stored
+}
 
 const ClassifySessionTitle = "笔记分类"
 
@@ -53,6 +74,8 @@ type NoteClassifier struct {
 	settingsRepo *repository.NoteSettingsRepository
 	noteRepo     *repository.NoteRepository
 	executor     ClassifyExecutor
+	// userPromptMu 按用户串行化分类 prompt：共用同一 ACP 会话，并发会交错回复。
+	userPromptMu sync.Map // userID(uint) -> *sync.Mutex
 }
 
 func NewNoteClassifier(
@@ -61,6 +84,11 @@ func NewNoteClassifier(
 	executor ClassifyExecutor,
 ) *NoteClassifier {
 	return &NoteClassifier{settingsRepo: settingsRepo, noteRepo: noteRepo, executor: executor}
+}
+
+func (c *NoteClassifier) lockUserPrompt(userID uint) *sync.Mutex {
+	v, _ := c.userPromptMu.LoadOrStore(userID, &sync.Mutex{})
+	return v.(*sync.Mutex)
 }
 
 // ProcessPending 处理一批待分类笔记，返回成功处理数量。
@@ -76,9 +104,11 @@ func (c *NoteClassifier) ProcessPending(ctx context.Context, limit int) (int, er
 		return 0, nil
 	}
 	settingsCache := map[uint]int{}
+	touchedUsers := map[uint]struct{}{}
 	now := time.Now()
 	done := 0
 	for i := range notes {
+		touchedUsers[notes[i].UserID] = struct{}{}
 		if done >= limit {
 			break
 		}
@@ -95,6 +125,9 @@ func (c *NoteClassifier) ProcessPending(ctx context.Context, limit int) (int, er
 			continue
 		}
 		done++
+	}
+	for uid := range touchedUsers {
+		c.refreshClassifySessionTitle(uid)
 	}
 	return done, nil
 }
@@ -114,53 +147,94 @@ func (c *NoteClassifier) userClassifyInterval(cache map[uint]int, userID uint) (
 
 func (c *NoteClassifier) classifyNote(ctx context.Context, note *models.Note) error {
 	manualTags := tagsFromJSON(note.Tags)
-	tags, err := c.classifyTags(ctx, note.UserID, note.ID, note.Content, manualTags)
+	tags, title, err := c.classifyTags(ctx, note.UserID, note.ID, note.Content, manualTags)
 	if err != nil {
 		return err
 	}
 	note.Tags = tagsToJSON(tags)
+	if title != "" {
+		note.Title = truncateNoteTitle(title)
+	}
 	note.ClassifyPending = false
-	return c.noteRepo.Update(note)
+	if err := c.noteRepo.Update(note); err != nil {
+		return err
+	}
+	c.refreshClassifySessionTitle(note.UserID)
+	return nil
 }
 
-func (c *NoteClassifier) classifyTags(ctx context.Context, userID, noteID uint, content string, manualTags []string) ([]string, error) {
+// ClassifyNow 忽略间隔，立即对指定笔记执行一次分类（需属主匹配）。
+func (c *NoteClassifier) ClassifyNow(ctx context.Context, userID, noteID uint) (*models.Note, error) {
+	if c == nil || c.noteRepo == nil {
+		return nil, fmt.Errorf("分类服务未就绪")
+	}
+	note, err := c.noteRepo.FindByID(noteID)
+	if err != nil {
+		return nil, err
+	}
+	if note.UserID != userID {
+		return nil, repository.ErrNoteNotFound
+	}
 	settings, err := c.settingsRepo.FindByUserID(userID)
 	if err != nil {
-		return manualTags, err
+		return nil, err
+	}
+	if strings.TrimSpace(settings.AgentType) == "" {
+		return nil, fmt.Errorf("未配置笔记分类 Agent")
+	}
+	note.ClassifyPending = true
+	if err := c.noteRepo.Update(note); err != nil {
+		return nil, err
+	}
+	if err := c.classifyNote(ctx, note); err != nil {
+		return nil, err
+	}
+	return c.noteRepo.FindByID(noteID)
+}
+
+func (c *NoteClassifier) classifyTags(ctx context.Context, userID, noteID uint, content string, manualTags []string) ([]string, string, error) {
+	// 同一用户的分类会话必须串行，否则多 prompt 回复会交错（立即分类 + worker 并发时尤甚）。
+	mu := c.lockUserPrompt(userID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	settings, err := c.settingsRepo.FindByUserID(userID)
+	if err != nil {
+		return manualTags, "", err
 	}
 	agentType := strings.TrimSpace(settings.AgentType)
 	if agentType == "" || c.executor == nil {
-		return manualTags, nil
+		return manualTags, "", nil
 	}
-	promptTpl := strings.TrimSpace(settings.ClassifyPrompt)
-	if promptTpl == "" {
-		promptTpl = DefaultNoteClassifyPrompt
-	}
+	promptTpl := EffectiveClassifyPrompt(settings.ClassifyPrompt)
 	existing, err := c.noteRepo.ListTags(userID)
 	if err != nil {
-		return manualTags, err
+		return manualTags, "", err
 	}
 	prompt := buildClassifyPrompt(promptTpl, content, existing)
 	prompt = fmt.Sprintf("【笔记 #%d 自动分类】\n%s", noteID, prompt)
 
 	session, err := c.ensureClassifySession(ctx, userID, agentType, settings)
 	if err != nil {
-		return manualTags, err
+		return manualTags, "", err
 	}
 	execID, err := c.executor.NextExecutionID(session.SessionID)
 	if err != nil {
-		return manualTags, err
+		return manualTags, "", err
 	}
 	ch, err := c.executor.PromptWithExecution(ctx, session.SessionID, prompt, &execID)
 	if err != nil {
-		return manualTags, err
+		return manualTags, "", err
 	}
 	text := collectAssistantText(ch)
 	if text == "" {
-		return manualTags, fmt.Errorf("agent 未返回分类结果")
+		return manualTags, "", fmt.Errorf("agent 未返回分类结果")
 	}
-	autoTags := parseClassifyTags(text)
-	return mergeTags(manualTags, autoTags), nil
+	autoTags, title, ok := parseClassifyResult(text)
+	if !ok {
+		return manualTags, "", fmt.Errorf("无法解析分类结果")
+	}
+	return mergeTags(manualTags, autoTags), title, nil
 }
 
 func (c *NoteClassifier) ensureClassifySession(ctx context.Context, userID uint, agentType string, settings *models.NoteSettings) (*models.Session, error) {
@@ -177,6 +251,7 @@ func (c *NoteClassifier) ensureClassifySession(ctx context.Context, userID uint,
 					_ = c.settingsRepo.UpdateSessionRef(userID, session.SessionID, session.ID)
 				}
 			}
+			c.refreshClassifySessionTitle(userID)
 			return session, nil
 		}
 	}
@@ -184,11 +259,32 @@ func (c *NoteClassifier) ensureClassifySession(ctx context.Context, userID uint,
 	if err != nil {
 		return nil, err
 	}
-	_ = c.executor.UpdateTitle(session.ID, ClassifySessionTitle)
 	if err := c.settingsRepo.UpdateSessionRef(userID, session.SessionID, session.ID); err != nil {
 		log.Printf("保存分类会话引用失败: %v", err)
 	}
+	c.refreshClassifySessionTitle(userID)
 	return session, nil
+}
+
+// refreshClassifySessionTitle 将分类会话标题更新为「笔记分类 (已完成/总数)」。
+func (c *NoteClassifier) refreshClassifySessionTitle(userID uint) {
+	if c.executor == nil || c.noteRepo == nil || c.settingsRepo == nil {
+		return
+	}
+	settings, err := c.settingsRepo.FindByUserID(userID)
+	if err != nil || settings.ClassifyDBSessionID == 0 {
+		return
+	}
+	done, total, err := c.noteRepo.CountClassifyProgress(userID)
+	if err != nil {
+		return
+	}
+	_ = c.executor.UpdateTitle(settings.ClassifyDBSessionID, FormatClassifySessionTitle(done, total))
+}
+
+// FormatClassifySessionTitle 生成分类会话标题。
+func FormatClassifySessionTitle(done, total int64) string {
+	return fmt.Sprintf("%s (%d/%d)", ClassifySessionTitle, done, total)
 }
 
 func collectAssistantText(ch <-chan models.Message) string {
@@ -229,30 +325,116 @@ func buildClassifyPrompt(template, content string, existingTags []string) string
 	return strings.ReplaceAll(p, "{{existing_tags}}", tagsStr)
 }
 
-func parseClassifyTags(text string) []string {
+func stripCodeFence(text string) string {
 	text = strings.TrimSpace(text)
-	if strings.HasPrefix(text, "```") {
-		lines := strings.Split(text, "\n")
-		if len(lines) >= 2 {
-			lines = lines[1:]
-			if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[len(lines)-1]), "```") {
-				lines = lines[:len(lines)-1]
+	if !strings.HasPrefix(text, "```") {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	if len(lines) < 2 {
+		return text
+	}
+	lines = lines[1:]
+	if len(lines) > 0 && strings.HasPrefix(strings.TrimSpace(lines[len(lines)-1]), "```") {
+		lines = lines[:len(lines)-1]
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+// extractBalanced 从 text 中提取以 open 开头的第一段平衡括号内容。
+func extractBalanced(text string, open, close byte) string {
+	start := strings.IndexByte(text, open)
+	if start < 0 {
+		return ""
+	}
+	depth := 0
+	inString := false
+	escape := false
+	for i := start; i < len(text); i++ {
+		c := text[i]
+		if inString {
+			if escape {
+				escape = false
+				continue
 			}
-			text = strings.TrimSpace(strings.Join(lines, "\n"))
+			if c == '\\' {
+				escape = true
+				continue
+			}
+			if c == '"' {
+				inString = false
+			}
+			continue
 		}
+		switch c {
+		case '"':
+			inString = true
+		case open:
+			depth++
+		case close:
+			depth--
+			if depth == 0 {
+				return text[start : i+1]
+			}
+		}
+	}
+	return ""
+}
+
+func parseClassifyResult(text string) (tags []string, title string, ok bool) {
+	text = stripCodeFence(text)
+	var obj struct {
+		Tags  []string `json:"tags"`
+		Title string   `json:"title"`
+	}
+	tryObj := func(s string) bool {
+		obj = struct {
+			Tags  []string `json:"tags"`
+			Title string   `json:"title"`
+		}{}
+		if err := json.Unmarshal([]byte(s), &obj); err != nil {
+			return false
+		}
+		if obj.Tags == nil && obj.Title == "" {
+			return false
+		}
+		tags = normalizeTags(obj.Tags)
+		title = strings.TrimSpace(obj.Title)
+		return true
+	}
+	if tryObj(text) {
+		return tags, title, true
+	}
+	if s := extractBalanced(text, '{', '}'); s != "" && tryObj(s) {
+		return tags, title, true
 	}
 	var arr []string
 	if err := json.Unmarshal([]byte(text), &arr); err == nil {
-		return normalizeTags(arr)
+		return normalizeTags(arr), "", true
 	}
-	start := strings.Index(text, "[")
-	end := strings.LastIndex(text, "]")
-	if start >= 0 && end > start {
-		if err := json.Unmarshal([]byte(text[start:end+1]), &arr); err == nil {
-			return normalizeTags(arr)
+	if s := extractBalanced(text, '[', ']'); s != "" {
+		if err := json.Unmarshal([]byte(s), &arr); err == nil {
+			return normalizeTags(arr), "", true
 		}
 	}
-	return nil
+	return nil, "", false
+}
+
+func parseClassifyTags(text string) []string {
+	tags, _, ok := parseClassifyResult(text)
+	if !ok {
+		return nil
+	}
+	return tags
+}
+
+func truncateNoteTitle(s string) string {
+	s = strings.TrimSpace(s)
+	if len([]rune(s)) <= 80 {
+		return s
+	}
+	runes := []rune(s)
+	return string(runes[:80]) + "…"
 }
 
 func normalizeTags(tags []string) []string {

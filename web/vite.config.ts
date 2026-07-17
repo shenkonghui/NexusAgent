@@ -12,6 +12,10 @@ export default defineConfig({
         target: 'http://localhost:8080',
         ws: true, // 启用 WebSocket 代理（终端需要）
       },
+      '/mcp': {
+        target: 'http://localhost:8080',
+        ws: true,
+      },
     },
   },
 })

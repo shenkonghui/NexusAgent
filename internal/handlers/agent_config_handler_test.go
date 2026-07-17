@@ -20,6 +20,7 @@ type recordingRegistrar struct {
 	registered   []string
 	replaced     []string
 	unregistered []string
+	preconnected []string
 }
 
 func (r *recordingRegistrar) RegisterBackend(acp.Backend) {
@@ -38,6 +39,9 @@ func (r *recordingRegistrar) ReplaceAgent(*agent.AgentDescriptor) {
 }
 func (r *recordingRegistrar) UnregisterAgent(agentType string) {
 	r.unregistered = append(r.unregistered, agentType)
+}
+func (r *recordingRegistrar) PreconnectAgent(agentType string) {
+	r.preconnected = append(r.preconnected, agentType)
 }
 
 func newAgentConfigTestRouter(t *testing.T) (*gin.Engine, *repository.AgentConfigRepository, *recordingRegistrar) {
@@ -65,7 +69,7 @@ func TestAgentConfigHandler_Create_And_List(t *testing.T) {
 
 	w := doJSON(t, r, "POST", "/api/v1/agent-configs", gin.H{
 		"type": "codebuddy", "display_name": "CodeBuddy", "command": "codebuddy",
-		"args": []string{"--acp"}, "timeout": "120s",
+		"args": []string{"--acp"}, "timeout": "120s", "enabled": true,
 	})
 	if w.Code != http.StatusCreated {
 		t.Fatalf("状态码 = %d, 期望 201, body=%s", w.Code, w.Body.String())
@@ -176,6 +180,26 @@ func TestAgentConfigHandler_Update_And_Delete(t *testing.T) {
 	list, _ := repo.FindAll()
 	if len(list) != 0 {
 		t.Errorf("删除后列表数量 = %d, 期望 0", len(list))
+	}
+}
+
+func TestAgentConfigHandler_Update_Enabled_PreconnectsAgent(t *testing.T) {
+	r, repo, reg := newAgentConfigTestRouter(t)
+	enabled := false
+	cfg := newAgentConfig("claude", "Claude", "claude-code")
+	cfg.Enabled = &enabled
+	if err := repo.Create(cfg); err != nil {
+		t.Fatalf("创建配置失败: %v", err)
+	}
+
+	w := doJSON(t, r, "PUT", "/api/v1/agent-configs/"+strconv.Itoa(int(cfg.ID)), gin.H{
+		"type": "claude", "display_name": "Claude", "command": "claude-code", "enabled": true,
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d, 期望 200, body=%s", w.Code, w.Body.String())
+	}
+	if len(reg.preconnected) != 1 || reg.preconnected[0] != "claude" {
+		t.Fatalf("启用后预连接 = %v, 期望 [claude]", reg.preconnected)
 	}
 }
 

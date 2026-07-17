@@ -19,6 +19,6 @@ agents:
     command: npx
     args:
       - "-y"
-      - "@zed-industries/claude-code-acp@latest"
+      - "@agentclientprotocol/claude-agent-acp@latest"
     api_key_env: ANTHROPIC_API_KEY
     timeout: 60s

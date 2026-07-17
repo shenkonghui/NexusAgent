@@ -16,6 +16,7 @@ type backendRegistrar interface {
 	RegisterBackend(b acp.Backend)
 	ReplaceBackend(b acp.Backend)
 	UnregisterBackend(name string)
+	PreconnectAsync(agentType, cwd string)
 }
 
 // NewRegistrar 创建组合 registrar。
@@ -36,4 +37,9 @@ func (r *Registrar) ReplaceBackend(b acp.Backend) {
 // UnregisterBackend 委托给后端注册器。
 func (r *Registrar) UnregisterBackend(name string) {
 	r.backendRegistrar.UnregisterBackend(name)
+}
+
+// PreconnectAgent 异步预连接动态启用的 agent。
+func (r *Registrar) PreconnectAgent(agentType string) {
+	r.backendRegistrar.PreconnectAsync(agentType, "")
 }

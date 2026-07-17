@@ -150,7 +150,7 @@ Connection status (connected / connecting / disconnected) is shown in the sideba
 
 ```bash
 # npx example (Claude Code)
-npm exec --include=optional --yes @zed-industries/claude-code-acp@latest -- --help
+npm exec --include=optional --yes @agentclientprotocol/claude-agent-acp@latest -- --help
 
 # After enabling: click "Fetch Config" in Settings, or confirm sidebar shows "connected"
 ```

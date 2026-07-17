@@ -222,6 +222,19 @@ export interface NoteSettings {
   classify_interval_minutes: number;
   classify_session_id?: string;
   classify_db_session_id?: number;
+  mcp_token?: string;
+}
+
+// 用户 agent 最近使用偏好（按 agent type → category → value）
+export interface AgentPrefs {
+  last_agent_type: string;
+  prefs: Record<string, Record<string, string>>;
+}
+
+export interface AgentPrefsPatch {
+  last_agent_type?: string;
+  agent_type?: string;
+  configs?: Record<string, string>;
 }
 
 // 任务设置：自动打标签 + AI 标题生成

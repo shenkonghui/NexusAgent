@@ -13,6 +13,8 @@ type NoteSettings struct {
 	// ClassifySessionID / ClassifyDBSessionID 关联笔记分类任务会话（默认工作区）。
 	ClassifySessionID   string `gorm:"size:128" json:"classify_session_id"`
 	ClassifyDBSessionID uint   `gorm:"index" json:"classify_db_session_id"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt               time.Time `json:"updated_at"`
+	// McpToken 笔记 MCP 专用 Token（明文可回显；只生成一次）。
+	McpToken  string    `gorm:"size:128;index" json:"mcp_token"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }

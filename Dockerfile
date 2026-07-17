@@ -32,7 +32,7 @@ COPY --from=web-builder /app/web/dist ./web/dist
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /out/nexusagent ./cmd/server
 
 # ===== Stage 3: 运行时 =====
-# 使用包含 npm/npx 的 node 镜像，因为 agents 通过 npx 调用 claude-code-acp
+# 使用包含 npm/npx 的 node 镜像，因为 agents 通过 npx 调用 claude-agent-acp
 FROM docker.linkos.org/library/node:20-alpine AS runtime
 WORKDIR /app
 
@@ -58,7 +58,7 @@ RUN mkdir -p /app/data/session
 VOLUME ["/app/data"]
 
 # 显式指定 npm 缓存目录，便于通过 docker volume 持久化。
-# npx 调用 claude-code-acp 时下载的包会缓存在 /root/.npm/_npx，
+# npx 调用 claude-agent-acp 时下载的包会缓存在 /root/.npm/_npx，
 # 持久化后容器重启无需重新从网络下载。
 ENV NPM_CONFIG_CACHE=/root/.npm \
     SERVER_MODE=release \
