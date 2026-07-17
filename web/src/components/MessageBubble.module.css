@@ -109,6 +109,18 @@
   word-break: break-word;
 }
 
+/* 用户消息：文本与详情按钮同一行 */
+.inlineRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.inlineRow .content {
+  flex: 1;
+  min-width: 0;
+}
+
 .mdContent {
   font-size: 14px;
   line-height: 1.6;

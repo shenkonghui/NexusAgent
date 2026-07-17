@@ -157,7 +157,11 @@
     "useCustomModel": "Use custom model: {{value}}",
     "advancedOptions": "Advanced Options",
     "closedHint": "Session needs recovery",
-    "errorHint": "Session error, needs recovery"
+    "errorHint": "Session error, needs recovery",
+    "favGroup": "Favorites",
+    "favorited": "Unfavorite",
+    "unfavorited": "Favorite",
+    "noFavorites": "No favorites yet"
   },
   "settings": {
     "title": "Agent Settings",
@@ -204,6 +208,8 @@
     "timeout": "Timeout",
     "enabled": "Enabled",
     "disabled": "Disabled",
+    "enable": "Enable",
+    "disable": "Disable",
     "deleteConfirm": "Are you sure you want to delete this agent configuration?",
     "saveSuccess": "Saved successfully",
     "loadFailed": "Failed to load settings",
@@ -339,6 +345,7 @@
     "availableCommands": "Available Commands",
     "contextWindow": "Context Window",
     "tokenUsage": "Token Usage",
+    "moreOptions": "More",
     "elapsed": "Elapsed",
     "cost": "Cost",
     "thinking": "Thinking...",
@@ -359,13 +366,16 @@
     "clearConfirm": "Are you sure you want to clear the session history?",
     "model": "Model",
     "hideDetail": "Hide Details",
-    "viewDetail": "View Details",
+    "viewDetail": "Details",
     "expand": "Expand",
     "collapse": "Collapse"
   },
   "theme": {
     "light": "Light",
     "dark": "Dark"
+  },
+  "language": {
+    "switchTo": "中文"
   },
   "status": {
     "idle": "Idle",

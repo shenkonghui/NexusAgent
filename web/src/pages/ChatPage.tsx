@@ -824,7 +824,7 @@ export default function ChatPage() {
       return (
         <AppLayout sidebarProps={{ sessions, workspaceId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
           <div className={styles.main}>
-            <div className={styles.header}>
+            <div className={`${styles.header} ${styles.headerSingle}`}>
               <div className={styles.sessionInfo}>
                 <SidebarToggleButton />
                 <span className={styles.agentType}>{t('nav.sessionList')}</span>
@@ -878,7 +878,7 @@ export default function ChatPage() {
     return (
       <AppLayout sidebarProps={{ sessions, workspaceId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
         <div className={styles.main}>
-          <div className={styles.header}>
+          <div className={`${styles.header} ${styles.headerSingle}`}>
             <div className={styles.sessionInfo}>
               <SidebarToggleButton />
               <span className={styles.agentType}>{t('session.newSession')}</span>
@@ -1021,23 +1021,29 @@ export default function ChatPage() {
     <AppLayout sidebarProps={{ sessions, workspaceId, currentId: sessionId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
       <div className={styles.main}>
         <div className={styles.header}>
-          <div className={styles.sessionInfo}>
+          <div className={styles.sysBar}>
             <SidebarToggleButton />
+            <div className={styles.actions}>
+              <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
+              <button type="button" className={styles.newTaskBtn} onClick={() => navigate(newTaskUrl(workspaceId))}><Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('session.newSession')}</button>
+              <button className={`${styles.fileBtn} ${showWorkspace ? styles.fileBtnActive : ''}`}
+                onClick={() => setShowWorkspace(!showWorkspace)} type="button" title={t('chat.workspace')}
+              ><FolderOpen size={16} /></button>
+            </div>
+            <UserMenu />
+          </div>
+          <div className={styles.sessionInfo}>
             <span className={styles.agentType}>{activeSession?.agent_type || ''}</span>
             {displayConvState !== 'idle' && (
               <span className={`${styles.convStatus} ${styles[`conv_${displayConvState}`]}`}>
                 {t(`session.conv_${displayConvState}`)}
               </span>
             )}
-            {activeSession?.workspace?.cwd && <span className={styles.cwd}>{activeSession.workspace.cwd}</span>}
-          </div>
-          <div className={styles.actions}>
-            <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
-            <button type="button" className={styles.newTaskBtn} onClick={() => navigate(newTaskUrl(workspaceId))}><Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('session.newSession')}</button>
-            <button className={`${styles.fileBtn} ${showWorkspace ? styles.fileBtnActive : ''}`}
-              onClick={() => setShowWorkspace(!showWorkspace)} type="button" title={t('chat.workspace')}
-            ><FolderOpen size={16} /></button>
-            <UserMenu />
+            {activeSession?.workspace?.cwd && (
+              <span className={styles.cwd} title={activeSession.workspace.cwd}>
+                {activeSession.workspace.cwd.split('/').filter(Boolean).pop()}
+              </span>
+            )}
           </div>
         </div>
 
@@ -1088,14 +1094,23 @@ export default function ChatPage() {
         {activeSession?.source === 'classify' ? (
           <p className={styles.classifyViewHint}>{t('notes.classifyTaskHint')}</p>
         ) : (
-          <>
-            <ConvStatusBar state={displayConvState} />
+          <div className={styles.bottomArea}>
+            <ConvStatusBar state={displayConvState}>
+              {pendingPermission && (
+                <PermissionDialog
+                  request={pendingPermission}
+                  responding={permissionResponding}
+                  onRespond={handlePermissionRespond}
+                  onCancel={handlePermissionCancel}
+                />
+              )}
+            </ConvStatusBar>
             <PromptInput onSend={handleSend} onCancel={handleCancel}
               sending={sending} disabled={false}
               commands={commands} modes={modes} skills={skills} cwd={activeSession?.workspace?.cwd || ''}
               placeholder={sending ? t(`session.conv_${displayConvState === 'idle' ? 'connecting' : displayConvState}`) : t('session.promptPlaceholder')}
             />
-          </>
+          </div>
         )}
       </div>
 
@@ -1106,15 +1121,6 @@ export default function ChatPage() {
             onClose={() => setShowWorkspace(false)}
           />
         </div>
-      )}
-
-      {pendingPermission && (
-        <PermissionDialog
-          request={pendingPermission}
-          responding={permissionResponding}
-          onRespond={handlePermissionRespond}
-          onCancel={handlePermissionCancel}
-        />
       )}
 
 

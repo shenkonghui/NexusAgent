@@ -10,6 +10,8 @@ import { getTaskSettings, updateTaskSettings } from '../api/tasks'
 import { getAgentPrefs, patchAgentPrefs } from '../api/agentPrefs'
 import type { AgentConfig, Agent, ModelOption, ConfigOption, TaskSettings } from '../types'
 import { tasksUrl } from '../utils/routes'
+import { translateTag } from '../utils/tag'
+import { translatePrompt } from '../utils/defaultPrompts'
 import AppLayout, { SidebarToggleButton } from '../components/AppLayout'
 import EditAgentDialog, { type AgentFormPayload } from '../components/EditAgentDialog'
 import ConfigEditor from '../components/ConfigEditor'
@@ -540,7 +542,7 @@ export default function SettingsPage() {
                     <textarea
                       className={styles.textarea}
                       rows={8}
-                      value={notePrompt}
+                      value={translatePrompt(notePrompt)}
                       onChange={(e) => setNotePrompt(e.target.value)}
                     />
                     <button
@@ -680,7 +682,7 @@ export default function SettingsPage() {
                     <div className={styles.tagList}>
                       {taskTags.map((tag) => (
                         <span key={tag} className={styles.tagChip}>
-                          {tag}
+                          {translateTag(tag)}
                           <button type="button" className={styles.tagRemove}
                             onClick={() => handleRemoveTaskTag(tag)}
                           >×</button>
@@ -694,13 +696,13 @@ export default function SettingsPage() {
                       <label className={styles.label}>{t('settings.tagPrompt')}</label>
                       <p className={styles.sectionHint}>{t('settings.tagPromptHint')}</p>
                       <textarea className={styles.textarea} rows={6}
-                        value={taskTagPrompt}
+                        value={translatePrompt(taskTagPrompt)}
                         onChange={(e) => setTaskTagPrompt(e.target.value)}
                       />
                       <label className={styles.label}>{t('settings.titlePrompt')}</label>
                       <p className={styles.sectionHint}>{t('settings.titlePromptHint')}</p>
                       <textarea className={styles.textarea} rows={6}
-                        value={taskTitlePrompt}
+                        value={translatePrompt(taskTitlePrompt)}
                         onChange={(e) => setTaskTitlePrompt(e.target.value)}
                       />
                     </details>

@@ -27,6 +27,9 @@ export default function WorkspaceSelector({ value, onChange, onRefresh, onError 
 
   const current = workspaces.find((w) => w.id === value)
 
+  // 工作区名称显示：后端默认工作区名为中文"默认工作区"，按当前语言显示；其余用原名。
+  const displayName = (name: string) => (name === '默认工作区' ? t('workspace.default') : name)
+
   async function loadWorkspaces() {
     const list = (await listWorkspaces()).data.workspaces || []
     setWorkspaces(list)
@@ -109,7 +112,7 @@ export default function WorkspaceSelector({ value, onChange, onRefresh, onError 
     <div className={styles.container} ref={ref}>
       <button type="button" className={styles.trigger} onClick={() => setOpen((v) => !v)} title={t('workspace.title')}>
         <span className={styles.icon}>{current?.mode === 'temporary' ? <Clock size={14} /> : <Folder size={14} />}</span>
-        <span className={styles.label}>{current?.name || t('workspace.default')}</span>
+        <span className={styles.label}>{displayName(current?.name || t('workspace.default'))}</span>
         <span className={styles.arrow}>{open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</span>
       </button>
       <button type="button" className={styles.newBtn} onClick={() => setShowCreate(true)} title={t('workspace.create')}><Plus size={14} /></button>
@@ -135,7 +138,7 @@ export default function WorkspaceSelector({ value, onChange, onRefresh, onError 
                   onClick={(e) => e.stopPropagation()}
                 />
               ) : (
-                <span className={styles.itemName}>{ws.name}</span>
+                <span className={styles.itemName}>{displayName(ws.name)}</span>
               )}
               {ws.directories && ws.directories.length > 0 && (
                 <span className={styles.itemBadge} title={`${ws.directories.length} 个附加目录`}>+{ws.directories.length}</span>

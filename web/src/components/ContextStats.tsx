@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { Message } from '../types'
 import styles from './ContextStats.module.css'
 
@@ -37,27 +38,65 @@ function formatTokens(n: number): string {
   return String(n)
 }
 
+const RADIUS = 9
+const CIRC = 2 * Math.PI * RADIUS
+
 export default function ContextStats({ messages }: ContextStatsProps) {
+  const { t } = useTranslation()
   const usage = useMemo(() => parseUsage(messages), [messages])
+  const [hover, setHover] = useState(false)
 
   if (!usage || usage.size <= 0) return null
 
   const percent = Math.min(100, (usage.used / usage.size) * 100)
-  const isHigh = percent > 80
-  const isMedium = percent > 50
+  // 环形进度：用过的部分绕一圈
+  const dash = (percent / 100) * CIRC
 
   return (
-    <div className={styles.container} title={`上下文窗口: ${usage.used} / ${usage.size} tokens`}>
-      <span className={styles.label}>上下文</span>
-      <div className={styles.bar}>
-        <div
-          className={`${styles.fill} ${isHigh ? styles.fillHigh : isMedium ? styles.fillMedium : ''}`}
-          style={{ width: `${percent}%` }}
-        />
+    <div
+      className={styles.container}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      <div
+        className={styles.trigger}
+        title={t('chat.contextWindow')}
+        aria-label={`${t('chat.contextWindow')}: ${usage.used} / ${usage.size} tokens`}
+      >
+        <svg width="22" height="22" viewBox="0 0 22 22" className={styles.pie}>
+          {/* 底环（剩余空间） */}
+          <circle cx="11" cy="11" r={RADIUS} fill="none" stroke="var(--border)" strokeWidth="3" />
+          {/* 已用部分：黑色弧 */}
+          <circle
+            cx="11"
+            cy="11"
+            r={RADIUS}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeDasharray={`${dash} ${CIRC - dash}`}
+            strokeLinecap="round"
+            transform="rotate(-90 11 11)"
+            className={styles.pieUsed}
+          />
+        </svg>
       </div>
-      <span className={`${styles.numbers} ${isHigh ? styles.numbersHigh : ''}`}>
-        {formatTokens(usage.used)} / {formatTokens(usage.size)}
-      </span>
+      {hover && (
+        <div className={styles.popover} role="tooltip">
+          <div className={styles.popoverTitle}>{t('chat.contextWindow')}</div>
+          <div className={styles.popoverRow}>
+            <span className={styles.popoverLabel}>{t('chat.tokenUsage')}</span>
+            <span className={styles.popoverValue}>{formatTokens(usage.used)} / {formatTokens(usage.size)}</span>
+          </div>
+          <div className={styles.popoverRow}>
+            <span className={styles.popoverLabel}>{t('chat.usage')}</span>
+            <span className={styles.popoverValue}>{percent.toFixed(1)}%</span>
+          </div>
+          <div className={styles.popoverDetail}>
+            {usage.used.toLocaleString()} / {usage.size.toLocaleString()} tokens
+          </div>
+        </div>
+      )}
     </div>
   )
 }

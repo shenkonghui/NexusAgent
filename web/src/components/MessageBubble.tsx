@@ -58,6 +58,8 @@ export default function MessageBubble({ message, defaultOpen = false, forceColla
   const isThought = message.kind === 'agent_thought_chunk'
   const isTool = message.role === 'tool'
   const isPlan = message.kind === 'plan'
+  // 助手正文消息不显示角色标签
+  const showRole = !isUser && message.kind !== 'agent_message_chunk'
 
   // 思考和工具调用可折叠
   const collapsible = isThought || isTool
@@ -74,6 +76,20 @@ export default function MessageBubble({ message, defaultOpen = false, forceColla
     ? () => setOpen((v) => !v)
     : undefined
 
+  // 详情按钮：用户消息内联到文本行，其余场景放在 header
+  const detailBtn = message.raw_json && (!collapsible || open) && (
+    <button
+      className={styles.rawBtn}
+      onClick={(e) => {
+        e.stopPropagation()
+        setShowRaw(!showRaw)
+      }}
+      type="button"
+    >
+      {showRaw ? t('chat.hideDetail') : t('chat.viewDetail')}
+    </button>
+  )
+
   return (
     <div className={`${styles.container} ${isUser ? styles.containerUser : ''}`}>
       <div className={`${styles.bubble} ${bubbleClass}`}>
@@ -81,7 +97,7 @@ export default function MessageBubble({ message, defaultOpen = false, forceColla
           className={`${styles.header} ${collapsible ? styles.headerClickable : ''}`}
           onClick={headerClick}
         >
-          {!isUser && <span className={styles.role}>{t(kindLabels[message.kind] || message.role)}</span>}
+          {showRole && <span className={styles.role}>{t(kindLabels[message.kind] || message.role)}</span>}
           {isPlan && <span className={styles.badge}>{t('chat.plan')}</span>}
           {isTool && (
             <span className={styles.summary}>{t(toolSummary(message.content))}</span>
@@ -89,33 +105,35 @@ export default function MessageBubble({ message, defaultOpen = false, forceColla
           {collapsible && (
             <span className={styles.toggle}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
           )}
-          {message.raw_json && (!collapsible || open) && (
-            <button
-              className={styles.rawBtn}
-              onClick={(e) => {
-                e.stopPropagation()
-                setShowRaw(!showRaw)
-              }}
-              type="button"
-            >
-              {showRaw ? t('chat.hideDetail') : t('chat.viewDetail')}
-            </button>
-          )}
+          {detailBtn && !isUser && detailBtn}
         </div>
         {!collapsible || open ? (
           <>
-            {message.content && (
-              message.kind === 'agent_message_chunk' && !streaming ? (
-                <MarkdownContent
-                  content={message.content}
-                  className={`markdown-body ${styles.mdContent}`}
-                />
-              ) : (
-                <div className={styles.content}>{message.content}</div>
-              )
-            )}
-            {!message.content && !isPlan && (
-              <div className={styles.contentMuted}>{t('common.noData')}</div>
+            {isUser && detailBtn ? (
+              <div className={styles.inlineRow}>
+                {message.content ? (
+                  <div className={styles.content}>{message.content}</div>
+                ) : (
+                  !isPlan && <div className={styles.contentMuted}>{t('common.noData')}</div>
+                )}
+                {detailBtn}
+              </div>
+            ) : (
+              <>
+                {message.content && (
+                  message.kind === 'agent_message_chunk' && !streaming ? (
+                    <MarkdownContent
+                      content={message.content}
+                      className={`markdown-body ${styles.mdContent}`}
+                    />
+                  ) : (
+                    <div className={styles.content}>{message.content}</div>
+                  )
+                )}
+                {!message.content && !isPlan && (
+                  <div className={styles.contentMuted}>{t('common.noData')}</div>
+                )}
+              </>
             )}
             {hasDiff && sessionId != null && cwd != null && (
               <DiffView

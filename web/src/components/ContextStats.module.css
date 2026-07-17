@@ -1,49 +1,83 @@
 .container {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  border-radius: 50%;
+  transition: opacity 0.15s;
+}
+
+.trigger:hover {
+  opacity: 0.7;
+}
+
+.pie {
+  display: block;
+}
+
+.pieUsed {
+  transition: stroke-dasharray 0.3s ease;
+}
+
+/* 悬停显示的占用详情弹层 */
+.popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  min-width: 200px;
+  padding: 10px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  font-size: 12px;
+  animation: ctxFadeIn 0.12s ease;
+  color: var(--text-primary);
+}
+
+.popoverTitle {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+}
+
+.popoverRow {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
-  font-size: 12px;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.popoverLabel {
   color: var(--text-muted);
-  flex-shrink: 0;
 }
 
-.label {
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.bar {
-  width: 100px;
-  height: 6px;
-  background: var(--bg-hover);
-  border-radius: 3px;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.fill {
-  height: 100%;
-  background: var(--accent);
-  border-radius: 3px;
-  transition: width 0.3s ease, background 0.3s ease;
-}
-
-.fillMedium {
-  background: var(--warning);
-}
-
-.fillHigh {
-  background: var(--danger);
-}
-
-.numbers {
-  white-space: nowrap;
+.popoverValue {
   font-variant-numeric: tabular-nums;
-  font-size: 11px;
+  font-weight: 500;
 }
 
-.numbersHigh {
-  color: var(--danger);
-  font-weight: 600;
+.popoverDetail {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes ctxFadeIn {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
 }

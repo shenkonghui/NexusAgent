@@ -41,3 +41,67 @@
   cursor: not-allowed;
   color: var(--text-muted);
 }
+
+/* 「更多选项」触发器 */
+.moreWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.moreBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.moreBtn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.moreBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 下拉面板：纵向排列其余配置项 */
+.dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  min-width: 240px;
+}
+
+/* 下拉面板内：label 等宽对齐，select 占满剩余宽度 */
+.dropdown .item {
+  align-items: center;
+}
+
+.dropdown .label {
+  width: 96px;
+  flex-shrink: 0;
+}
+
+.dropdown .select {
+  flex: 1;
+  max-width: none;
+}

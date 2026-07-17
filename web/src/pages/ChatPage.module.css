@@ -1,3 +1,8 @@
+/* 底部输入区 */
+.bottomArea {
+  flex-shrink: 0;
+}
+
 /* 右侧工作区固定宽度容器 */
 .workspaceWrap {
   width: 520px;
@@ -19,17 +24,38 @@
 
 .header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 24px;
+  flex-direction: column;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
 }
 
+/* 首页模式（任务列表/新建任务）：单行横排 */
+.headerSingle {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+}
+
+.headerSingle .sessionInfo {
+  padding: 0;
+}
+
+/* 系统级顶栏：工作区管理、新建任务、用户 */
+.sysBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* agent 任务级栏：agent 类型、session 目录 */
 .sessionInfo {
   display: flex;
   align-items: center;
   gap: 12px;
+  padding: 8px 24px;
 }
 
 .agentType {
@@ -73,6 +99,7 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  margin-left: auto;
 }
 
 .fileBtn {

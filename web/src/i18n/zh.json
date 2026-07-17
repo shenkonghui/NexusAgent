@@ -345,6 +345,7 @@
     "availableCommands": "可用命令",
     "contextWindow": "上下文窗口",
     "tokenUsage": "Token 用量",
+    "moreOptions": "更多",
     "elapsed": "耗时",
     "cost": "费用",
     "thinking": "思考中",
@@ -365,13 +366,16 @@
     "clearConfirm": "确定清空当前会话历史吗？",
     "model": "模型",
     "hideDetail": "隐藏详情",
-    "viewDetail": "查看详情",
+    "viewDetail": "详情",
     "expand": "展开",
     "collapse": "收起"
   },
   "theme": {
     "light": "浅色模式",
     "dark": "深色模式"
+  },
+  "language": {
+    "switchTo": "English"
   },
   "status": {
     "idle": "空闲",

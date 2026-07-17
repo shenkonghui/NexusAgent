@@ -1,51 +1,36 @@
-.overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
+/* 内联授权：嵌在 ConvStatusBar 状态栏内，无独立卡片背景 */
+.inline {
   display: flex;
   align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.45);
-  padding: 24px;
-}
-
-.dialog {
-  width: min(480px, 100%);
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px 24px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-}
-
-.title {
-  margin: 0 0 8px;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
+  gap: 10px;
+  min-width: 0;
 }
 
 .desc {
-  margin: 0 0 16px;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-secondary);
-  line-height: 1.5;
-  word-break: break-word;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
 }
 
 .actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
 }
 
 .btn {
-  padding: 8px 14px;
-  border-radius: 8px;
+  padding: 3px 10px;
+  border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--bg-base);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
@@ -72,6 +57,5 @@
 }
 
 .btn_cancel {
-  margin-left: auto;
   color: var(--text-muted);
 }

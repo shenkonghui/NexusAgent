@@ -33,6 +33,17 @@
 
 .text {
   font-weight: 500;
+  flex-shrink: 0;
+}
+
+/* children 容器：占满剩余空间，内容靠右 */
+.content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 @keyframes spin {

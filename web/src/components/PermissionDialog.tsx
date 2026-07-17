@@ -23,31 +23,28 @@ export default function PermissionDialog({
   const options = sortPermissionOptions(request.options)
 
   return (
-    <div className={styles.overlay}>
-      <div className={styles.dialog} role="dialog" aria-modal="true">
-        <h3 className={styles.title}>{t('session.permission.title')}</h3>
-        <p className={styles.desc}>{displayTitle}</p>
-        <div className={styles.actions}>
-          {options.map((opt) => (
-            <button
-              key={opt.optionId}
-              type="button"
-              className={`${styles.btn} ${styles[`btn_${permissionOptionStyle(opt.kind)}`]}`}
-              disabled={responding}
-              onClick={() => onRespond(opt.optionId)}
-            >
-              {opt.name}
-            </button>
-          ))}
+    <div className={styles.inline}>
+      <span className={styles.desc} title={displayTitle}>{displayTitle}</span>
+      <div className={styles.actions}>
+        {options.map((opt) => (
           <button
+            key={opt.optionId}
             type="button"
-            className={`${styles.btn} ${styles.btn_cancel}`}
+            className={`${styles.btn} ${styles[`btn_${permissionOptionStyle(opt.kind)}`]}`}
             disabled={responding}
-            onClick={onCancel}
+            onClick={() => onRespond(opt.optionId)}
           >
-            {t('common.cancel')}
+            {opt.name}
           </button>
-        </div>
+        ))}
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.btn_cancel}`}
+          disabled={responding}
+          onClick={onCancel}
+        >
+          {t('common.cancel')}
+        </button>
       </div>
     </div>
   )

@@ -3,11 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuthContext } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
-import { ChevronUp, ChevronDown, User, Sun, Moon, LogOut } from 'lucide-react'
+import { ChevronUp, ChevronDown, User, Sun, Moon, Languages, LogOut } from 'lucide-react'
 import styles from './UserMenu.module.css'
 
 export default function UserMenu() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { user, logout } = useAuthContext()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
@@ -41,6 +41,13 @@ export default function UserMenu() {
     toggleTheme()
   }
 
+  // 中英文切换：在 zh / en 间切换并持久化
+  function handleToggleLanguage() {
+    const next = i18n.language.startsWith('zh') ? 'en' : 'zh'
+    localStorage.setItem('nexus-lang', next)
+    i18n.changeLanguage(next)
+  }
+
   return (
     <div className={styles.container} ref={ref}>
       <button
@@ -61,6 +68,10 @@ export default function UserMenu() {
           <button type="button" className={styles.menuItem} onClick={handleToggleTheme}>
             <span className={styles.menuIcon}>{theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}</span>
             {theme === 'dark' ? t('theme.light') : t('theme.dark')}
+          </button>
+          <button type="button" className={styles.menuItem} onClick={handleToggleLanguage}>
+            <span className={styles.menuIcon}><Languages size={14} /></span>
+            {t('language.switchTo')}
           </button>
           <div className={styles.divider} />
           <button type="button" className={styles.menuItem} onClick={handleLogout}>
