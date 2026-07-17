@@ -3,6 +3,7 @@ package acp
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 
 	"github.com/coder/acp-go-sdk"
@@ -21,14 +22,22 @@ type Connection struct {
 }
 
 // NewConnection 启动 agent 进程并建立 ACP 连接。
-func NewConnection(backend Backend, workDir string) (*Connection, error) {
+// dbg 非空且 Enabled 时，用 tee 包装 stdin/stdout 捕获 JSON-RPC 报文。
+func NewConnection(backend Backend, workDir string, dbg *ACPDebugger) (*Connection, error) {
 	proc, err := NewProcess(backend, workDir)
 	if err != nil {
 		return nil, err
 	}
 
 	client := NewClient()
-	conn := acp.NewClientSideConnection(client, proc.Stdin(), proc.Stdout())
+	stdin := io.WriteCloser(proc.Stdin())
+	stdout := io.Reader(proc.Stdout())
+	if dbg != nil && dbg.Enabled() {
+		agentType := backend.Name()
+		stdin = &teeWriter{w: proc.Stdin(), dbg: dbg, direction: "send", agentType: agentType}
+		stdout = &teeReader{r: proc.Stdout(), dbg: dbg, direction: "recv", agentType: agentType}
+	}
+	conn := acp.NewClientSideConnection(client, stdin, stdout)
 	conn.SetLogger(slog.Default())
 
 	return &Connection{

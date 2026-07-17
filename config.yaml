@@ -1,51 +1,55 @@
 server:
-  port: 8080
-  mode: debug
-  web_dist: ./web/dist
+    port: 8080
+    mode: debug
+    web_dist: ./web/dist
 logging:
-  # 日志等级：debug | info | warn | error
-  # debug 时会输出每次与 agent 的交互（prompt、session update、ACP 请求等）
-  level: info
+    # 日志等级：debug | info | warn | error
+    # debug 时会输出每次与 agent 的交互（prompt、session update、ACP 请求等）
+    level: info
 database:
-  # 默认 ~/.nextAgent/nexus.db；可用 DATABASE_PATH 或 --data-dir 覆盖
-  path: ~/.nextAgent/nexus.db
+    # 默认 ~/.nextAgent/nexus.db；可用 DATABASE_PATH 或 --data-dir 覆盖
+    path: ~/.nextAgent/nexus.db
 jwt:
-  secret: "nexusagent-dev-secret-key-32+bytes!"
-  access_ttl: 15m
-  refresh_ttl: 168h
+    secret: "nexusagent-dev-secret-key-32+bytes!"
+    access_ttl: 15m
+    refresh_ttl: 168h
 auth:
-  # 开启后无需登录，自动使用内置 admin 用户
-  auto_login: true
+    # 开启后无需登录，自动使用内置 admin 用户
+    auto_login: true
 password:
-  bcrypt_cost: 12
+    bcrypt_cost: 12
+debug:
+    acp:
+        # 开启后记录 ACP JSON-RPC 原始报文与高层事件到本地目录，供对话页「调试」Tab 查看
+        enabled: true
+        dir: ~/.nextAgent/acp-debug
 agents:
-  workspace:
-    default_mode: temporary
-    temp_dir_prefix: nexus-
-    # temporary 模式会话工作区的存放根目录，默认 ~/.nextAgent/session。
-    # 由程序在删除会话时清理，不依赖操作系统清理临时目录。
-    session_dir: ~/.nextAgent/session
-  skills:
-    # 用户级 skills 根目录（agentskills.io：递归扫描子目录中的 SKILL.md）
-    user_dirs:
-      - ~/.claude/skills
-      - ~/.cursor/skills-cursor
-    # 相对工作区 cwd 的项目级 skills 子目录
-    project_dirs:
-      - .claude/skills
-      - .agents/skills
-  commands:
-    # Slash Command 目录（Claude Code 规范：递归扫描 *.md，支持子目录与符号链接目录，文件名即命令名）
-    user_dirs:
-      - ~/.claude/commands
-    project_dirs:
-      - .claude/commands
-  rules:
-    # Rule 路径：目录（递归扫描 *.mdc / *.md）或单个文件（如 CLAUDE.md）
-    # alwaysApply: true 的规则（或无 frontmatter 的独立文件）会注入每条 prompt
-    user_dirs:
-      - ~/.cursor/rules
-      - ~/.claude/CLAUDE.md
-    project_dirs:
-      - .cursor/rules
-      - CLAUDE.md
+    workspace:
+        default_mode: temporary
+        temp_dir_prefix: nexus-
+        # temporary 模式会话工作区的存放根目录，默认 ~/.nextAgent/session。
+        # 由程序在删除会话时清理，不依赖操作系统清理临时目录。
+        session_dir: ~/.nextAgent/session
+    skills:
+        # 用户级 skills 根目录（agentskills.io：递归扫描子目录中的 SKILL.md）
+        user_dirs:
+            - ~/.claude/skills
+        # 相对工作区 cwd 的项目级 skills 子目录
+        project_dirs:
+            - .claude/skills
+            - .agents/skills
+    commands:
+        # Slash Command 目录（Claude Code 规范：递归扫描 *.md，支持子目录与符号链接目录，文件名即命令名）
+        user_dirs:
+            - ~/.claude/commands
+        project_dirs:
+            - .claude/commands
+    rules:
+        # Rule 路径：目录（递归扫描 *.mdc / *.md）或单个文件（如 CLAUDE.md）
+        # alwaysApply: true 的规则（或无 frontmatter 的独立文件）会注入每条 prompt
+        user_dirs:
+            - ~/.cursor/rules
+            - ~/.claude/CLAUDE.md
+        project_dirs:
+            - .cursor/rules
+            - CLAUDE.md

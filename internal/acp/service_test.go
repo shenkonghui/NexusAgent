@@ -318,8 +318,47 @@ func TestService_DeleteSession_RemovesSessionAndMessages(t *testing.T) {
 	if len(msgs) != 0 {
 		t.Errorf("期望消息已删除，实际 %d 条", len(msgs))
 	}
-	if _, err := os.Stat(tempDir); err != nil {
-		t.Errorf("删除会话后工作区目录应保留: %v", err)
+	if _, err := os.Stat(tempDir); !os.IsNotExist(err) {
+		t.Error("删除会话后孤儿 temporary 工作区目录应被清理")
+	}
+	if _, err := wsRepo.FindByID(ws.ID); err == nil {
+		t.Error("期望孤儿 temporary 工作区记录已被删除")
+	}
+}
+
+func TestService_DeleteSession_KeepsPersistentWorkspace(t *testing.T) {
+	db := setupACPTestDB(t)
+	repo := repository.NewSessionRepository(db)
+	wsRepo := repository.NewWorkspaceRepository(db)
+	dir := filepath.Join(t.TempDir(), "persistent-ws")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("创建目录: %v", err)
+	}
+	ws := &models.Workspace{
+		UserID: 1, Name: "项目", Cwd: dir,
+		Mode: models.WorkspaceModePersistent,
+	}
+	if err := wsRepo.Create(ws); err != nil {
+		t.Fatalf("创建 workspace 失败: %v", err)
+	}
+	wid := ws.ID
+	sess := &models.Session{
+		SessionID: "delete-persist", AgentType: "claude-code", Cwd: dir,
+		Status: models.SessionStatusClosed, WorkspaceID: &wid,
+	}
+	if err := repo.Create(sess); err != nil {
+		t.Fatalf("创建会话失败: %v", err)
+	}
+	skills, commands, rules := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
+	if err := svc.DeleteSession(context.Background(), "delete-persist"); err != nil {
+		t.Fatalf("DeleteSession 错误: %v", err)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Errorf("persistent 工作区目录应保留: %v", err)
+	}
+	if _, err := wsRepo.FindByID(ws.ID); err != nil {
+		t.Errorf("persistent 工作区记录应保留: %v", err)
 	}
 }
 

@@ -19,6 +19,18 @@ type Config struct {
 	Password PasswordConfig `yaml:"password"`
 	Logging  LoggingConfig  `yaml:"logging"`
 	Agents   AgentsConfig   `yaml:"agents"`
+	Debug    DebugConfig    `yaml:"debug"`
+}
+
+// DebugConfig 控制调试能力（如 ACP 协议报文捕获）。
+type DebugConfig struct {
+	ACP ACPDebugConfig `yaml:"acp"`
+}
+
+// ACPDebugConfig 控制 ACP JSON-RPC 原始报文与高层事件的本地记录。
+type ACPDebugConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Dir     string `yaml:"dir"` // 默认 ~/.nextAgent/acp-debug
 }
 
 // LoggingConfig 控制应用与 ACP 交互日志输出。
@@ -225,6 +237,27 @@ func (c *Config) Validate() error {
 	if err := c.Agents.Rules.normalize(); err != nil {
 		return err
 	}
+	if err := c.Debug.ACP.normalize(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// normalize 填充 ACP debug 目录默认值并展开 ~。
+func (c *ACPDebugConfig) normalize() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("获取用户主目录以设置 acp-debug 路径: %w", err)
+	}
+	if c.Dir == "" {
+		c.Dir = filepath.Join(home, ".nextAgent", "acp-debug")
+		return nil
+	}
+	abs, err := expandPath(c.Dir)
+	if err != nil {
+		return fmt.Errorf("debug.acp.dir 无效: %w", err)
+	}
+	c.Dir = abs
 	return nil
 }
 

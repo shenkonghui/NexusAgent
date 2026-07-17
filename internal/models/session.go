@@ -17,7 +17,9 @@ const (
 type Session struct {
 	ID            uint   `gorm:"primaryKey" json:"id"`
 	SessionID     string `gorm:"uniqueIndex;size:128;not null" json:"session_id"`
-	AgentType     string `gorm:"size:64;not null" json:"agent_type"`
+	// AgentSessionID 是 ACP agent 返回的 sessionId；创建时为空，激活/恢复时写入，不覆盖 SessionID。
+	AgentSessionID string `gorm:"size:128;index" json:"agent_session_id"`
+	AgentType      string `gorm:"size:64;not null" json:"agent_type"`
 	Cwd           string `gorm:"size:512;not null" json:"-"` // 废弃，cwd 从 Workspace 获取
 	Status        string `gorm:"size:32;not null;default:active" json:"status"`
 	UserID        uint   `gorm:"index" json:"user_id"`

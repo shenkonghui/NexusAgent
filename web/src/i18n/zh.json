@@ -442,5 +442,18 @@
       "warn": "警告",
       "error": "错误"
     }
+  },
+  "debug": {
+    "title": "调试",
+    "events": "事件",
+    "raw": "原始报文",
+    "send": "发送",
+    "receive": "接收",
+    "empty": "暂无调试数据",
+    "autoScroll": "自动滚动",
+    "refresh": "刷新",
+    "filterAll": "全部",
+    "filterType": "按事件类型过滤",
+    "disabledHint": "ACP 调试未启用。请在 config.yaml 中设置 debug.acp.enabled: true 后重启服务。"
   }
 }

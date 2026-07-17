@@ -109,6 +109,8 @@ export interface Workspace {
 export interface Session {
   id: number;
   session_id: string;
+  /** ACP agent 返回的 sessionId；pending 时为空 */
+  agent_session_id?: string;
   agent_type: string;
   status: 'active' | 'closed' | 'error' | 'pending';
   user_id: number;

@@ -154,25 +154,28 @@ func TestSessionRepo_FindByID_NotFound(t *testing.T) {
 	}
 }
 
-func TestSessionRepo_UpdateSessionID(t *testing.T) {
+func TestSessionRepo_UpdateAgentSessionID(t *testing.T) {
 	db := setupTestDB(t)
 	repo := NewSessionRepository(db)
 	s := &models.Session{
-		SessionID: "old-session-id", AgentType: "claude-code", Cwd: "/tmp",
+		SessionID: "stable-session-id", AgentType: "claude-code", Cwd: "/tmp",
 		Status: models.SessionStatusError, WorkspaceMode: "",
 	}
 	_ = repo.Create(s)
 
-	if err := repo.UpdateSessionID(s.ID, "new-session-id"); err != nil {
-		t.Fatalf("UpdateSessionID 返回错误: %v", err)
+	if err := repo.UpdateAgentSessionID(s.ID, "acp-agent-id"); err != nil {
+		t.Fatalf("UpdateAgentSessionID 返回错误: %v", err)
 	}
 
 	got, err := repo.FindByID(s.ID)
 	if err != nil {
 		t.Fatalf("FindByID 返回错误: %v", err)
 	}
-	if got.SessionID != "new-session-id" {
-		t.Errorf("SessionID = %q, 期望 new-session-id", got.SessionID)
+	if got.SessionID != "stable-session-id" {
+		t.Errorf("SessionID = %q, 期望 stable-session-id", got.SessionID)
+	}
+	if got.AgentSessionID != "acp-agent-id" {
+		t.Errorf("AgentSessionID = %q, 期望 acp-agent-id", got.AgentSessionID)
 	}
 }
 

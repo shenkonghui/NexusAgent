@@ -98,6 +98,9 @@ type Service struct {
 
 	// taskMetaTrigger 可选：发起任务时异步触发自动打标签 / 标题生成。nil 则跳过。
 	taskMetaTrigger TaskMetaTrigger
+
+	// dbg 可选：ACP 协议调试捕获器。nil 或未启用时零开销。
+	dbg *ACPDebugger
 }
 
 // TaskMetaTrigger 由任务元数据服务实现，发起任务时异步调用以打标签和生成标题。
@@ -143,6 +146,70 @@ func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig, skillsConfig confi
 func (s *Service) SetNotesMCP(settings *repository.NoteSettingsRepository, publicBaseURL string) {
 	s.noteSettings = settings
 	s.publicBaseURL = strings.TrimRight(strings.TrimSpace(publicBaseURL), "/")
+}
+
+// SetDebugConfig 注入 ACP 调试配置；enabled=false 时清空 debugger。
+func (s *Service) SetDebugConfig(cfg config.DebugConfig) {
+	if !cfg.ACP.Enabled {
+		s.dbg = nil
+		return
+	}
+	s.dbg = NewACPDebugger(DebugConfig{Enabled: true, Dir: cfg.ACP.Dir})
+}
+
+// Debugger 返回 ACP 调试器（可能为 nil）。
+func (s *Service) Debugger() *ACPDebugger {
+	return s.dbg
+}
+
+func (s *Service) debugLog(dbSessionID uint, event, acpSessionID string, detail any) {
+	if s.dbg == nil {
+		return
+	}
+	s.dbg.LogEvent(fmt.Sprintf("%d", dbSessionID), event, acpSessionID, detail)
+}
+
+func (s *Service) debugRegister(acpSessionID string, dbSessionID uint) {
+	if s.dbg == nil {
+		return
+	}
+	s.dbg.RegisterSession(acpSessionID, fmt.Sprintf("%d", dbSessionID))
+}
+
+func (s *Service) debugUnregister(acpSessionID string) {
+	if s.dbg == nil {
+		return
+	}
+	s.dbg.Unregister(acpSessionID)
+}
+
+func (s *Service) debugCleanup(dbSessionID uint) {
+	if s.dbg == nil || dbSessionID == 0 {
+		return
+	}
+	s.dbg.CleanupSession(fmt.Sprintf("%d", dbSessionID))
+}
+
+func (s *Service) debugBindPending(agentType string, dbSessionID uint) {
+	if s.dbg == nil {
+		return
+	}
+	s.dbg.BindPending(agentType, fmt.Sprintf("%d", dbSessionID))
+}
+
+func (s *Service) debugClearPending(agentType string) {
+	if s.dbg == nil {
+		return
+	}
+	s.dbg.ClearPending(agentType)
+}
+
+// agentSessionID 返回调 ACP 用的 sessionId；优先 AgentSessionID，兼容旧数据。
+func agentSessionID(session *models.Session) string {
+	if session.AgentSessionID != "" {
+		return session.AgentSessionID
+	}
+	return session.SessionID
 }
 
 func (s *Service) notesMCPServers(userID uint) []acp.McpServer {
@@ -367,7 +434,7 @@ func (s *Service) buildConnection(ctx context.Context, agentType, cwd string) (*
 			return nil, fmt.Errorf("创建工作目录 %s: %w", cwd, err)
 		}
 	}
-	newConn, err := NewConnection(backend, cwd)
+	newConn, err := NewConnection(backend, cwd, s.dbg)
 	if err != nil {
 		slog.Error("建立 agent 连接失败：启动 agent 进程失败",
 			"agent", agentType,
@@ -695,7 +762,7 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 		_ = ws.Cleanup()
 	}
 
-	// 生成临时 SessionID，不创建 ACP 会话，快速返回 pending 状态
+	// 生成稳定 SessionID，不创建 ACP 会话，快速返回 pending 状态
 	tempSessionID := uuid.New().String()
 	wid := dbWS.ID
 	session := &models.Session{
@@ -764,47 +831,50 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 		if actErr != nil {
 			return nil, fmt.Errorf("激活会话-建立连接: %w", actErr)
 		}
-		newSessionID, configOptions, modes, actErr := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd), s.notesMCPServers(session.UserID))
+		s.debugBindPending(session.AgentType, session.ID)
+		newAgentSID, configOptions, modes, actErr := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd), s.notesMCPServers(session.UserID))
+		s.debugClearPending(session.AgentType)
 		if actErr != nil {
 			return nil, fmt.Errorf("激活会话-创建 ACP 会话: %w", actErr)
 		}
 
-		// 更新 DB 中的 SessionID 和状态
-		if actErr = s.sessions.UpdateSessionID(session.ID, newSessionID); actErr != nil {
-			_ = conn.CloseSessionByID(ctx, newSessionID)
-			return nil, fmt.Errorf("激活会话-更新 session_id: %w", actErr)
+		// 写入 agent_session_id，不改稳定 session_id
+		if actErr = s.sessions.UpdateAgentSessionID(session.ID, newAgentSID); actErr != nil {
+			_ = conn.CloseSessionByID(ctx, newAgentSID)
+			return nil, fmt.Errorf("激活会话-更新 agent_session_id: %w", actErr)
 		}
 		if actErr = s.sessions.UpdateStatus(session.ID, models.SessionStatusActive, nil); actErr != nil {
-			_ = conn.CloseSessionByID(ctx, newSessionID)
+			_ = conn.CloseSessionByID(ctx, newAgentSID)
 			return nil, fmt.Errorf("激活会话-更新状态: %w", actErr)
 		}
 
-		// 建立路由（同时映射新旧 sessionID，兼容 connForSession 查询）
+		// 内存路由以稳定 session_id 为键
 		poolKey := connectionKey(session.AgentType, cwd)
 		s.mu.Lock()
-		s.sessionPoolKey[newSessionID] = poolKey
 		s.sessionPoolKey[sessionID] = poolKey
 		if len(configOptions) > 0 {
-			s.configs[newSessionID] = configOptions
+			s.configs[sessionID] = configOptions
 		}
 		if len(modes) > 0 {
-			s.modes[newSessionID] = modes
+			s.modes[sessionID] = modes
 			s.agentModes[session.AgentType] = modes
 		}
 		s.mu.Unlock()
-		slog.Info("agent 会话已激活", "agent", session.AgentType, "session", newSessionID, "cwd", cwd)
+		s.debugRegister(newAgentSID, session.ID)
+		s.debugLog(session.ID, "new_session", newAgentSID, map[string]any{
+			"agent": session.AgentType, "cwd": cwd,
+		})
+		slog.Info("agent 会话已激活", "agent", session.AgentType, "session", sessionID, "agent_session", newAgentSID, "cwd", cwd)
+
+		session.AgentSessionID = newAgentSID
+		session.Status = models.SessionStatusActive
 
 		// 应用用户在创建会话时选择的模型（configOptions 在激活时才可用，故延迟到此设置）
 		if modelValue := strings.TrimSpace(session.ModelValue); modelValue != "" {
-			if err := s.applyModelValue(ctx, newSessionID, configOptions, modelValue); err != nil {
-				slog.Warn("激活会话-应用用户模型失败", "agent", session.AgentType, "session", newSessionID, "model", modelValue, "err", err)
+			if err := s.applyModelValue(ctx, sessionID, newAgentSID, configOptions, modelValue); err != nil {
+				slog.Warn("激活会话-应用用户模型失败", "agent", session.AgentType, "session", sessionID, "model", modelValue, "err", err)
 			}
 		}
-
-		// 后续使用 ACP sessionID
-		sessionID = newSessionID
-		session.SessionID = newSessionID
-		session.Status = models.SessionStatusActive
 	}
 
 	conn, ok := s.connForSession(sessionID)
@@ -824,6 +894,7 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 		}
 	}
 
+	acpSID := agentSessionID(session)
 	agentPrompt := s.expandPrompt(sessionID, session, prompt)
 
 	// 注入工作区附加目录上下文，让 AI 知晓可访问的额外目录
@@ -832,12 +903,16 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 	}
 	slog.Debug("发送 agent prompt",
 		"session", sessionID,
+		"agent_session", acpSID,
 		"agent", session.AgentType,
 		"prompt_chars", len(prompt),
 		"expanded_chars", len(agentPrompt),
 		"preview", logging.Preview(prompt, 120),
 	)
-	updates, err := conn.Prompt(ctx, sessionID, agentPrompt)
+	s.debugLog(session.ID, "prompt", acpSID, map[string]any{
+		"chars": len(prompt), "preview": logging.Preview(prompt, 80),
+	})
+	updates, err := conn.Prompt(ctx, acpSID, agentPrompt)
 	if err != nil {
 		return nil, err
 	}
@@ -900,7 +975,7 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 		}()
 
 		seq := startSeq
-		sid := acp.SessionId(sessionID)
+		sid := acp.SessionId(acpSID)
 		permCh := conn.Client().RegisterPermissionWaiter(sid)
 		defer conn.Client().UnregisterPermissionWaiter(sid)
 
@@ -965,8 +1040,14 @@ func (s *Service) CancelSession(ctx context.Context, sessionID string) error {
 	if !ok {
 		return ErrSessionNotFound
 	}
-	conn.Client().CancelPermissions(acp.SessionId(sessionID))
-	return conn.Cancel(ctx, sessionID)
+	sess, err := s.GetSession(sessionID)
+	if err != nil {
+		return err
+	}
+	acpSID := agentSessionID(sess)
+	s.debugLog(sess.ID, "cancel", acpSID, nil)
+	conn.Client().CancelPermissions(acp.SessionId(acpSID))
+	return conn.Cancel(ctx, acpSID)
 }
 
 // registerBroadcaster 注册指定会话的活跃 prompt 广播器。
@@ -1062,18 +1143,20 @@ func (s *Service) hasActiveSessionForPoolKey(poolKey string) bool {
 	return false
 }
 
-// DeleteSession 彻底删除会话：释放 session 资源、清理工作区、删除消息与 会话记录。
+// DeleteSession 彻底删除会话：释放连接、删除消息/记录，并清理 debug 日志与孤儿 temporary 工作区。
 func (s *Service) DeleteSession(ctx context.Context, sessionID string) error {
 	session, err := s.GetSession(sessionID)
 	if err != nil {
 		return err
 	}
+	wsID := session.WorkspaceID
 
+	s.debugUnregister(agentSessionID(session))
 	poolKey, hadConn := s.detachSession(sessionID)
 	if hadConn {
 		conn, connOK := s.pool[poolKey]
 		if connOK {
-			_ = conn.CloseSessionByID(ctx, sessionID)
+			_ = conn.CloseSessionByID(ctx, agentSessionID(session))
 			if !s.hasActiveSessionForPoolKey(poolKey) {
 				s.mu.Lock()
 				delete(s.pool, poolKey)
@@ -1084,8 +1167,6 @@ func (s *Service) DeleteSession(ctx context.Context, sessionID string) error {
 		}
 	}
 
-	// 工作区目录由 workspace 生命周期管理，删除单个会话时不清理目录。
-
 	// 先删消息再删会话，避免孤儿消息
 	if err := s.messages.DeleteByDBSessionID(session.ID); err != nil {
 		return fmt.Errorf("删除会话消息: %w", err)
@@ -1093,7 +1174,28 @@ func (s *Service) DeleteSession(ctx context.Context, sessionID string) error {
 	if err := s.sessions.Delete(session.ID); err != nil {
 		return fmt.Errorf("删除会话记录: %w", err)
 	}
+	s.debugCleanup(session.ID)
+	s.maybeCleanupOrphanTemporaryWorkspace(wsID)
 	return nil
+}
+
+// maybeCleanupOrphanTemporaryWorkspace 在 temporary 工作区已无会话时删除目录与记录。
+func (s *Service) maybeCleanupOrphanTemporaryWorkspace(wsID *uint) {
+	if wsID == nil || *wsID == 0 {
+		return
+	}
+	ws, err := s.workspaces.FindByID(*wsID)
+	if err != nil || ws == nil || ws.Mode != models.WorkspaceModeTemporary {
+		return
+	}
+	count, err := s.workspaces.SessionCount(*wsID)
+	if err != nil || count > 0 {
+		return
+	}
+	_ = s.workspaces.Delete(*wsID)
+	if err := (&Workspace{Mode: ws.Mode, Cwd: ws.Cwd, TempDir: ws.TempDir}).Cleanup(); err != nil {
+		slog.Warn("清理 temporary 工作区失败", "workspaceID", *wsID, "err", err)
+	}
 }
 
 // ListSessions 列出指定用户的会话。
@@ -1556,26 +1658,32 @@ func (s *Service) ListSkills(sessionID string) ([]Skill, error) {
 
 // SetConfigOption 设置会话的 config option 值（如切换模型）。
 func (s *Service) SetConfigOption(ctx context.Context, sessionID, configID, value string) error {
-	if _, err := s.GetSession(sessionID); err != nil {
+	sess, err := s.GetSession(sessionID)
+	if err != nil {
 		return err
 	}
 	conn, ok := s.connForSession(sessionID)
 	if !ok {
 		return ErrSessionNotActive
 	}
-	return conn.SetConfigOption(ctx, sessionID, configID, value)
+	acpSID := agentSessionID(sess)
+	s.debugLog(sess.ID, "set_config", acpSID, map[string]any{"config_id": configID, "value": value})
+	return conn.SetConfigOption(ctx, acpSID, configID, value)
 }
 
 // SetSessionMode 切换会话模式（如 ask / agent / edit）。
 func (s *Service) SetSessionMode(ctx context.Context, sessionID, modeID string) error {
-	if _, err := s.GetSession(sessionID); err != nil {
+	sess, err := s.GetSession(sessionID)
+	if err != nil {
 		return err
 	}
 	conn, ok := s.connForSession(sessionID)
 	if !ok {
 		return ErrSessionNotActive
 	}
-	return conn.SetSessionMode(ctx, sessionID, modeID)
+	acpSID := agentSessionID(sess)
+	s.debugLog(sess.ID, "set_mode", acpSID, map[string]any{"mode_id": modeID})
+	return conn.SetSessionMode(ctx, acpSID, modeID)
 }
 
 // RespondPermission 提交用户对权限请求的响应。
@@ -1596,7 +1704,7 @@ func (s *Service) GetSessionByDBID(id uint) (*models.Session, error) {
 	return sess, nil
 }
 
-// ResumeSession 恢复或重开会话：在共享连接上新建 ACP session、注入历史上下文、更新 session_id。
+// ResumeSession 恢复或重开会话：在共享连接上新建 ACP session、注入历史上下文、更新 agent_session_id。
 // active 且连接存在的会话直接返回；error 与 closed 状态均会尝试恢复。
 func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.Session, error) {
 	session, err := s.GetSession(sessionID)
@@ -1633,7 +1741,10 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 		return nil, fmt.Errorf("恢复会话-建立连接: %w", err)
 	}
 
-	newSessionID, configOptions, modes, err := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd), s.notesMCPServers(session.UserID))
+	oldAgentSID := session.AgentSessionID
+	s.debugBindPending(session.AgentType, session.ID)
+	newAgentSID, configOptions, modes, err := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd), s.notesMCPServers(session.UserID))
+	s.debugClearPending(session.AgentType)
 	if err != nil {
 		return nil, fmt.Errorf("恢复会话-创建 ACP 会话: %w", err)
 	}
@@ -1644,35 +1755,38 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 	if contextText != "" {
 		// 异步注入历史上下文，不等结果
 		go func() {
-			_, _ = conn.Prompt(ctx, newSessionID, contextText)
+			_, _ = conn.Prompt(ctx, newAgentSID, contextText)
 		}()
 	}
 
-	// 更新 session_id 和状态（closed_at 置空）
-	if err := s.sessions.UpdateSessionID(session.ID, newSessionID); err != nil {
-		_ = conn.CloseSessionByID(ctx, newSessionID)
-		return nil, fmt.Errorf("恢复会话-更新 session_id: %w", err)
+	// 更新 agent_session_id 和状态（closed_at 置空）；稳定 session_id 不变
+	if err := s.sessions.UpdateAgentSessionID(session.ID, newAgentSID); err != nil {
+		_ = conn.CloseSessionByID(ctx, newAgentSID)
+		return nil, fmt.Errorf("恢复会话-更新 agent_session_id: %w", err)
 	}
 	if err := s.sessions.UpdateStatus(session.ID, models.SessionStatusActive, nil); err != nil {
-		_ = conn.CloseSessionByID(ctx, newSessionID)
+		_ = conn.CloseSessionByID(ctx, newAgentSID)
 		return nil, fmt.Errorf("恢复会话-更新状态: %w", err)
 	}
 
-	// 清理旧 sessionID 路由，建立新路由
+	// 稳定 session_id 为键，更新路由与缓存
 	poolKey := connectionKey(session.AgentType, cwd)
 	s.mu.Lock()
-	delete(s.sessionPoolKey, sessionID)
-	delete(s.commands, sessionID)
-	delete(s.configs, sessionID)
-	delete(s.modes, sessionID)
-	s.sessionPoolKey[newSessionID] = poolKey
+	s.sessionPoolKey[sessionID] = poolKey
 	if len(configOptions) > 0 {
-		s.configs[newSessionID] = configOptions
+		s.configs[sessionID] = configOptions
 	}
 	if len(modes) > 0 {
-		s.modes[newSessionID] = modes
+		s.modes[sessionID] = modes
 	}
 	s.mu.Unlock()
+	if oldAgentSID != "" {
+		s.debugUnregister(oldAgentSID)
+	}
+	s.debugRegister(newAgentSID, session.ID)
+	s.debugLog(session.ID, "resume_session", newAgentSID, map[string]any{
+		"agent": session.AgentType, "cwd": cwd,
+	})
 
 	// 返回更新后的 session
 	return s.sessions.FindByID(session.ID)
@@ -1794,7 +1908,8 @@ func (s *Service) ListAgentStatus() []AgentStatus {
 
 // applyModelValue 在指定 configOptions 中查找 category=model 的 select option，
 // 若找到且 modelValue 在可选项中，则通过连接设置该值。
-func (s *Service) applyModelValue(ctx context.Context, sessionID string, opts []acp.SessionConfigOption, modelValue string) error {
+// sessionID 为稳定内部 ID（查连接路由），agentSID 为 ACP sessionId。
+func (s *Service) applyModelValue(ctx context.Context, sessionID, agentSID string, opts []acp.SessionConfigOption, modelValue string) error {
 	for _, opt := range opts {
 		if opt.Select == nil || opt.Select.Category == nil {
 			continue
@@ -1832,7 +1947,7 @@ func (s *Service) applyModelValue(ctx context.Context, sessionID string, opts []
 		if !ok {
 			return ErrSessionNotActive
 		}
-		return conn.SetConfigOption(ctx, sessionID, string(opt.Select.Id), modelValue)
+		return conn.SetConfigOption(ctx, agentSID, string(opt.Select.Id), modelValue)
 	}
 	return nil // 该 agent 无 model config option，静默跳过
 }
@@ -1909,5 +2024,9 @@ func (s *Service) DeleteSessionWithMessages(session *models.Session) error {
 	if err := s.messages.DeleteByDBSessionID(session.ID); err != nil {
 		return err
 	}
-	return s.sessions.Delete(session.ID)
+	if err := s.sessions.Delete(session.ID); err != nil {
+		return err
+	}
+	s.debugCleanup(session.ID)
+	return nil
 }

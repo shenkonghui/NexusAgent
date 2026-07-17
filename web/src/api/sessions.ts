@@ -118,3 +118,48 @@ export function getInterruptedTasks(id: number): Promise<{ data: { tasks: Runnin
 export function resumeInterruptedTaskURL(taskId: number): string {
   return `/running-tasks/${taskId}/resume`
 }
+
+export interface DebugMeta {
+  enabled: boolean
+  dir: string
+  event_count: number
+  raw_count: number
+  last_ts?: string
+}
+
+export interface DebugEvent {
+  ts: string
+  event: string
+  session_id?: string
+  db_session_id?: string
+  detail?: unknown
+}
+
+export interface DebugRaw {
+  ts: string
+  direction: 'send' | 'recv' | string
+  session_id?: string
+  db_session_id?: string
+  line: unknown
+}
+
+export function getDebugMeta(id: number): Promise<{ data: DebugMeta }> {
+  return apiFetch(`/sessions/${id}/debug`)
+}
+
+export function listDebugEvents(
+  id: number,
+  since = 0,
+  limit = 200,
+): Promise<{ data: { events: DebugEvent[] } }> {
+  return apiFetch(`/sessions/${id}/debug/events?since=${since}&limit=${limit}`)
+}
+
+export function listDebugRaw(
+  id: number,
+  since = 0,
+  limit = 0,
+): Promise<{ data: { raw: DebugRaw[] } }> {
+  return apiFetch(`/sessions/${id}/debug/raw?since=${since}&limit=${limit}`)
+}
+

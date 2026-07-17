@@ -16,7 +16,7 @@ import (
 	"nexusagent/internal/services"
 )
 
-func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, schedTaskH *handlers.ScheduledTaskHandler, noteH *handlers.NoteHandler, taskSettingsH *handlers.TaskSettingsHandler, agentPrefsH *handlers.AgentPrefsHandler, configH *handlers.ConfigHandler, logH *handlers.LogHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, rulesCfg config.RulesConfig, mode, webDist string, autoLogin bool) *gin.Engine {
+func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, schedTaskH *handlers.ScheduledTaskHandler, noteH *handlers.NoteHandler, taskSettingsH *handlers.TaskSettingsHandler, agentPrefsH *handlers.AgentPrefsHandler, configH *handlers.ConfigHandler, logH *handlers.LogHandler, debugH *handlers.DebugHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, rulesCfg config.RulesConfig, mode, webDist string, autoLogin bool) *gin.Engine {
 	gin.SetMode(mode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -97,6 +97,13 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			protected.GET("/sessions/:id/files", sessionFileH.ListFiles)
 			protected.GET("/sessions/:id/files/content", sessionFileH.ReadFile)
 			protected.PUT("/sessions/:id/files/content", sessionFileH.WriteFile)
+
+			// ACP 调试数据（需 debug.acp.enabled）
+			if debugH != nil {
+				protected.GET("/sessions/:id/debug", debugH.Meta)
+				protected.GET("/sessions/:id/debug/events", debugH.Events)
+				protected.GET("/sessions/:id/debug/raw", debugH.Raw)
+			}
 
 			// 配置管理（config.yaml agents 块下的 skills/commands/rules 配置）
 			configG := protected.Group("/config")

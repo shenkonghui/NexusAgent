@@ -85,10 +85,10 @@ func (r *SessionRepository) FindByID(id uint) (*models.Session, error) {
 	return &s, nil
 }
 
-// UpdateSessionID 更新会话的 ACP session ID（会话恢复时调用）。
-func (r *SessionRepository) UpdateSessionID(id uint, newSessionID string) error {
+// UpdateAgentSessionID 更新会话的 ACP agent session ID（激活/恢复时调用，不改 session_id）。
+func (r *SessionRepository) UpdateAgentSessionID(id uint, agentSessionID string) error {
 	return r.db.Model(&models.Session{}).Where("id = ?", id).
-		Update("session_id", newSessionID).Error
+		Update("agent_session_id", agentSessionID).Error
 }
 
 // FindByWorkspaceID 返回指定 workspace 下的所有 session。

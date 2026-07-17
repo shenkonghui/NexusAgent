@@ -97,6 +97,7 @@ func main() {
 
 	// P1: ACP 服务
 	acpSvc := acp.NewService(db, cfg.Agents.Workspace, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules)
+	acpSvc.SetDebugConfig(cfg.Debug)
 
 	// P2: Agent 注册表与路由
 	agentRegistry := agent.NewRegistry()
@@ -158,8 +159,9 @@ func main() {
 	// 日志查看器：复用 logging 包在 Setup 时初始化的日志中心单例，
 	// 通过 SSE 把后端 slog 日志实时推送给前端。
 	logH := handlers.NewLogHandler(logging.DefaultHub())
+	debugH := handlers.NewDebugHandler(agentRouter, acpSvc.Debugger())
 
-	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, taskSettingsH, agentPrefsH, configH, logH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
+	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, taskSettingsH, agentPrefsH, configH, logH, debugH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
 	engine.Any("/mcp/notes", gin.WrapH(notesmcp.Handler(noteRepo, noteSettingsRepo)))
 	engine.Any("/mcp/notes/*path", gin.WrapH(notesmcp.Handler(noteRepo, noteSettingsRepo)))
 

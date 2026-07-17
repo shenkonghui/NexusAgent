@@ -59,7 +59,7 @@ func TestSetup_RegistersP5Routes(t *testing.T) {
 	taskSettingsH := handlers.NewTaskSettingsHandler(taskSettingsRepo)
 	agentPrefsH := handlers.NewAgentPrefsHandler(repository.NewUserAgentPrefsRepository(db))
 	logH := handlers.NewLogHandler(logging.NewLogHub(0))
-	engine := Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, taskSettingsH, agentPrefsH, nil, logH, skillsCfg, commandsCfg, rulesCfg, gin.TestMode, "", false)
+	engine := Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, taskSettingsH, agentPrefsH, nil, logH, nil, skillsCfg, commandsCfg, rulesCfg, gin.TestMode, "", false)
 
 	want := []string{
 		"GET /api/v1/agents",

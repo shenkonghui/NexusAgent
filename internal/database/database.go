@@ -23,7 +23,18 @@ func Connect(dsn string) (*gorm.DB, error) {
 	if err := migrateOldSessionsToWorkspaces(db); err != nil {
 		return nil, fmt.Errorf("迁移旧会话数据: %w", err)
 	}
+	// 数据迁移：旧 session_id 曾是 ACP id，回填到 agent_session_id
+	if err := migrateAgentSessionID(db); err != nil {
+		return nil, fmt.Errorf("迁移 agent_session_id: %w", err)
+	}
 	return db, nil
+}
+
+// migrateAgentSessionID 对非 pending 且 agent_session_id 为空的行，用 session_id 回填。
+func migrateAgentSessionID(db *gorm.DB) error {
+	return db.Model(&models.Session{}).
+		Where("status != ? AND (agent_session_id IS NULL OR agent_session_id = '')", models.SessionStatusPending).
+		Update("agent_session_id", gorm.Expr("session_id")).Error
 }
 
 func migrateOldSessionsToWorkspaces(db *gorm.DB) error {

@@ -436,5 +436,18 @@
       "warn": "Warn",
       "error": "Error"
     }
+  },
+  "debug": {
+    "title": "Debug",
+    "events": "Events",
+    "raw": "Raw",
+    "send": "Send",
+    "receive": "Receive",
+    "empty": "No debug data yet",
+    "autoScroll": "Auto-scroll",
+    "refresh": "Refresh",
+    "filterAll": "All",
+    "filterType": "Filter by event type",
+    "disabledHint": "ACP debug is disabled. Set debug.acp.enabled: true in config.yaml and restart."
   }
 }

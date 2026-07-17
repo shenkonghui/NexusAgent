@@ -4,10 +4,12 @@ import type { Message } from '../types'
 import FilePanel from './FilePanel'
 import ChangesPanel from './ChangesPanel'
 import TerminalPanel from './Terminal'
-import { Folder, SquareTerminal, Pencil, PanelRightClose } from 'lucide-react'
+import DebugPanel from './DebugPanel'
+import { getDebugMeta } from '../api/sessions'
+import { Folder, SquareTerminal, Pencil, PanelRightClose, Bug } from 'lucide-react'
 import styles from './WorkspacePanel.module.css'
 
-type TabKey = 'files' | 'terminal' | 'changes'
+type TabKey = 'files' | 'terminal' | 'changes' | 'debug'
 
 interface WorkspacePanelProps {
   sessionId: number
@@ -29,6 +31,7 @@ export default function WorkspacePanel({
   onClose,
 }: WorkspacePanelProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('files')
+  const [debugEnabled, setDebugEnabled] = useState(false)
 
   // 改动数 > 0 时，若用户尚未手动选择过，自动切到 changes 提示（仅一次）
   const [autoSwitched, setAutoSwitched] = useState(false)
@@ -38,11 +41,28 @@ export default function WorkspacePanel({
     }
   }, [changesCount, autoSwitched])
 
+  useEffect(() => {
+    let cancelled = false
+    getDebugMeta(sessionId)
+      .then((res) => {
+        if (!cancelled) setDebugEnabled(!!res.data?.enabled)
+      })
+      .catch(() => {
+        if (!cancelled) setDebugEnabled(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [sessionId])
+
   const tabs: { key: TabKey; label: string; icon: ReactNode; badge?: number }[] = [
     { key: 'files', label: '文件', icon: <Folder size={14} /> },
     { key: 'terminal', label: '终端', icon: <SquareTerminal size={14} /> },
     { key: 'changes', label: '改动', icon: <Pencil size={14} />, badge: changesCount },
   ]
+  if (debugEnabled) {
+    tabs.push({ key: 'debug', label: '调试', icon: <Bug size={14} /> })
+  }
 
   return (
     <div className={styles.workspace}>
@@ -95,6 +115,11 @@ export default function WorkspacePanel({
             </div>
           )}
         </div>
+        {debugEnabled && (
+          <div style={{ display: activeTab === 'debug' ? 'flex' : 'none', width: '100%', height: '100%', flexDirection: 'column' }}>
+            <DebugPanel sessionId={sessionId} />
+          </div>
+        )}
       </div>
     </div>
   )
