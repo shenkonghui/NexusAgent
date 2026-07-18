@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -271,5 +272,284 @@ func (h *SessionFileHandler) WriteFile(c *gin.Context) {
 	Success(c, http.StatusOK, gin.H{
 		"path": req.Path,
 		"size": len(req.Content),
+	})
+}
+
+// undoDiffItem 表示快照消息 raw_json.content[] 中单个 diff 项。
+type undoDiffItem struct {
+	Type    string `json:"type"`
+	Path    string `json:"path"`
+	OldText string `json:"oldText"` // 修改前内容；新文件时为空（字段缺失）
+	NewText string `json:"newText"`
+}
+
+// parseSnapshotDiffs 从消息 raw_json 中解析 content[] 的 diff 项。
+// 仅返回 type=="diff" 且 path 非空的项。
+func parseSnapshotDiffs(rawJSON string) []undoDiffItem {
+	var payload struct {
+		Content []undoDiffItem `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(rawJSON), &payload); err != nil {
+		return nil
+	}
+	var items []undoDiffItem
+	for _, item := range payload.Content {
+		if item.Type == "diff" && item.Path != "" {
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
+// fileChangeEntry 是 ListFileChanges 返回的单个文件改动项。
+type fileChangeEntry struct {
+	Path    string `json:"path"`     // 相对 cwd 的路径
+	OldText string `json:"old_text"` // 修改前内容（新文件为空）
+	NewText string `json:"new_text"` // 修改后内容
+	IsNew   bool   `json:"is_new"`   // 是否为新建文件
+}
+
+// ListFileChanges GET /api/v1/sessions/:id/files/changes
+// 从持久化的快照消息中聚合当前会话所有文件改动（按路径去重，保留最新）。
+// 数据来源是 DB 中的 snapshot diff 消息，不依赖前端内存。
+// 路径统一归一化为相对 cwd 的相对路径，避免绝对/相对路径混用导致重复。
+func (h *SessionFileHandler) ListFileChanges(c *gin.Context) {
+	sess, cwd, ok := h.resolveSessionCwd(c)
+	if !ok {
+		return
+	}
+
+	allMsgs, err := h.store.ListMessages(sess.SessionID)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "LOAD_FAILED", "加载消息失败")
+		return
+	}
+
+	// 按归一化路径去重，保留最新（sequence 最大）的 diff 项
+	latest := make(map[string]undoDiffItem)
+	for i := range allMsgs {
+		m := &allMsgs[i]
+		if m.Kind != "tool_call_update" {
+			continue
+		}
+		items := parseSnapshotDiffs(m.RawJSON)
+		for _, item := range items {
+			relPath := normalizeRelPath(item.Path, cwd)
+			// 更新 item.Path 为归一化后的相对路径
+			item.Path = relPath
+			latest[relPath] = item // 后出现的覆盖前者（消息按 sequence 升序）
+		}
+	}
+
+	entries := make([]fileChangeEntry, 0, len(latest))
+	for _, item := range latest {
+		entries = append(entries, fileChangeEntry{
+			Path:    item.Path,
+			OldText: item.OldText,
+			NewText: item.NewText,
+			IsNew:   item.OldText == "",
+		})
+	}
+
+	Success(c, http.StatusOK, gin.H{
+		"changes": entries,
+		"count":   len(entries),
+	})
+}
+
+// normalizeRelPath 将路径归一化为相对 cwd 的路径。
+// 绝对路径转为相对；已经是相对路径的保持不变。
+func normalizeRelPath(path, cwd string) string {
+	if !filepath.IsAbs(path) {
+		return path
+	}
+	rel, err := filepath.Rel(cwd, path)
+	if err != nil {
+		return path
+	}
+	return rel
+}
+
+// applyUndoDiffs 反向应用一组 diff 项，将文件恢复到修改前状态。
+// 有 oldText → 覆盖回去；无 oldText（新建文件）→ 删除。
+// 返回恢复的文件数、删除的文件数和错误列表。
+func applyUndoDiffs(cwd string, items []undoDiffItem) (restored, deleted int, errs []string) {
+	for _, item := range items {
+		absPath, err := safeJoin(cwd, item.Path)
+		if err != nil {
+			errs = append(errs, item.Path+": 路径非法")
+			continue
+		}
+
+		if item.OldText != "" {
+			// 修改的文件：恢复修改前内容
+			parent := filepath.Dir(absPath)
+			if err := os.MkdirAll(parent, 0o755); err != nil {
+				errs = append(errs, item.Path+": 无法创建父目录")
+				continue
+			}
+			if err := os.WriteFile(absPath, []byte(item.OldText), 0o644); err != nil {
+				errs = append(errs, item.Path+": 写入失败")
+				continue
+			}
+			restored++
+		} else {
+			// 新建的文件：删除（忽略 notexist）
+			if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
+				errs = append(errs, item.Path+": 删除失败")
+				continue
+			}
+			deleted++
+		}
+	}
+	return
+}
+
+// resolveSessionCwd 加载会话并解析工作目录（workspace 优先于 session.Cwd）。
+func (h *SessionFileHandler) resolveSessionCwd(c *gin.Context) (*models.Session, string, bool) {
+	sess, ok := h.loadOwnedSession(c)
+	if !ok {
+		return nil, "", false
+	}
+	cwd := sess.Cwd
+	if sess.WorkspaceID != nil {
+		if ws, err := h.store.GetWorkspaceCwd(*sess.WorkspaceID); err == nil {
+			cwd = ws
+		}
+	}
+	if cwd == "" {
+		Fail(c, http.StatusBadRequest, "NO_CWD", "该会话没有工作目录")
+		return nil, "", false
+	}
+	return sess, cwd, true
+}
+
+// UndoFileChanges POST /api/v1/sessions/:id/files/undo
+// Body: { "message_id": 123 }
+// 根据单条快照消息中记录的文件改动，反向恢复：有 oldText 的覆盖回去，新文件（无 oldText）则删除。
+func (h *SessionFileHandler) UndoFileChanges(c *gin.Context) {
+	sess, cwd, ok := h.resolveSessionCwd(c)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		MessageID uint `json:"message_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.MessageID == 0 {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "message_id 不能为空")
+		return
+	}
+
+	// 加载快照消息并校验归属
+	msg, err := h.store.FindMessageByID(req.MessageID)
+	if err != nil || msg == nil {
+		Fail(c, http.StatusNotFound, "MESSAGE_NOT_FOUND", "消息不存在")
+		return
+	}
+	if msg.DBSessionID != sess.ID {
+		Fail(c, http.StatusNotFound, "MESSAGE_NOT_FOUND", "消息不存在")
+		return
+	}
+
+	items := parseSnapshotDiffs(msg.RawJSON)
+	if items == nil {
+		Fail(c, http.StatusBadRequest, "INVALID_MESSAGE", "消息不是有效的文件改动记录")
+		return
+	}
+
+	restored, deleted, errs := applyUndoDiffs(cwd, items)
+
+	Success(c, http.StatusOK, gin.H{
+		"restored": restored,
+		"deleted":  deleted,
+		"errors":   errs,
+	})
+}
+
+// RestoreToCheckpoint POST /api/v1/sessions/:id/files/restore
+// Body: { "sequence": 20 }  // 目标用户消息的 sequence
+// 将工作区恢复到该消息发送之前的状态，删除该消息及其之后的所有消息（会话回滚），
+// 并返回该消息的文本内容供前端填充到输入框。
+// 文件恢复：反向应用该消息及之后所有轮次的快照 diff（按 sequence 降序）。
+// 消息回滚：删除 sequence >= 目标 的全部消息。
+func (h *SessionFileHandler) RestoreToCheckpoint(c *gin.Context) {
+	sess, cwd, ok := h.resolveSessionCwd(c)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Sequence int `json:"sequence"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Sequence <= 0 {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "sequence 不能为空")
+		return
+	}
+
+	// 加载会话全部消息
+	allMsgs, err := h.store.ListMessages(sess.SessionID)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "LOAD_FAILED", "加载消息失败")
+		return
+	}
+
+	// 提取目标用户消息的文本内容（恢复后填充到输入框）
+	promptText := ""
+	for i := range allMsgs {
+		m := &allMsgs[i]
+		if m.Sequence == req.Sequence && m.Role == "user" {
+			promptText = m.Content
+			break
+		}
+	}
+
+	// 收集 sequence >= 目标 的 snapshot 消息（tool_call_update 且 raw_json 含 snapshot-）
+	var snapshots []models.Message
+	for i := range allMsgs {
+		m := &allMsgs[i]
+		if m.Sequence >= req.Sequence &&
+			m.Kind == "tool_call_update" &&
+			strings.Contains(m.RawJSON, "snapshot-") {
+			snapshots = append(snapshots, *m)
+		}
+	}
+
+	// 按 sequence 降序排列（最新优先撤销）
+	sort.Slice(snapshots, func(i, j int) bool {
+		return snapshots[i].Sequence > snapshots[j].Sequence
+	})
+
+	// 1. 文件恢复：反向应用每轮的快照 diff
+	totalRestored := 0
+	totalDeleted := 0
+	var allErrs []string
+	turnsReverted := 0
+
+	for i := range snapshots {
+		items := parseSnapshotDiffs(snapshots[i].RawJSON)
+		if len(items) == 0 {
+			continue
+		}
+		r, d, errs := applyUndoDiffs(cwd, items)
+		totalRestored += r
+		totalDeleted += d
+		allErrs = append(allErrs, errs...)
+		turnsReverted++
+	}
+
+	// 2. 消息回滚：删除目标消息及其之后的所有消息
+	msgsDeleted, err := h.store.DeleteMessagesFromSequence(sess.ID, req.Sequence)
+	if err != nil {
+		allErrs = append(allErrs, "消息回滚失败: "+err.Error())
+	}
+
+	Success(c, http.StatusOK, gin.H{
+		"restored":         totalRestored,
+		"deleted":          totalDeleted,
+		"turns_reverted":   turnsReverted,
+		"messages_deleted": msgsDeleted,
+		"prompt_text":      promptText,
+		"errors":           allErrs,
 	})
 }

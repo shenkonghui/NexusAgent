@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Message } from '../types'
 import { parseDiffsFromMessage } from '../utils/diff'
+import { restoreToCheckpoint } from '../api/filesystem'
 import DiffView from './DiffView'
 import MarkdownContent from './MarkdownContent'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react'
 import styles from './MessageBubble.module.css'
 
 interface MessageBubbleProps {
@@ -14,6 +15,8 @@ interface MessageBubbleProps {
   streaming?: boolean
   sessionId?: number
   cwd?: string
+  canRestore?: boolean // 是否显示恢复按钮（仅历史用户消息）
+  onRestored?: (promptText: string) => void // 恢复完成后回调，返回被恢复消息的文本
 }
 
 const kindLabels: Record<string, string> = {
@@ -33,10 +36,24 @@ export function toolSummary(content: string): string {
   return 'chat.toolCall'
 }
 
-export default function MessageBubble({ message, defaultOpen = false, forceCollapsed = false, streaming = false, sessionId, cwd }: MessageBubbleProps) {
+export default function MessageBubble({ message, defaultOpen = false, forceCollapsed = false, streaming = false, sessionId, cwd, canRestore, onRestored }: MessageBubbleProps) {
   const { t } = useTranslation()
-  const [showRaw, setShowRaw] = useState(false)
   const [open, setOpen] = useState(defaultOpen && !forceCollapsed)
+  const [restoring, setRestoring] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // 点击菜单外部关闭
+  useEffect(() => {
+    if (!menuOpen) return
+    function handleClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [menuOpen])
 
   // 检测 tool_call 消息是否携带文件 diff
   const hasDiff = useMemo(
@@ -76,18 +93,50 @@ export default function MessageBubble({ message, defaultOpen = false, forceColla
     ? () => setOpen((v) => !v)
     : undefined
 
-  // 详情按钮：用户消息内联到文本行，其余场景放在 header
-  const detailBtn = message.raw_json && (!collapsible || open) && (
-    <button
-      className={styles.rawBtn}
-      onClick={(e) => {
-        e.stopPropagation()
-        setShowRaw(!showRaw)
-      }}
-      type="button"
-    >
-      {showRaw ? t('chat.hideDetail') : t('chat.viewDetail')}
-    </button>
+  // 恢复到此处：确认后反向应用该消息之后所有轮次的文件改动 + 删除后续消息
+  const handleRestore = async () => {
+    setMenuOpen(false)
+    if (!sessionId || restoring) return
+    if (!window.confirm(t('chat.restoreConfirm'))) return
+    setRestoring(true)
+    try {
+      const resp = await restoreToCheckpoint(sessionId, message.sequence)
+      onRestored?.(resp.data.prompt_text || '')
+    } catch {
+      window.alert(t('chat.restoreFailed'))
+    } finally {
+      setRestoring(false)
+    }
+  }
+
+  // ⋯ 菜单（用户消息上的更多操作）
+  const restoreMenu = isUser && canRestore && (
+    <div className={styles.menuWrap} ref={menuRef}>
+      <button
+        className={styles.menuTrigger}
+        onClick={(e) => {
+          e.stopPropagation()
+          setMenuOpen((v) => !v)
+        }}
+        disabled={restoring}
+        type="button"
+        title={t('common.more')}
+      >
+        <MoreHorizontal size={14} />
+      </button>
+      {menuOpen && (
+        <div className={styles.menuDropdown} onClick={(e) => e.stopPropagation()}>
+          <button
+            className={styles.menuItem}
+            onClick={() => handleRestore()}
+            disabled={restoring}
+            type="button"
+          >
+            {restoring ? t('chat.restoring') : t('chat.restoreHere')}
+          </button>
+        </div>
+      )}
+    </div>
   )
 
   return (
@@ -105,18 +154,17 @@ export default function MessageBubble({ message, defaultOpen = false, forceColla
           {collapsible && (
             <span className={styles.toggle}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
           )}
-          {detailBtn && !isUser && detailBtn}
         </div>
         {!collapsible || open ? (
           <>
-            {isUser && detailBtn ? (
+            {isUser ? (
               <div className={styles.inlineRow}>
                 {message.content ? (
                   <div className={styles.content}>{message.content}</div>
                 ) : (
                   !isPlan && <div className={styles.contentMuted}>{t('common.noData')}</div>
                 )}
-                {detailBtn}
+                {restoreMenu}
               </div>
             ) : (
               <>
@@ -142,9 +190,6 @@ export default function MessageBubble({ message, defaultOpen = false, forceColla
                 cwd={cwd}
                 defaultExpanded={defaultOpen && !forceCollapsed}
               />
-            )}
-            {showRaw && message.raw_json && (
-              <pre className={styles.rawJson}>{message.raw_json}</pre>
             )}
           </>
         ) : null}

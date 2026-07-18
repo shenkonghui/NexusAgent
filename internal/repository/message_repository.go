@@ -21,6 +21,16 @@ func (r *MessageRepository) Create(m *models.Message) error {
 	return r.db.Create(m).Error
 }
 
+// FindByID 按消息主键查询单条消息。
+func (r *MessageRepository) FindByID(id uint) (*models.Message, error) {
+	var msg models.Message
+	err := r.db.First(&msg, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
+
 // CreateBatch 批量写入消息。
 func (r *MessageRepository) CreateBatch(messages []models.Message) error {
 	return r.db.Create(&messages).Error
@@ -49,6 +59,13 @@ func (r *MessageRepository) FindByDBSessionIDAfter(dbSessionID uint, afterSeq in
 func (r *MessageRepository) DeleteByDBSessionID(dbSessionID uint) error {
 	return r.db.Where("db_session_id = ?", dbSessionID).
 		Delete(&models.Message{}).Error
+}
+
+// DeleteFromSequence 删除指定会话中 sequence 大于等于 fromSeq 的全部消息（用于会话回滚，含目标消息）。
+func (r *MessageRepository) DeleteFromSequence(dbSessionID uint, fromSeq int) (int64, error) {
+	result := r.db.Where("db_session_id = ? AND sequence >= ?", dbSessionID, fromSeq).
+		Delete(&models.Message{})
+	return result.RowsAffected, result.Error
 }
 
 // MaxSequence 查询指定会话当前最大 sequence 值，无消息时返回 0。

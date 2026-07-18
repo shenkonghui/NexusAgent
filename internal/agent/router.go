@@ -269,6 +269,22 @@ func (r *Router) ListMessages(sessionID string) ([]models.Message, error) {
 	return r.service.ListMessages(sessionID)
 }
 
+// FindMessageByID 按消息主键查询单条消息。
+func (r *Router) FindMessageByID(messageID uint) (*models.Message, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.FindMessageByID(messageID)
+}
+
+// DeleteMessagesFromSequence 删除指定会话中 sequence 大于等于 fromSeq 的消息。
+func (r *Router) DeleteMessagesFromSequence(dbSessionID uint, fromSeq int) (int64, error) {
+	if r.service == nil {
+		return 0, errors.New("service 未配置")
+	}
+	return r.service.DeleteMessagesFromSequence(dbSessionID, fromSeq)
+}
+
 func (r *Router) GetWorkspaceCwd(workspaceID uint) (string, error) {
 	if r.service == nil {
 		return "", errors.New("service 未配置")

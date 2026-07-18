@@ -1,9 +1,8 @@
-import { useState, useMemo, useCallback } from 'react'
-import type { Message } from '../types'
-import { readSessionFile } from '../api/filesystem'
+import { useState, useMemo, useCallback, useEffect } from 'react'
+import { readSessionFile, listFileChanges, type FileChangeEntry } from '../api/filesystem'
 import {
-  aggregateChanges,
   diffLines,
+  computeLineStats,
   shortPath,
   type DiffLine,
 } from '../utils/diff'
@@ -12,19 +11,65 @@ import { X } from 'lucide-react'
 import styles from './ChangesPanel.module.css'
 
 interface ChangesPanelProps {
-  messages: Message[]
   sessionId: number
-  cwd: string
   onClose: () => void
+  // refreshKey 变化时重新拉取（恢复操作后刷新）
+  refreshKey?: number
 }
 
-export default function ChangesPanel({ messages, sessionId, cwd, onClose }: ChangesPanelProps) {
-  const changes = useMemo(() => aggregateChanges(messages, cwd), [messages, cwd])
+// 带统计的改动项（基于后端 FileChangeEntry + 本地计算的增减行数）
+interface ChangeItem {
+  path: string
+  relPath: string
+  oldText: string | null
+  newText: string
+  isNew: boolean
+  added: number
+  removed: number
+}
+
+export default function ChangesPanel({ sessionId, onClose, refreshKey }: ChangesPanelProps) {
+  const [rawChanges, setRawChanges] = useState<FileChangeEntry[]>([])
+  const [loading, setLoading] = useState(true)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [diskLoading, setDiskLoading] = useState(false)
   const [diskError, setDiskError] = useState('')
   const [diskText, setDiskText] = useState<string | null>(null)
   const [showDisk, setShowDisk] = useState(false)
+
+  // 从后端拉取文件改动（基于持久化快照消息）
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    listFileChanges(sessionId)
+      .then((resp) => {
+        if (!cancelled) setRawChanges(resp.data.changes)
+      })
+      .catch(() => {
+        if (!cancelled) setRawChanges([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [sessionId, refreshKey])
+
+  // 计算增减行数 + 相对路径
+  const changes: ChangeItem[] = useMemo(() => {
+    return rawChanges.map((c) => {
+      const oldText = c.is_new ? null : c.old_text
+      const stats = computeLineStats(oldText, c.new_text)
+      return {
+        path: c.path,
+        relPath: c.path, // 后端返回的已是相对 cwd 的路径
+        oldText,
+        newText: c.new_text,
+        isNew: c.is_new,
+        added: stats.added,
+        removed: stats.removed,
+      }
+    })
+  }, [rawChanges])
 
   const selected = useMemo(
     () => changes.find((c) => c.path === selectedPath) || null,
@@ -54,13 +99,13 @@ export default function ChangesPanel({ messages, sessionId, cwd, onClose }: Chan
     [sessionId, changes],
   )
 
-  // 选中文件的 diff 行（默认对比 oldText->newText；开启磁盘对比后用 diskText->newText）
+  // 选中文件的 diff 行
   const diffLinesResult = useMemo<DiffLine[]>(() => {
     if (!selected) return []
     if (showDisk && diskText != null) {
-      return diffLines(diskText, selected.diff.newText)
+      return diffLines(diskText, selected.newText)
     }
-    return diffLines(selected.diff.oldText, selected.diff.newText)
+    return diffLines(selected.oldText, selected.newText)
   }, [selected, showDisk, diskText])
 
   return (
@@ -77,7 +122,10 @@ export default function ChangesPanel({ messages, sessionId, cwd, onClose }: Chan
 
       <div className={styles.body}>
         <div className={styles.fileList}>
-          {changes.length === 0 && (
+          {loading && (
+            <div className={styles.empty}>加载中...</div>
+          )}
+          {!loading && changes.length === 0 && (
             <div className={styles.empty}>本次会话暂无文件改动</div>
           )}
           {changes.map((c) => (

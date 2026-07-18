@@ -97,6 +97,9 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			protected.GET("/sessions/:id/files", sessionFileH.ListFiles)
 			protected.GET("/sessions/:id/files/content", sessionFileH.ReadFile)
 			protected.PUT("/sessions/:id/files/content", sessionFileH.WriteFile)
+			protected.POST("/sessions/:id/files/undo", sessionFileH.UndoFileChanges)
+			protected.POST("/sessions/:id/files/restore", sessionFileH.RestoreToCheckpoint)
+			protected.GET("/sessions/:id/files/changes", sessionFileH.ListFileChanges)
 
 			// ACP 调试数据（需 debug.acp.enabled）
 			if debugH != nil {

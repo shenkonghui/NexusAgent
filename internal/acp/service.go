@@ -1403,6 +1403,16 @@ func (s *Service) ListMessages(sessionID string) ([]models.Message, error) {
 	return s.messages.FindByDBSessionID(session.ID)
 }
 
+// FindMessageByID 按消息主键查询单条消息（用于撤销等按消息定位的场景）。
+func (s *Service) FindMessageByID(messageID uint) (*models.Message, error) {
+	return s.messages.FindByID(messageID)
+}
+
+// DeleteMessagesFromSequence 删除指定会话中 sequence 大于等于 fromSeq 的消息（会话回滚，含目标）。
+func (s *Service) DeleteMessagesFromSequence(dbSessionID uint, fromSeq int) (int64, error) {
+	return s.messages.DeleteFromSequence(dbSessionID, fromSeq)
+}
+
 // captureCommands 从 SessionUpdate 中提取 AvailableCommandsUpdate、ConfigOptionUpdate 和 CurrentModeUpdate 并缓存到会话。
 func (s *Service) captureCommands(sessionID string, u acp.SessionUpdate) {
 	if u.AvailableCommandsUpdate != nil {

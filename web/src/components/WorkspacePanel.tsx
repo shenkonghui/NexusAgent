@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
-import type { Message } from '../types'
 import FilePanel from './FilePanel'
 import ChangesPanel from './ChangesPanel'
 import TerminalPanel from './Terminal'
 import DebugPanel from './DebugPanel'
 import { getDebugMeta } from '../api/sessions'
+import { listFileChanges } from '../api/filesystem'
 import { Folder, SquareTerminal, Pencil, PanelRightClose, Bug } from 'lucide-react'
 import styles from './WorkspacePanel.module.css'
 
@@ -14,11 +14,10 @@ type TabKey = 'files' | 'terminal' | 'changes' | 'debug'
 interface WorkspacePanelProps {
   sessionId: number
   cwd?: string
-  messages: Message[]
-  /** 改动文件数量（用于徽标） */
-  changesCount: number
   /** 关闭整个工作区面板 */
   onClose: () => void
+  /** 恢复操作后的刷新触发器（变化时重新拉取改动数据） */
+  refreshKey?: number
 }
 
 // WorkspacePanel 是右侧工作区面板，参考 OpenHands 用 Tab 切换文件/终端/改动。
@@ -26,12 +25,25 @@ interface WorkspacePanelProps {
 export default function WorkspacePanel({
   sessionId,
   cwd,
-  messages,
-  changesCount,
   onClose,
+  refreshKey,
 }: WorkspacePanelProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('files')
   const [debugEnabled, setDebugEnabled] = useState(false)
+  const [changesCount, setChangesCount] = useState(0)
+
+  // 从后端获取改动文件数（基于持久化快照消息）
+  useEffect(() => {
+    let cancelled = false
+    listFileChanges(sessionId)
+      .then((res) => {
+        if (!cancelled) setChangesCount(res.data.count)
+      })
+      .catch(() => {
+        if (!cancelled) setChangesCount(0)
+      })
+    return () => { cancelled = true }
+  }, [sessionId, refreshKey])
 
   // 改动数 > 0 时，若用户尚未手动选择过，自动切到 changes 提示（仅一次）
   const [autoSwitched, setAutoSwitched] = useState(false)
@@ -104,10 +116,9 @@ export default function WorkspacePanel({
         <div style={{ display: activeTab === 'changes' ? 'flex' : 'none', width: '100%', height: '100%', flexDirection: 'column' }}>
           {cwd ? (
             <ChangesPanel
-              messages={messages}
               sessionId={sessionId}
-              cwd={cwd}
               onClose={() => setActiveTab('files')}
+              refreshKey={refreshKey}
             />
           ) : (
             <div style={{ padding: 24, color: 'var(--text-muted)', textAlign: 'center' }}>

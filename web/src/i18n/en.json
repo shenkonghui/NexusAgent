@@ -20,7 +20,8 @@
     "success": "Success",
     "failed": "Failed",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "more": "More"
   },
   "prompt": {
     "send": "Send",
@@ -370,7 +371,14 @@
     "expand": "Expand",
     "collapse": "Collapse",
     "filesChanged": "{{count}} files",
-    "newFile": "New"
+    "newFile": "New",
+    "undo": "Undo",
+    "undoSuccess": "Restored {{restored}} files, deleted {{deleted}} files",
+    "undoFailed": "Undo failed",
+    "restoreHere": "Restore here",
+    "restoreConfirm": "Restore to this point? File changes after this message will be reverted and subsequent messages will be deleted.",
+    "restoreFailed": "Restore failed",
+    "restoring": "Restoring..."
   },
   "theme": {
     "light": "Light",

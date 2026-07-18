@@ -97,3 +97,40 @@ export function writeSessionFile(sessionId: number, path: string, content: strin
     body: JSON.stringify({ path, content }),
   })
 }
+
+// 撤销指定快照消息记录的文件改动（恢复修改前内容 / 删除新建文件）
+export function undoFileChanges(
+  sessionId: number,
+  messageId: number,
+): Promise<{ data: { restored: number; deleted: number; errors: string[] } }> {
+  return apiFetch(`/sessions/${sessionId}/files/undo`, {
+    method: 'POST',
+    body: JSON.stringify({ message_id: messageId }),
+  })
+}
+
+// 恢复工作区到指定用户消息发送前的状态，删除该消息及后续消息，返回该消息文本
+export function restoreToCheckpoint(
+  sessionId: number,
+  sequence: number,
+): Promise<{ data: { restored: number; deleted: number; turns_reverted: number; messages_deleted: number; prompt_text: string; errors: string[] } }> {
+  return apiFetch(`/sessions/${sessionId}/files/restore`, {
+    method: 'POST',
+    body: JSON.stringify({ sequence }),
+  })
+}
+
+// 文件改动项（后端从持久化快照消息聚合）
+export interface FileChangeEntry {
+  path: string
+  old_text: string
+  new_text: string
+  is_new: boolean
+}
+
+// 从后端获取会话所有文件改动（基于持久化快照消息，不依赖前端内存）
+export function listFileChanges(
+  sessionId: number,
+): Promise<{ data: { changes: FileChangeEntry[]; count: number } }> {
+  return apiFetch(`/sessions/${sessionId}/files/changes`)
+}

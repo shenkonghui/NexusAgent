@@ -20,7 +20,8 @@
     "success": "操作成功",
     "failed": "操作失败",
     "yes": "是",
-    "no": "否"
+    "no": "否",
+    "more": "更多"
   },
   "prompt": {
     "send": "发送",
@@ -370,7 +371,14 @@
     "expand": "展开",
     "collapse": "收起",
     "filesChanged": "{{count}} 个文件",
-    "newFile": "新"
+    "newFile": "新",
+    "undo": "撤销",
+    "undoSuccess": "已恢复 {{restored}} 个文件，删除 {{deleted}} 个文件",
+    "undoFailed": "撤销失败",
+    "restoreHere": "恢复到此处",
+    "restoreConfirm": "确定恢复到此处吗？该消息之后的文件改动将被撤销，后续对话消息也将被删除。",
+    "restoreFailed": "恢复失败",
+    "restoring": "恢复中..."
   },
   "theme": {
     "light": "浅色模式",

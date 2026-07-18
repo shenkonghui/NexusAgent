@@ -14,6 +14,7 @@ interface MessageListProps {
   executions?: Execution[]
   sessionId?: number
   cwd?: string
+  onRestored?: (promptText: string) => void
 }
 
 const MERGEABLE_KINDS = new Set([
@@ -197,7 +198,7 @@ function mapSegmentsToTurns(
   return { turnOfSeg, turnEndSeg }
 }
 
-export default function MessageList({ messages, loading, scheduled, executions, sessionId, cwd }: MessageListProps) {
+export default function MessageList({ messages, loading, scheduled, executions, sessionId, cwd, onRestored }: MessageListProps) {
   const { t } = useTranslation()
   const endRef = useRef<HTMLDivElement>(null)
 
@@ -206,7 +207,7 @@ export default function MessageList({ messages, loading, scheduled, executions, 
   }, [messages])
 
   if (!scheduled) {
-    return <PlainList messages={messages} loading={loading} endRef={endRef} sessionId={sessionId} cwd={cwd} />
+    return <PlainList messages={messages} loading={loading} endRef={endRef} sessionId={sessionId} cwd={cwd} onRestored={onRestored} />
   }
 
   const blocks = groupByExecution(messages)
@@ -227,7 +228,7 @@ export default function MessageList({ messages, loading, scheduled, executions, 
         </div>
       )}
       {unblocked.length > 0 && (
-        <PlainList messages={unblocked} loading={scheduledLoading} endRef={undefined} sessionId={sessionId} cwd={cwd} />
+        <PlainList messages={unblocked} loading={scheduledLoading} endRef={undefined} sessionId={sessionId} cwd={cwd} onRestored={onRestored} />
       )}
       {blocks.map((block, idx) => (
         <ExecutionBlockView
@@ -330,12 +331,14 @@ function PlainList({
   endRef,
   sessionId,
   cwd,
+  onRestored,
 }: {
   messages: Message[]
   loading?: boolean
   endRef?: React.RefObject<HTMLDivElement | null>
   sessionId?: number
   cwd?: string
+  onRestored?: (promptText: string) => void
 }) {
   const { t } = useTranslation()
   const endRefObj = endRef as React.RefObject<HTMLDivElement> | undefined
@@ -357,6 +360,7 @@ function PlainList({
         lastThoughtKey={lastThoughtKey}
         sessionId={sessionId}
         cwd={cwd}
+        onRestored={onRestored}
       />
       {loading && (
         <div className={styles.loading}>
@@ -378,6 +382,7 @@ function SegmentList({
   lastThoughtKey,
   sessionId,
   cwd,
+  onRestored,
 }: {
   messages: Message[]
   lastUserIdx: number
@@ -385,6 +390,7 @@ function SegmentList({
   lastThoughtKey: string | number | null
   sessionId?: number
   cwd?: string
+  onRestored?: (promptText: string) => void
 }) {
   const segments = segmentMessages(messages)
   const lastMsg = messages[messages.length - 1]
@@ -397,9 +403,11 @@ function SegmentList({
   )
 
   // 每轮的文件改动汇总（cwd 缺失时无法计算相对路径，跳过）。
+  // 同时记录该轮快照消息的 id（toolCallId 含 snapshot- 的 tool_call_update），供撤销使用。
   const turnChanges = useMemo(() => {
-    const map = new Map<number, ReturnType<typeof aggregateChanges>>()
-    if (!cwd) return map
+    const changesMap = new Map<number, ReturnType<typeof aggregateChanges>>()
+    const msgIdMap = new Map<number, number>()
+    if (!cwd) return { changesMap, msgIdMap }
     const turnOfMsg = computeTurnOfMsg(messages)
     const byTurn = new Map<number, Message[]>()
     messages.forEach((msg, i) => {
@@ -410,9 +418,19 @@ function SegmentList({
     })
     for (const [turn, msgs] of byTurn) {
       const changes = aggregateChanges(msgs, cwd)
-      if (changes.length > 0) map.set(turn, changes)
+      if (changes.length > 0) {
+        changesMap.set(turn, changes)
+        // 找到该轮的快照消息 id（最后一条含 diff 的 tool_call_update）
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const m = msgs[i]
+          if (m.kind === 'tool_call_update' && m.id) {
+            msgIdMap.set(turn, m.id)
+            break
+          }
+        }
+      }
     }
-    return map
+    return { changesMap, msgIdMap }
   }, [messages, cwd])
 
   return (
@@ -438,6 +456,8 @@ function SegmentList({
               streaming={isStreamingAssistant}
               sessionId={sessionId}
               cwd={cwd}
+              canRestore={msg.role === 'user' && !!sessionId}
+              onRestored={onRestored}
             />
           )
         } else {
@@ -458,13 +478,19 @@ function SegmentList({
         // 该轮次末尾追加文件改动汇总卡片（仅有改动时显示）
         const turn = turnOfSeg[segIdx]
         const isTurnEnd = turnEndSeg.get(turn) === segIdx
-        const changes = isTurnEnd ? turnChanges.get(turn) : undefined
+        const changes = isTurnEnd ? turnChanges.changesMap.get(turn) : undefined
+        const messageId = isTurnEnd ? turnChanges.msgIdMap.get(turn) : undefined
 
         return (
           <Fragment key={`seg-${segIdx}`}>
             {body}
             {changes && changes.length > 0 && (
-              <ChangesSummary changes={changes} sessionId={sessionId} cwd={cwd} />
+              <ChangesSummary
+                changes={changes}
+                sessionId={sessionId}
+                cwd={cwd}
+                messageId={messageId}
+              />
             )}
           </Fragment>
         )

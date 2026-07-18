@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useRequireAuth } from '../hooks/useRequireAuth'
@@ -11,7 +11,6 @@ import { getAgentPrefs, patchAgentPrefs } from '../api/agentPrefs'
 import { WORKSPACE_STORAGE_KEY, useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
 import { applyPrefsToConfigs, configsFromProbe, takeLegacyLocalAgentPrefs } from '../utils/agentPrefs'
 import { streamPrompt, subscribeStream, streamResumeTask, isTimeoutError } from '../api/sse'
-import { parseDiffsFromMessage } from '../utils/diff'
 import { tasksUrl, newTaskUrl, sessionUrl, isNewTaskPath } from '../utils/routes'
 import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution, Agent, PermissionRequestPayload, RunningTask, AgentPrefs } from '../types'
 import { parsePermissionRequest } from '../utils/permission'
@@ -59,6 +58,8 @@ export default function ChatPage() {
   // 会话相关状态
   const [session, setSession] = useState<Session | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [restoreRefreshKey, setRestoreRefreshKey] = useState(0)
+  const [restoreInput, setRestoreInput] = useState<string | undefined>(undefined)
   const [commands, setCommands] = useState<AgentCommand[]>([])
   const [modes, setModes] = useState<SessionMode[]>([])
   const [skills, setSkills] = useState<AgentSkill[]>([])
@@ -128,14 +129,6 @@ export default function ChatPage() {
   const bootstrapSession = navState?.createdSession?.id === sessionId ? navState.createdSession : null
   const isCreateMode = !hasSession && isNewTaskPath(location.pathname, workspaceId)
   const activeSession = session ?? bootstrapSession
-
-  const changesCount = useMemo(() => {
-    const paths = new Set<string>()
-    for (const msg of messages) {
-      for (const d of parseDiffsFromMessage(msg)) paths.add(d.path)
-    }
-    return paths.size
-  }, [messages])
 
   // 从消息流中提取当前 session mode
   useEffect(() => {
@@ -565,6 +558,7 @@ export default function ChatPage() {
     setError('')
     setRetryable(false)
     setLastFailedPrompt('')
+    setRestoreInput(undefined)
 
     // 乐观展示用户消息，避免发送后界面无反馈
     const optimisticId = -Date.now()
@@ -1045,19 +1039,19 @@ export default function ChatPage() {
               </span>
             )}
           </div>
-        </div>
 
-        <div className={styles.configBar}>
-          <div className={styles.configOptions}>
-            <SessionModeSelector
-              modes={modes}
-              currentModeId={currentModeId}
-              onChange={handleSetMode}
-              disabled={sending}
-            />
-            <ModelSelector options={configOptions} onApply={handleSetConfigOption} disabled={sending} />
+          <div className={styles.configBar}>
+            <div className={styles.configOptions}>
+              <SessionModeSelector
+                modes={modes}
+                currentModeId={currentModeId}
+                onChange={handleSetMode}
+                disabled={sending}
+              />
+              <ModelSelector options={configOptions} onApply={handleSetConfigOption} disabled={sending} />
+            </div>
+            <div className={styles.statsArea}><ContextStats messages={messages} /></div>
           </div>
-          <div className={styles.statsArea}><ContextStats messages={messages} /></div>
         </div>
 
         {error && (
@@ -1089,6 +1083,7 @@ export default function ChatPage() {
         <MessageList messages={messages} loading={sending}
           scheduled={activeSession?.source === 'scheduled' || activeSession?.source === 'classify'} executions={executions}
           sessionId={sessionId} cwd={activeSession?.workspace?.cwd || ''}
+          onRestored={(promptText) => { loadData(); setRestoreRefreshKey((k) => k + 1); if (promptText) setRestoreInput(promptText) }}
         />
 
         {activeSession?.source === 'classify' ? (
@@ -1107,6 +1102,7 @@ export default function ChatPage() {
             </ConvStatusBar>
             <PromptInput onSend={handleSend} onCancel={handleCancel}
               sending={sending} disabled={false}
+              value={restoreInput} onValueChange={setRestoreInput}
               commands={commands} modes={modes} skills={skills} cwd={activeSession?.workspace?.cwd || ''}
               placeholder={sending ? t(`session.conv_${displayConvState === 'idle' ? 'connecting' : displayConvState}`) : t('session.promptPlaceholder')}
             />
@@ -1117,7 +1113,7 @@ export default function ChatPage() {
       {showWorkspace && activeSession && (
         <div className={styles.workspaceWrap}>
           <WorkspacePanel sessionId={sessionId} cwd={activeSession.workspace?.cwd || ''}
-            messages={messages} changesCount={changesCount}
+            refreshKey={restoreRefreshKey}
             onClose={() => setShowWorkspace(false)}
           />
         </div>

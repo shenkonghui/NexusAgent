@@ -6,22 +6,27 @@ import {
   type FileChangeItem,
   type DiffLine,
 } from '../utils/diff'
+import { undoFileChanges } from '../api/filesystem'
 import { DiffTable } from './DiffView'
-import { FileText, ChevronDown, ChevronRight } from 'lucide-react'
+import { FileText, ChevronDown, ChevronRight, Undo2 } from 'lucide-react'
 import styles from './ChangesSummary.module.css'
 
 interface ChangesSummaryProps {
   changes: FileChangeItem[]
   sessionId?: number
   cwd?: string
+  messageId?: number // 快照消息 id，用于撤销
 }
 
 // 每轮对话末尾的文件改动汇总卡片。
 // 两级展开：0 级显示文件总数 + 总增减行数；1 级展开文件列表；2 级展开单个文件 diff。
-export default function ChangesSummary({ changes }: ChangesSummaryProps) {
+// 右侧撤销按钮可恢复该轮 prompt 修改的文件到修改前状态。
+export default function ChangesSummary({ changes, sessionId, messageId }: ChangesSummaryProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [openFile, setOpenFile] = useState<string | null>(null)
+  const [undoing, setUndoing] = useState(false)
+  const [undoMsg, setUndoMsg] = useState('')
 
   // 总增减行数（基于去重后的最新 diff）
   const totals = useMemo(() => {
@@ -48,6 +53,21 @@ export default function ChangesSummary({ changes }: ChangesSummaryProps) {
     setOpenFile((prev) => (prev === path ? null : path))
   }
 
+  const handleUndo = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!sessionId || !messageId || undoing) return
+    setUndoing(true)
+    setUndoMsg('')
+    try {
+      const resp = await undoFileChanges(sessionId, messageId)
+      setUndoMsg(t('chat.undoSuccess', { restored: resp.data.restored, deleted: resp.data.deleted }))
+    } catch {
+      setUndoMsg(t('chat.undoFailed'))
+    } finally {
+      setUndoing(false)
+    }
+  }
+
   return (
     <div className={styles.card}>
       <div
@@ -66,10 +86,26 @@ export default function ChangesSummary({ changes }: ChangesSummaryProps) {
           <span className={styles.added}>+{totals.added}</span>{' '}
           <span className={styles.removed}>-{totals.removed}</span>
         </span>
+        {sessionId && messageId && (
+          <button
+            type="button"
+            className={styles.undoBtn}
+            onClick={handleUndo}
+            disabled={undoing}
+            title={t('chat.undo')}
+          >
+            <Undo2 size={13} />
+            {undoing ? '' : t('chat.undo')}
+          </button>
+        )}
         <span className={styles.arrow}>
           {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </span>
       </div>
+
+      {undoMsg && (
+        <div className={styles.undoMsg}>{undoMsg}</div>
+      )}
 
       {open && (
         <div className={styles.fileList}>

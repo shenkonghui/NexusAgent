@@ -150,6 +150,69 @@
   opacity: 1;
 }
 
+/* ⋯ 菜单（用户消息气泡上的更多操作） */
+.menuWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.menuTrigger {
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 2px;
+  color: inherit;
+  opacity: 0.5;
+  cursor: pointer;
+  transition: opacity 0.12s;
+}
+
+.menuTrigger:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.menuTrigger:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.menuDropdown {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: var(--shadow-md);
+  z-index: 100;
+  min-width: 140px;
+  padding: 4px 0;
+}
+
+.menuItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.menuItem:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.menuItem:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .rawJson {
   margin-top: 6px;
   padding: 8px;

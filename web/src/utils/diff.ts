@@ -185,7 +185,7 @@ export function shortPath(path: string, maxSegments = 2): string {
   return '.../' + parts.slice(-maxSegments).join('/')
 }
 
-// aggregateChanges 遍历所有消息，按文件路径去重，保留最新一次 diff。
+// aggregateChanges 遍历所有消息，按归一化后的相对路径去重，保留最新一次 diff。
 export function aggregateChanges(messages: Message[], cwd: string): FileChangeItem[] {
   const map = new Map<string, FileChangeItem>()
   for (const msg of messages) {
@@ -193,8 +193,8 @@ export function aggregateChanges(messages: Message[], cwd: string): FileChangeIt
     for (const d of diffs) {
       const relPath = toRelativePath(d.path, cwd)
       const stats = computeLineStats(d.oldText, d.newText)
-      map.set(d.path, {
-        path: d.path,
+      map.set(relPath, {
+        path: relPath,
         relPath,
         diff: d,
         added: stats.added,
