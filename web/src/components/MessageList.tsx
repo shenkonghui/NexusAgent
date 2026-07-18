@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Message, Execution } from '../types'
+import { aggregateChanges } from '../utils/diff'
 import MessageBubble, { toolSummary } from './MessageBubble'
+import ChangesSummary from './ChangesSummary'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import styles from './MessageList.module.css'
 
@@ -164,6 +166,35 @@ function findLastThoughtKey(messages: Message[]): string | number | null {
     }
   }
   return null
+}
+
+// 计算每条消息所属的对话轮次索引（用户消息开启新一轮）。
+// 返回与 messages 等长的数组，turnOfMsg[i] = 第 i 条消息的轮次号（从 0 起）。
+function computeTurnOfMsg(messages: Message[]): number[] {
+  const turns: number[] = []
+  let cur = -1
+  for (const msg of messages) {
+    if (msg.role === 'user') cur++
+    turns.push(cur < 0 ? 0 : cur)
+  }
+  return turns
+}
+
+// 计算每个 segment 所属的轮次号，以及「每个轮次的最后一个 segment 索引」。
+// segment 的轮次由其首条消息决定；turnEndSeg 是 turn -> 最后一个 segment idx 的映射。
+function mapSegmentsToTurns(
+  segments: Segment[],
+  turnOfMsg: number[],
+): { turnOfSeg: number[]; turnEndSeg: Map<number, number> } {
+  const turnOfSeg: number[] = segments.map((seg) => {
+    const firstMsgIdx = seg.type === 'single' ? seg.idx : seg.firstIdx
+    return turnOfMsg[firstMsgIdx] ?? 0
+  })
+  const turnEndSeg = new Map<number, number>()
+  turnOfSeg.forEach((turn, segIdx) => {
+    turnEndSeg.set(turn, segIdx) // 同一轮次后出现的 segment 覆盖前者
+  })
+  return { turnOfSeg, turnEndSeg }
 }
 
 export default function MessageList({ messages, loading, scheduled, executions, sessionId, cwd }: MessageListProps) {
@@ -358,9 +389,37 @@ function SegmentList({
   const segments = segmentMessages(messages)
   const lastMsg = messages[messages.length - 1]
   const lastKey = lastMsg ? (lastMsg.id || lastMsg.sequence) : null
+
+  // 对话轮次检测：按用户消息切分轮次，找出每个轮次的末尾 segment。
+  const { turnOfSeg, turnEndSeg } = useMemo(
+    () => mapSegmentsToTurns(segments, computeTurnOfMsg(messages)),
+    [segments, messages],
+  )
+
+  // 每轮的文件改动汇总（cwd 缺失时无法计算相对路径，跳过）。
+  const turnChanges = useMemo(() => {
+    const map = new Map<number, ReturnType<typeof aggregateChanges>>()
+    if (!cwd) return map
+    const turnOfMsg = computeTurnOfMsg(messages)
+    const byTurn = new Map<number, Message[]>()
+    messages.forEach((msg, i) => {
+      const turn = turnOfMsg[i]
+      const arr = byTurn.get(turn)
+      if (arr) arr.push(msg)
+      else byTurn.set(turn, [msg])
+    })
+    for (const [turn, msgs] of byTurn) {
+      const changes = aggregateChanges(msgs, cwd)
+      if (changes.length > 0) map.set(turn, changes)
+    }
+    return map
+  }, [messages, cwd])
+
   return (
     <>
       {segments.map((seg, segIdx) => {
+        // 计算该 segment 的主体（单条消息气泡 或 可折叠分组）
+        let body: React.ReactNode
         if (seg.type === 'single') {
           const msg = seg.message
           const key = msg.id || msg.sequence
@@ -371,9 +430,8 @@ function SegmentList({
             !!loading &&
             msg.kind === 'agent_message_chunk' &&
             key === lastKey
-          return (
+          body = (
             <MessageBubble
-              key={key}
               message={msg}
               defaultOpen={defaultOpen}
               forceCollapsed={forceCollapsed}
@@ -382,19 +440,33 @@ function SegmentList({
               cwd={cwd}
             />
           )
+        } else {
+          const isLastSegment = segIdx === segments.length - 1
+          const inCurrentTurn = seg.firstIdx > lastUserIdx
+          body = (
+            <CollapsibleGroup
+              messages={seg.messages}
+              inCurrentTurn={inCurrentTurn}
+              isLastSegment={isLastSegment}
+              loading={loading}
+              sessionId={sessionId}
+              cwd={cwd}
+            />
+          )
         }
-        const isLastSegment = segIdx === segments.length - 1
-        const inCurrentTurn = seg.firstIdx > lastUserIdx
+
+        // 该轮次末尾追加文件改动汇总卡片（仅有改动时显示）
+        const turn = turnOfSeg[segIdx]
+        const isTurnEnd = turnEndSeg.get(turn) === segIdx
+        const changes = isTurnEnd ? turnChanges.get(turn) : undefined
+
         return (
-          <CollapsibleGroup
-            key={`group-${seg.firstIdx}`}
-            messages={seg.messages}
-            inCurrentTurn={inCurrentTurn}
-            isLastSegment={isLastSegment}
-            loading={loading}
-            sessionId={sessionId}
-            cwd={cwd}
-          />
+          <Fragment key={`seg-${segIdx}`}>
+            {body}
+            {changes && changes.length > 0 && (
+              <ChangesSummary changes={changes} sessionId={sessionId} cwd={cwd} />
+            )}
+          </Fragment>
         )
       })}
     </>

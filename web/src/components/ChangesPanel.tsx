@@ -2,12 +2,9 @@ import { useState, useMemo, useCallback } from 'react'
 import type { Message } from '../types'
 import { readSessionFile } from '../api/filesystem'
 import {
-  parseDiffsFromMessage,
+  aggregateChanges,
   diffLines,
-  computeLineStats,
-  toRelativePath,
   shortPath,
-  type FileDiff,
   type DiffLine,
 } from '../utils/diff'
 import { DiffTable } from './DiffView'
@@ -19,37 +16,6 @@ interface ChangesPanelProps {
   sessionId: number
   cwd: string
   onClose: () => void
-}
-
-// 聚合后的文件改动项
-interface FileChangeItem {
-  path: string // 原始路径
-  relPath: string // 相对 cwd
-  diff: FileDiff // 最新一次 diff
-  added: number
-  removed: number
-  isNew: boolean
-}
-
-// aggregateChanges 遍历所有消息，按文件路径去重，保留最新一次 diff。
-function aggregateChanges(messages: Message[], cwd: string): FileChangeItem[] {
-  const map = new Map<string, FileChangeItem>()
-  for (const msg of messages) {
-    const diffs = parseDiffsFromMessage(msg)
-    for (const d of diffs) {
-      const relPath = toRelativePath(d.path, cwd)
-      const stats = computeLineStats(d.oldText, d.newText)
-      map.set(d.path, {
-        path: d.path,
-        relPath,
-        diff: d,
-        added: stats.added,
-        removed: stats.removed,
-        isNew: d.oldText == null,
-      })
-    }
-  }
-  return Array.from(map.values())
 }
 
 export default function ChangesPanel({ messages, sessionId, cwd, onClose }: ChangesPanelProps) {

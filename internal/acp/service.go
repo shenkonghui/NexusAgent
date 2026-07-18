@@ -1018,19 +1018,42 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 	}
 
 	// 主订阅者：发起 prompt 的原始请求消费此 channel。
+	// prompt 前快照工作目录，用于结束后对比文件改动。
+	snapshotCwd := sessionCwd(session, s.workspaces)
+	snapshotBefore := takeSnapshot(snapshotCwd)
 	out := make(chan models.Message, 256)
 	go func() {
+		seq := startSeq
+
 		defer func() {
+			// prompt 结束后快照对比，生成文件改动摘要消息
+			snapshotAfter := takeSnapshot(snapshotCwd)
+			diffs := compareSnapshots(snapshotBefore, snapshotAfter)
+			if len(diffs) > 0 {
+				seq++
+				fileMsg := MapFileWriteBatch(sessionID, session.ID, seq, diffs)
+				fileMsg.ExecutionID = executionID
+				if err := s.messages.Create(&fileMsg); err != nil {
+					slog.Error("持久化文件改动摘要失败", "session", sessionID, "sequence", fileMsg.Sequence, "err", err)
+				} else {
+					bc.broadcast(fileMsg)
+					out <- fileMsg
+					if task.ID != 0 {
+						_ = s.runningTasks.UpdateLastSeq(task.ID, fileMsg.Sequence)
+					}
+				}
+			}
 			close(out)
 			bc.close()
 			s.unregisterBroadcaster(sessionID)
 			finishTask(models.RunningTaskStatusDone)
 		}()
 
-		seq := startSeq
 		sid := acp.SessionId(acpSID)
 		permCh := conn.Client().RegisterPermissionWaiter(sid)
 		defer conn.Client().UnregisterPermissionWaiter(sid)
+		fileCh := conn.Client().RegisterFileWaiter(sid)
+		defer conn.Client().UnregisterFileWaiter(sid)
 
 		// persistMsg 持久化消息并广播，同步更新 running_task 的 LastSeq。
 		persistMsg := func(msg models.Message) {
@@ -1080,6 +1103,14 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 				msg := MapPermissionRequest(sessionID, session.ID, seq, pn)
 				msg.ExecutionID = executionID
 				persistMsg(msg)
+			case fw, ok := <-fileCh:
+				if !ok {
+					continue
+				}
+				seq++
+				fileMsg := MapFileWrite(sessionID, session.ID, seq, fw)
+				fileMsg.ExecutionID = executionID
+				persistMsg(fileMsg)
 			}
 		}
 	}()

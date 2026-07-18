@@ -368,7 +368,9 @@
     "hideDetail": "隐藏详情",
     "viewDetail": "详情",
     "expand": "展开",
-    "collapse": "收起"
+    "collapse": "收起",
+    "filesChanged": "{{count}} 个文件",
+    "newFile": "新"
   },
   "theme": {
     "light": "浅色模式",

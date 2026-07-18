@@ -368,7 +368,9 @@
     "hideDetail": "Hide Details",
     "viewDetail": "Details",
     "expand": "Expand",
-    "collapse": "Collapse"
+    "collapse": "Collapse",
+    "filesChanged": "{{count}} files",
+    "newFile": "New"
   },
   "theme": {
     "light": "Light",

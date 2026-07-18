@@ -1,0 +1,139 @@
+.card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-muted);
+  overflow: hidden;
+  margin: 8px 0;
+  align-self: stretch;
+  width: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  background: var(--bg-muted);
+  transition: background 0.12s;
+}
+
+.header:hover {
+  background: var(--bg-hover);
+}
+
+.headerOpen {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.iconWrap {
+  display: flex;
+  align-items: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.title {
+  font-weight: 600;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.totalStats {
+  font-family: 'IBM Plex Mono', 'Monaco', 'Menlo', monospace;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.arrow {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.added {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.removed {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.fileList {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0;
+}
+
+.fileEntry {
+  display: flex;
+  flex-direction: column;
+}
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 28px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text-primary);
+  transition: background 0.12s;
+}
+
+.fileRow:hover {
+  background: var(--bg-hover);
+}
+
+.fileRowActive {
+  background: var(--bg-hover);
+}
+
+.fileArrow {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.filePath {
+  font-family: 'IBM Plex Mono', 'Monaco', 'Menlo', monospace;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badgeNew {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--info-bg);
+  color: var(--info);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.fileStats {
+  font-family: 'IBM Plex Mono', 'Monaco', 'Menlo', monospace;
+  font-size: 11px;
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+}
+
+.fileDiff {
+  max-height: 420px;
+  overflow: auto;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}

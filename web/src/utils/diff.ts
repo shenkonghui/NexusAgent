@@ -25,6 +25,16 @@ export interface DiffStats {
   removed: number
 }
 
+// 聚合后的文件改动项（按文件路径去重，保留最新一次 diff）
+export interface FileChangeItem {
+  path: string // 原始路径
+  relPath: string // 相对 cwd
+  diff: FileDiff // 最新一次 diff
+  added: number
+  removed: number
+  isNew: boolean
+}
+
 // 行数超过该阈值时退化为"全量替换"展示，避免 LCS 性能问题
 const MAX_LINES_FOR_LCS = 2000
 
@@ -173,4 +183,25 @@ export function shortPath(path: string, maxSegments = 2): string {
   const parts = path.replace(/\\/g, '/').split('/').filter(Boolean)
   if (parts.length <= maxSegments) return path
   return '.../' + parts.slice(-maxSegments).join('/')
+}
+
+// aggregateChanges 遍历所有消息，按文件路径去重，保留最新一次 diff。
+export function aggregateChanges(messages: Message[], cwd: string): FileChangeItem[] {
+  const map = new Map<string, FileChangeItem>()
+  for (const msg of messages) {
+    const diffs = parseDiffsFromMessage(msg)
+    for (const d of diffs) {
+      const relPath = toRelativePath(d.path, cwd)
+      const stats = computeLineStats(d.oldText, d.newText)
+      map.set(d.path, {
+        path: d.path,
+        relPath,
+        diff: d,
+        added: stats.added,
+        removed: stats.removed,
+        isNew: d.oldText == null,
+      })
+    }
+  }
+  return Array.from(map.values())
 }

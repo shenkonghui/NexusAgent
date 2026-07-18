@@ -24,6 +24,7 @@ type Client struct {
 	mu      sync.RWMutex
 	streams map[acp.SessionId]map[*subscriber]struct{}
 	perm    *permissionBroker
+	rec     *fileRecorder
 }
 
 // NewClient 创建一个新的 Client。
@@ -31,6 +32,7 @@ func NewClient() *Client {
 	return &Client{
 		streams: make(map[acp.SessionId]map[*subscriber]struct{}),
 		perm:    newPermissionBroker(),
+		rec:     newFileRecorder(),
 	}
 }
 
@@ -101,6 +103,16 @@ func (c *Client) RespondPermission(requestID, optionID string, cancelled bool) e
 	return c.perm.respond(requestID, optionID, cancelled)
 }
 
+// RegisterFileWaiter 注册文件改动监听（Prompt 流期间调用），返回事件 channel。
+func (c *Client) RegisterFileWaiter(sessionID acp.SessionId) chan FileWriteNotify {
+	return c.rec.registerWaiter(sessionID)
+}
+
+// UnregisterFileWaiter 注销文件改动监听。
+func (c *Client) UnregisterFileWaiter(sessionID acp.SessionId) {
+	c.rec.unregisterWaiter(sessionID)
+}
+
 // CancelPermissions 取消 session 所有挂起的权限请求。
 func (c *Client) CancelPermissions(sessionID acp.SessionId) {
 	c.perm.cancelSession(sessionID)
@@ -143,11 +155,20 @@ func (c *Client) SessionUpdate(ctx context.Context, params acp.SessionNotificati
 	return nil
 }
 
-// WriteTextFile 将文件写入工作区。
+// WriteTextFile 将文件写入工作区，并记录文件改动（旧内容 → 新内容）供前端展示 diff。
 func (c *Client) WriteTextFile(ctx context.Context, params acp.WriteTextFileRequest) (acp.WriteTextFileResponse, error) {
 	if !filepath.IsAbs(params.Path) {
 		return acp.WriteTextFileResponse{}, fmt.Errorf("path must be absolute: %s", params.Path)
 	}
+
+	// 写入前读取旧内容（不存在视为新建文件）。
+	oldBytes, readErr := os.ReadFile(params.Path)
+	isNew := readErr != nil // 不存在或读取失败均视为新文件
+	oldText := ""
+	if !isNew {
+		oldText = string(oldBytes)
+	}
+
 	dir := filepath.Dir(params.Path)
 	if dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -157,6 +178,18 @@ func (c *Client) WriteTextFile(ctx context.Context, params acp.WriteTextFileRequ
 	if err := os.WriteFile(params.Path, []byte(params.Content), 0o644); err != nil {
 		return acp.WriteTextFileResponse{}, fmt.Errorf("write %s: %w", params.Path, err)
 	}
+
+	// 仅当内容实际变化时记录，避免无意义的空写。
+	if isNew || oldText != params.Content {
+		c.rec.record(FileWriteNotify{
+			SessionId: params.SessionId,
+			Path:      params.Path,
+			OldText:   oldText,
+			NewText:   params.Content,
+			IsNew:     isNew,
+		})
+	}
+
 	return acp.WriteTextFileResponse{}, nil
 }
 
