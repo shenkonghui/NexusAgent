@@ -3,9 +3,7 @@
   border-radius: 8px;
   background: var(--bg-muted);
   overflow: hidden;
-  margin: 8px 0;
-  align-self: stretch;
-  width: 100%;
+  margin: 8px 20px;
 }
 
 .header {

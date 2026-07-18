@@ -130,7 +130,7 @@
 
 /* 连续思考 + 工具调用折叠分组 */
 .groupContainer {
-  margin: 4px 0;
+  margin: 4px 20px;
 }
 
 .groupHeader {
