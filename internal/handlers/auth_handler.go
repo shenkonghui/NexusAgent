@@ -6,8 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/middleware"
-	"nexusagent/internal/services"
+	"opennexus/internal/middleware"
+	"opennexus/internal/services"
 )
 
 type AuthHandler struct {

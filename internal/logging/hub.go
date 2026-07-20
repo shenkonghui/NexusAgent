@@ -6,7 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // defaultBufferSize 是每个订阅者 channel 的缓冲大小。

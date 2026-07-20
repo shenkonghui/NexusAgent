@@ -11,8 +11,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/middleware"
-	"nexusagent/internal/models"
+	"opennexus/internal/middleware"
+	"opennexus/internal/models"
 )
 
 // newSessionFileTestRouter 构造带「注入 userID」中间件的测试路由，注册文件相关路由。

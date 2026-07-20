@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 func TestRefreshTokenRepo_CreateAndFindByJTI(t *testing.T) {

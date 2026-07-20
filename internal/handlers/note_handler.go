@@ -16,10 +16,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"gopkg.in/yaml.v3"
 
-	"nexusagent/internal/acp"
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
-	"nexusagent/internal/services"
+	"opennexus/internal/acp"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
+	"opennexus/internal/services"
 )
 
 var noteTagRe = regexp.MustCompile(`#([^\s#]+)`)
@@ -29,7 +29,7 @@ type NoteHandler struct {
 	repo         *repository.NoteRepository
 	settingsRepo *repository.NoteSettingsRepository
 	classifier   *services.NoteClassifier
-	// mcpConfigPath 是全局共享 mcp.json 路径；生成笔记 MCP token 后自动写入 nexus-notes 条目。
+	// mcpConfigPath 是全局共享 mcp.json 路径；生成笔记 MCP token 后自动写入 opennexus-notes 条目。
 	mcpConfigPath string
 	// publicBaseURL 是本服务对外 Base URL，用于拼笔记 MCP endpoint。
 	publicBaseURL string
@@ -52,9 +52,9 @@ func NewNoteHandler(
 }
 
 // NotesMCPName 是笔记 MCP server 在 mcp.json 中的条目名。
-const NotesMCPName = "nexus-notes"
+const NotesMCPName = "opennexus-notes"
 
-// syncNotesMCPServer 将 nexus-notes 条目写入全局 mcp.json（url + bearer token）。
+// syncNotesMCPServer 将 opennexus-notes 条目写入全局 mcp.json（url + bearer token）。
 // 写入失败仅记日志，不影响 token 生成结果。供 GenerateMCPToken 生成新 token 后调用。
 func (h *NoteHandler) syncNotesMCPServer(token string) {
 	if h.mcpConfigPath == "" || h.publicBaseURL == "" || token == "" {
@@ -70,7 +70,7 @@ func (h *NoteHandler) syncNotesMCPServer(token string) {
 	}
 }
 
-// SyncAllNotesMCP 在服务启动时检查全局 mcp.json：若 nexus-notes 条目缺失或 token 变化则补写。
+// SyncAllNotesMCP 在服务启动时检查全局 mcp.json：若 opennexus-notes 条目缺失或 token 变化则补写。
 // 用于保障笔记功能开启后（生成 token）其 MCP 配置始终存在于 mcp.json 中，
 // 覆盖存量 token（功能上线前生成）以及用户手动删除条目后的自愈场景。
 // 无 token、未配置路径或条目已一致时跳过写入。
@@ -84,7 +84,7 @@ func (h *NoteHandler) SyncAllNotesMCP() {
 		return
 	}
 	if len(list) == 0 {
-		// 尚无 token：若 mcp.json 中残留 nexus-notes 也无需清理（条目依赖 token 才有效）
+		// 尚无 token：若 mcp.json 中残留 opennexus-notes 也无需清理（条目依赖 token 才有效）
 		return
 	}
 	token := strings.TrimSpace(list[0].McpToken)
@@ -104,7 +104,7 @@ func (h *NoteHandler) SyncAllNotesMCP() {
 	log.Printf("已更新笔记 MCP (%s) 到 %s", NotesMCPName, h.mcpConfigPath)
 }
 
-// findNotesMCPEntry 从 mcp.json 读取 nexus-notes 条目；不存在或读取失败返回 nil。
+// findNotesMCPEntry 从 mcp.json 读取 opennexus-notes 条目；不存在或读取失败返回 nil。
 func (h *NoteHandler) findNotesMCPEntry() *acp.MCPServerEntry {
 	entries, err := acp.LoadMCPServerEntries(h.mcpConfigPath)
 	if err != nil {
@@ -342,7 +342,7 @@ func (h *NoteHandler) GenerateMCPToken(c *gin.Context) {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", "保存 MCP Token 失败")
 		return
 	}
-	// 同步写入 nexus-notes 条目到全局 mcp.json，使 MCP 设置页可测试连接与查看工具。
+	// 同步写入 opennexus-notes 条目到全局 mcp.json，使 MCP 设置页可测试连接与查看工具。
 	h.syncNotesMCPServer(token)
 	Success(c, http.StatusOK, gin.H{"mcp_token": token})
 }

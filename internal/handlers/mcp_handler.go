@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/acp"
+	"opennexus/internal/acp"
 )
 
 // MCPHandler 提供全局共享 MCP 配置文件（标准 mcpServers JSON 格式）的读写能力。

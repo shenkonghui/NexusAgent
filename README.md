@@ -1,4 +1,4 @@
-# NexusAgent
+# openNexus
 
 A multi-Agent orchestration and conversation platform based on the [Agent Client Protocol (ACP)](https://github.com/coder/acp-go-sdk). Connect and drive coding agents like Claude Code, CodeBuddy, Kilo Code and Devin from a single interface with multi-session concurrency, streaming conversations, file editing, terminal interaction, and scheduled task automation.
 
@@ -32,7 +32,7 @@ A multi-Agent orchestration and conversation platform based on the [Agent Client
 ## Project Structure
 
 ```
-NexusAgent/
+openNexus/
 ├── cmd/server/          # Entry point
 ├── internal/
 │   ├── acp/             # ACP protocol: connection, client, session, health check
@@ -103,13 +103,35 @@ The configuration file is `config.yaml`. Environment variable overrides:
 | `server.port` | `SERVER_PORT` | Server port (default: `8080`) |
 | `server.mode` | `SERVER_MODE` | `debug` / `release` |
 | `server.web_dist` | `WEB_DIST` | Frontend build directory (default: `./web/dist`) |
-| `database.path` | `DATABASE_PATH` | SQLite database path (default: `~/.nextAgent/nexus.db`) |
+| `database.path` | `DATABASE_PATH` | SQLite database path (default: `~/.openNexus/opennexus.db`) |
 | `jwt.secret` | `JWT_SECRET` | JWT signing secret (change in production!) |
-| `agents.workspace.session_dir` | `AGENTS_WORKSPACE_SESSION_DIR` | Session workspace root (default: `~/.nextAgent/session`) |
+| `agents.workspace.session_dir` | `AGENTS_WORKSPACE_SESSION_DIR` | Session workspace root (default: `~/.openNexus/session`) |
 
-Config file lookup: `CONFIG_PATH` → `~/.nextAgent/config.yaml` → `./config.yaml`. Database and session data default to `~/.nextAgent/`.
+Config file lookup: `CONFIG_PATH` → `~/.openNexus/config.yaml` → `./config.yaml`. Database and session data default to `~/.openNexus/`.
 
 Agent commands, arguments, and API keys can be managed dynamically in the Settings page — changes take effect immediately.
+
+## Data Migration (Automatic)
+
+On startup, openNexus automatically migrates data from legacy directories left by previous versions, so existing users can upgrade without data loss. The migration runs once before config loading and is **idempotent** — re-running has no effect.
+
+| Legacy directory | Migrated to | Contents |
+|------------------|-------------|----------|
+| `~/.nextAgent` | `~/.openNexus` | Database, session workspaces, config, ACP debug logs |
+| `~/.nexusagent/binaries` | `~/.openNexus/binaries` | Downloaded agent binaries and `versions.json` |
+| `~/.openNexus/nexus.db` | `~/.openNexus/opennexus.db` | Renamed in place (within the data dir) |
+
+**Migration policy (target-first):** if `~/.openNexus` already exists and is non-empty, the main-directory migration is skipped to avoid overwriting existing data (the legacy directory is preserved as-is, and a log line points you to it). The binary cache is still merged entry-by-entry (target entries are kept). When both `nexus.db` and `opennexus.db` exist, `opennexus.db` wins and the old file is removed.
+
+Migration errors are **non-fatal** — they are logged as warnings and startup continues (consistent with existing recover-on-startup logic like `RestoreBinarySymlinks` / `RecoverActiveSessions`).
+
+**Skip the migration** (e.g. for Docker / CI where data is managed externally):
+
+```bash
+SKIP_DATA_MIGRATION=1 ./opennexus
+```
+
+> **Manual recovery:** if a fresh start created an empty `~/.openNexus` before the migration could run, the auto-migration will skip it. You can recover by stopping the server, replacing `~/.openNexus/opennexus.db` with your `~/.nextAgent/nexus.db`, and moving `~/.nextAgent/session/*` into `~/.openNexus/session/`. The original legacy directory is never deleted by the migration.
 
 ## Agent Integration
 
@@ -121,7 +143,7 @@ Agent commands, arguments, and API keys can be managed dynamically in the Settin
 
 ### Background Authentication
 
-After enabling an agent, NexusAgent automatically performs these steps in the background (`PreconnectAllAsync` + health-check reconnect), with no manual action in the UI:
+After enabling an agent, openNexus automatically performs these steps in the background (`PreconnectAllAsync` + health-check reconnect), with no manual action in the UI:
 
 1. **Start subprocess**: run the configured `npx` / `uvx` or binary distribution command
 2. **ACP handshake**: call `initialize` to negotiate capabilities
@@ -137,13 +159,13 @@ Connection status (connected / connecting / disconnected) is shown in the sideba
 |------|--------|---------------|
 | `npx` | `npm exec --include=optional --yes <package>` | Node.js / npm (included in Docker image) |
 | `uvx` | `uvx <package>` | [uv](https://github.com/astral-sh/uv) installed on host |
-| `binary` | Download platform archive from Registry | Auto-downloaded to `~/.nexusagent/binaries/<agent>-<version>/` on first enable |
+| `binary` | Download platform archive from Registry | Auto-downloaded to `~/.openNexus/binaries/<agent>-<version>/` on first enable |
 
 **Binary distribution notes:**
 
 - Downloads match the current OS/arch (e.g. `darwin-aarch64`, `linux-x86_64`); connection fails if Registry has no entry for your platform
 - Ensure the binary is executable; check logs for `安装 binary agent 失败` on download/extract errors
-- In Docker, binary cache lives at `~/.nexusagent/binaries/` inside the container — mount this path to avoid re-downloads
+- In Docker, binary cache lives at `~/.openNexus/binaries/` inside the container — mount this path to avoid re-downloads
 - Alpine containers use musl libc; some glibc-built binaries may not run — prefer host deployment or npx distribution
 
 **Verify before enabling:**
@@ -200,9 +222,9 @@ Pushing a `v*` tag (e.g. `v1.0.0`) triggers GitHub Actions to build and publish 
 
 | Platform | Desktop artifact | CLI artifact |
 |----------|------------------|--------------|
-| macOS Apple Silicon | `nexusagent-darwin-desktop.tar.gz` | `nexusagent-darwin-arm64.tar.gz` |
-| Linux x86_64 | `nexusagent-linux-desktop.tar.gz` | `nexusagent-linux-amd64.tar.gz` |
-| Windows x86_64 | `nexusagent-windows-desktop.zip` | `nexusagent-windows-amd64.zip` |
+| macOS Apple Silicon | `opennexus-darwin-desktop.tar.gz` | `opennexus-darwin-arm64.tar.gz` |
+| Linux x86_64 | `opennexus-linux-desktop.tar.gz` | `opennexus-linux-amd64.tar.gz` |
+| Windows x86_64 | `opennexus-windows-desktop.zip` | `opennexus-windows-amd64.zip` |
 
 Local desktop builds require Rust, pnpm, and `pake-cli@3.13.0` — see `scripts/build-pake.sh`.
 

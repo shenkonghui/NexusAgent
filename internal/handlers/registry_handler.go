@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/acp"
+	"opennexus/internal/acp"
 )
 
 // RegistryHandler 提供在线拉取 ACP 官方 registry 并合并到本地存储的能力。

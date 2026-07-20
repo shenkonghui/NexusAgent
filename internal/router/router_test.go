@@ -6,15 +6,15 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/acp"
-	"nexusagent/internal/agent"
-	"nexusagent/internal/config"
-	"nexusagent/internal/database"
-	"nexusagent/internal/handlers"
-	"nexusagent/internal/logging"
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
-	"nexusagent/internal/services"
+	"opennexus/internal/acp"
+	"opennexus/internal/agent"
+	"opennexus/internal/config"
+	"opennexus/internal/database"
+	"opennexus/internal/handlers"
+	"opennexus/internal/logging"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
+	"opennexus/internal/services"
 )
 
 // noopRegistrar 是测试用的空 AgentRegistrar。

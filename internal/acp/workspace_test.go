@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 func TestNewExternalWorkspace(t *testing.T) {
@@ -54,12 +54,12 @@ func TestNewTemporaryWorkspace(t *testing.T) {
 }
 
 func TestNewTemporaryWorkspace_EmptyBaseDir(t *testing.T) {
-	// baseDir 为空时回退到 ~/.nextAgent/session，仅验证目录被创建在 home 下并清理。
+	// baseDir 为空时回退到 ~/.openNexus/session，仅验证目录被创建在 home 下并清理。
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatalf("获取主目录失败: %v", err)
 	}
-	expectedBase := filepath.Join(home, ".nextAgent", "session")
+	expectedBase := filepath.Join(home, ".openNexus", "session")
 	w, err := NewTemporaryWorkspace("", "test-home-")
 	if err != nil {
 		t.Fatalf("NewTemporaryWorkspace 错误: %v", err)

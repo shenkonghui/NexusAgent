@@ -10,9 +10,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/database"
-	"nexusagent/internal/middleware"
-	"nexusagent/internal/repository"
+	"opennexus/internal/database"
+	"opennexus/internal/middleware"
+	"opennexus/internal/repository"
 )
 
 func setupNoteMCPRouter(t *testing.T, userID uint, mcpPath string) *gin.Engine {
@@ -75,7 +75,7 @@ func TestGenerateMCPToken_Once(t *testing.T) {
 		t.Fatalf("解析 token 失败: %v body=%s", err, w1.Body.String())
 	}
 
-	// 生成 token 后应自动写入 nexus-notes 条目到 mcp.json
+	// 生成 token 后应自动写入 opennexus-notes 条目到 mcp.json
 	data, err := os.ReadFile(mcpPath)
 	if err != nil {
 		t.Fatalf("mcp.json 未被创建: %v", err)
@@ -146,7 +146,7 @@ func TestSyncAllNotesMCP_BackfillsExistingToken(t *testing.T) {
 	// 执行启动同步
 	h.SyncAllNotesMCP()
 
-	// 验证 mcp.json 已含 nexus-notes 条目
+	// 验证 mcp.json 已含 opennexus-notes 条目
 	data, err := os.ReadFile(mcpPath)
 	if err != nil {
 		t.Fatalf("mcp.json 未被创建: %v", err)
@@ -218,10 +218,10 @@ func TestSyncAllNotesMCP_UpdatesWhenStale(t *testing.T) {
 	if err := settingsRepo.SetMCPTokenOnce(7, currentToken); err != nil {
 		t.Fatalf("预设 token 失败: %v", err)
 	}
-	// 预写一个带"过期 token"的 nexus-notes 条目（模拟不一致）
+	// 预写一个带"过期 token"的 opennexus-notes 条目（模拟不一致）
 	staleEntry := `{
   "mcpServers": {
-    "nexus-notes": {
+    "opennexus-notes": {
       "type": "http",
       "url": "http://127.0.0.1:8080/mcp/notes",
       "headers": { "Authorization": "Bearer stale-and-wrong" }

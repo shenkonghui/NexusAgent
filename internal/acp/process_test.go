@@ -35,11 +35,11 @@ func TestResolveAgentCommand_RelativePathUsesBasename(t *testing.T) {
 }
 
 func TestResolveAgentCommand_MissingReportsBasename(t *testing.T) {
-	_, err := resolveAgentCommand("./dist-package/nexus-agent-not-exist-xyz")
+	_, err := resolveAgentCommand("./dist-package/opennexus-not-exist-xyz")
 	if err == nil {
 		t.Fatal("期望返回错误")
 	}
-	if !strings.Contains(err.Error(), "nexus-agent-not-exist-xyz") {
+	if !strings.Contains(err.Error(), "opennexus-not-exist-xyz") {
 		t.Errorf("错误应包含 basename，实际: %v", err)
 	}
 }

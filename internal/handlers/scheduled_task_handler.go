@@ -9,8 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/robfig/cron/v3"
 
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 
 // SchedulerManager 是 handler 操作定时任务所需的能力（*services.SchedulerService 实现该接口）。

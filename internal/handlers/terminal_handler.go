@@ -12,9 +12,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
-	"nexusagent/internal/middleware"
-	"nexusagent/internal/models"
-	"nexusagent/internal/services"
+	"opennexus/internal/middleware"
+	"opennexus/internal/models"
+	"opennexus/internal/services"
 )
 
 var upgrader = websocket.Upgrader{

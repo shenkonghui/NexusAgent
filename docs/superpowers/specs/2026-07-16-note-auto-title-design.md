@@ -5,7 +5,7 @@
 
 ## 1. 背景与目标
 
-NexusAgent 已具备笔记 CRUD、`#标签` 解析、以及基于 Agent 的自动分类（`classify_pending` 队列 → `NoteClassifyWorker` → 专用「笔记分类」会话）。创建/更新时目前用 `parseNoteMeta` 从正文首行抽取标题，导入导出只保留正文，无法完整往返 title/tags。
+openNexus 已具备笔记 CRUD、`#标签` 解析、以及基于 Agent 的自动分类（`classify_pending` 队列 → `NoteClassifyWorker` → 专用「笔记分类」会话）。创建/更新时目前用 `parseNoteMeta` 从正文首行抽取标题，导入导出只保留正文，无法完整往返 title/tags。
 
 目标：
 

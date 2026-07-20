@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 var ErrScheduledTaskNotFound = errors.New("定时任务不存在")

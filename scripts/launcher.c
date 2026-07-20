@@ -1,5 +1,5 @@
 /*
- * NexusAgent macOS 启动器包装器
+ * openNexus macOS 启动器包装器
  *
  * macOS 的 .app bundle 要求 CFBundleExecutable 是一个 Mach-O 可执行文件，
  * 不能直接执行 shell 脚本。这个小 wrapper 编译为二进制后作为 CFBundleExecutable，

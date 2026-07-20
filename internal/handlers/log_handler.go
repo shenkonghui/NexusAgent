@@ -8,8 +8,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/logging"
-	"nexusagent/internal/models"
+	"opennexus/internal/logging"
+	"opennexus/internal/models"
 )
 
 // minLevelOrder 用于按等级过滤日志。

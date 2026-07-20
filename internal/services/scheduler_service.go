@@ -11,8 +11,8 @@ import (
 	acpsdk "github.com/coder/acp-go-sdk"
 	"github.com/robfig/cron/v3"
 
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 
 // SchedulerExecutor 是调度器执行定时任务所需的 agent 能力子集（*agent.Router 实现该接口）。

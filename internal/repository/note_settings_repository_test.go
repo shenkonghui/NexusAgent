@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 func TestNoteSettings_SetMCPTokenOnce_AndFind(t *testing.T) {

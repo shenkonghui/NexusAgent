@@ -3,7 +3,7 @@ package repository
 import (
 	"testing"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 func TestMessageRepo_Create(t *testing.T) {

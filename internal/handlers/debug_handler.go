@@ -6,8 +6,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/acp"
-	"nexusagent/internal/models"
+	"opennexus/internal/acp"
+	"opennexus/internal/models"
 )
 
 // DebugHandler 提供会话 ACP 调试数据读取 API。

@@ -21,8 +21,8 @@ interface SessionSidebarProps {
   onNewScheduledTask?: () => void
 }
 
-const STORAGE_KEY = 'nexus.sidebar.collapsed'
-const FAVS_KEY = 'nexus.favorites'
+const STORAGE_KEY = 'opennexus.sidebar.collapsed'
+const FAVS_KEY = 'opennexus.favorites'
 
 function loadCollapsed(): { favorites: boolean; manual: boolean; scheduled: boolean } {
   try {
@@ -156,7 +156,7 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
   return (
     <div className={styles.sidebar}>
       <Link to={tasksUrl(workspaceId)} className={styles.logo} title={t('nav.sessionList')}>
-        <span className={styles.logoText}>NexusAgent</span>
+        <span className={styles.logoText}>openNexus</span>
         {onCollapse && (
           <button
             type="button"

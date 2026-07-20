@@ -1,12 +1,12 @@
-# NexusAgent Electron 客户端
+# openNexus Electron 客户端
 
-NexusAgent 的 Electron 桌面壳,与现有 Pake(Tauri)客户端**并存**,可自由选择使用哪一种。
+openNexus 的 Electron 桌面壳,与现有 Pake(Tauri)客户端**并存**,可自由选择使用哪一种。
 
 ## 工作原理
 
 ```
 Electron 主进程(main.cjs)
-   │  spawn ./nexusagent --data-dir <userDataDir>   (release 模式)
+   │  spawn ./opennexus --data-dir <userDataDir>   (release 模式)
    │  SERVER_PORT=<随机空闲端口> SERVER_MODE=release WEB_DIST=<web/dist>
    │
    ▼
@@ -23,7 +23,7 @@ React SPA(前端全部用相对路径 /api/v1,同源访问后端)
 - Go >= 1.25(编译后端)
 - Node.js >= 20(前端构建 + Electron)
 - 已执行过根目录的 `make build`,产出:
-  - 根目录 `nexusagent`(Go 二进制)
+  - 根目录 `opennexus`(Go 二进制)
   - `web/dist/`(前端构建产物)
 
 ## 常用命令(在项目根目录执行)
@@ -51,13 +51,13 @@ make electron-uninstall
 
 | 平台 | 数据目录 |
 |------|---------|
-| 全部 | `~/.nextAgent` |
+| 全部 | `~/.openNexus` |
 
-目录内容：`nexus.db`（数据库）、`session/`（临时会话工作区）、可选 `config.yaml`。
+目录内容：`opennexus.db`（数据库）、`session/`（临时会话工作区）、可选 `config.yaml`。
 
-配置加载顺序：`CONFIG_PATH` → `~/.nextAgent/config.yaml` → 安装包/项目旁的 `config.yaml`。
+配置加载顺序：`CONFIG_PATH` → `~/.openNexus/config.yaml` → 安装包/项目旁的 `config.yaml`。
 
-后端日志写入 `~/.nextAgent/launcher.log`，启动失败时可在此排查。
+后端日志写入 `~/.openNexus/launcher.log`，启动失败时可在此排查。
 
 ## 与 Pake 版的差异
 
@@ -78,4 +78,4 @@ npm start        # 开发运行
 npm run dist     # 打包到 electron/dist/
 ```
 
-打包前需确保根目录已 `make build`(产出 `nexusagent` 二进制与 `web/dist`)。
+打包前需确保根目录已 `make build`(产出 `opennexus` 二进制与 `web/dist`)。

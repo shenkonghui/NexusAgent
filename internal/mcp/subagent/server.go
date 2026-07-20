@@ -1,4 +1,4 @@
-// Package subagentmcp 提供 nexus-subagent MCP server，让主 agent 通过 MCP 工具调起预定义的 subagent。
+// Package subagentmcp 提供 opennexus-subagent MCP server，让主 agent 通过 MCP 工具调起预定义的 subagent。
 //
 // subagent 定义来自 markdown 文件（~/.agents/agents/*.md 等，由 acp.ScanSubAgents 扫描），
 // 不再依赖数据库。frontmatter 含 name/description/model/tools，markdown 正文作为注入会话的 system_prompt。
@@ -8,7 +8,7 @@
 //   - get_subagent：  查询单个 subagent 详情
 //   - run_subagent：  执行 subagent 任务（一次性模式，阻塞返回文本结果）
 //
-// 鉴权复用 nexus-notes 的 Bearer token 体系（用户级共享一个 token），用于解析"继承父 agent"。
+// 鉴权复用 opennexus-notes 的 Bearer token 体系（用户级共享一个 token），用于解析"继承父 agent"。
 package subagentmcp
 
 import (
@@ -19,8 +19,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"nexusagent/internal/acp"
-	"nexusagent/internal/repository"
+	"opennexus/internal/acp"
+	"opennexus/internal/repository"
 )
 
 // SubAgentCatalog 提供基于文件扫描的 subagent 发现能力。
@@ -54,7 +54,7 @@ func Handler(catalog SubAgentCatalog, settings *repository.NoteSettingsRepositor
 }
 
 func newServer(catalog SubAgentCatalog, prefsRepo *repository.UserAgentPrefsRepository, runner SubAgentRunner) *mcp.Server {
-	srv := mcp.NewServer(&mcp.Implementation{Name: "nexus-subagent", Version: "1.0.0"}, nil)
+	srv := mcp.NewServer(&mcp.Implementation{Name: "opennexus-subagent", Version: "1.0.0"}, nil)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_subagents",

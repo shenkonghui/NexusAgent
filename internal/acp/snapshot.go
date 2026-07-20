@@ -18,7 +18,7 @@ const (
 var snapshotIgnoreDirs = map[string]bool{
 	"node_modules": true, ".git": true, "dist": true, "build": true,
 	".next": true, "__pycache__": true, ".venv": true, "vendor": true,
-	".nextAgent": true, ".claude": true,
+	".openNexus": true, ".claude": true,
 }
 
 // takeSnapshot 递归遍历 cwd，返回 relPath→content 映射。

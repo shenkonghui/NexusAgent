@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 
 // DefaultTaskTagPrompt 是任务自动打标签的默认提示词模板。

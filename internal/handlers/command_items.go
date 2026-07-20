@@ -3,7 +3,7 @@ package handlers
 import (
 	acpsdk "github.com/coder/acp-go-sdk"
 
-	acplocal "nexusagent/internal/acp"
+	acplocal "opennexus/internal/acp"
 )
 
 // commandItem 是对外暴露的 slash command 描述。

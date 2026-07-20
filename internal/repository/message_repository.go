@@ -3,7 +3,7 @@ package repository
 import (
 	"gorm.io/gorm"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // MessageRepository 是消息持久化仓库，提供消息 CRUD 操作。

@@ -42,7 +42,7 @@ export interface UploadedFile {
 }
 
 // 把浏览器端拖拽的文件上传到 workspace.Cwd/.uploads/ 下，返回服务器侧绝对路径。
-// 仅在"远程运行"(浏览器)场景下调用;本地(Electron)场景直接用 window.nexusagent.getPathForFile 取绝对路径。
+// 仅在"远程运行"(浏览器)场景下调用;本地(Electron)场景直接用 window.opennexus.getPathForFile 取绝对路径。
 // 注意:不能复用 apiFetch(它强制设 Content-Type: application/json),FormData 必须让浏览器自动设置 boundary。
 export async function uploadFilesToWorkspace(
   workspaceId: number,

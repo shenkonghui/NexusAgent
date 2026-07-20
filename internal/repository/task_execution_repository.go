@@ -3,7 +3,7 @@ package repository
 import (
 	"gorm.io/gorm"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // TaskExecutionRepository 管理定时任务执行记录的持久化。

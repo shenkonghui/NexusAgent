@@ -1,4 +1,4 @@
-# NexusAgent REST API 接入层（P5）设计文档
+# openNexus REST API 接入层（P5）设计文档
 
 - 日期：2026-06-24
 - 子项目：P5 — REST API 接入层
@@ -6,7 +6,7 @@
 
 ## 1. 背景与定位
 
-NexusAgent 是一个用 Go 开发的全栈平台，目标是通过 ACP（Agent Client Protocol）协议调用 Claude Code、Codex 等编码 agent 执行任务，并支持用户认证。
+openNexus 是一个用 Go 开发的全栈平台，目标是通过 ACP（Agent Client Protocol）协议调用 Claude Code、Codex 等编码 agent 执行任务，并支持用户认证。
 
 整个平台被拆分为 6 个可独立设计的子项目：
 

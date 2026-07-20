@@ -178,8 +178,8 @@ export default function PromptInput({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // 拖拽接入外部文件:本地(Electron)直接取绝对路径,远程(浏览器)上传到 workspace。
-  // isElectron 在浏览器下整个 window.nexusagent 为 undefined,安全降级为 false。
-  const isElectron = window.nexusagent?.isElectron === true
+  // isElectron 在浏览器下整个 window.opennexus 为 undefined,安全降级为 false。
+  const isElectron = window.opennexus?.isElectron === true
   const [dragOver, setDragOver] = useState(false)
   const [uploading, setUploading] = useState(false)
   const dragDepthRef = useRef(0) // dragenter/leave 嵌套计数,避免子元素抖动
@@ -552,7 +552,7 @@ export default function PromptInput({
 
     if (isElectron) {
       // 本地:同步取绝对路径,直接以 @<path> 引用,无需上传。
-      const getPath = window.nexusagent?.getPathForFile
+      const getPath = window.opennexus?.getPathForFile
       for (const f of fileArr) {
         const absPath = getPath ? getPath(f) : ''
         if (absPath) insertAtCursor(`@${absPath} `)

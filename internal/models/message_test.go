@@ -5,8 +5,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/internal/database"
-	"nexusagent/internal/models"
+	"opennexus/internal/database"
+	"opennexus/internal/models"
 )
 
 func TestMessage_TableExists(t *testing.T) {

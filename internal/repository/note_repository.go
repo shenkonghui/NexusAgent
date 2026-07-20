@@ -7,7 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 var ErrNoteNotFound = errors.New("笔记不存在")

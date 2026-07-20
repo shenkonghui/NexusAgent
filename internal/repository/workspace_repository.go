@@ -3,7 +3,7 @@ package repository
 import (
 	"gorm.io/gorm"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 type WorkspaceRepository struct {

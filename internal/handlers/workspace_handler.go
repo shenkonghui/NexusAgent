@@ -12,7 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // WorkspaceStore 暴露 workspace 相关能力。

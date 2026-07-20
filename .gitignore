@@ -30,6 +30,6 @@ electron/out/
 config.yaml.bak
 
 # build artifacts (binaries)
-nexusagent
+opennexus
 server
 registry.json

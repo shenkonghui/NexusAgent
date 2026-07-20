@@ -5,7 +5,7 @@
 
 ## 1. 背景与目标
 
-新建任务页已能通过浏览器 `localStorage` 记住默认 agent 与各 agent 上次模型（`nexus.default.agent`、`nexus.agent.models`）。但模式、思考级别等其它探测配置不会恢复，且偏好无法跨浏览器/设备同步。
+新建任务页已能通过浏览器 `localStorage` 记住默认 agent 与各 agent 上次模型（`opennexus.default.agent`、`opennexus.agent.models`）。但模式、思考级别等其它探测配置不会恢复，且偏好无法跨浏览器/设备同步。
 
 目标：
 
@@ -132,7 +132,7 @@
 
 ### 6.3 迁移与设置页
 
-- 弃用 `nexus.agent.models`、`nexus.default.agent`；若服务端为空且本地有旧值，一次性迁移后清除本地。
+- 弃用 `opennexus.agent.models`、`opennexus.default.agent`；若服务端为空且本地有旧值，一次性迁移后清除本地。
 - 设置页「默认 Agent」改为读写服务端 `last_agent_type`。
 
 ### 6.4 失败处理

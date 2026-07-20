@@ -28,7 +28,7 @@ export function updateAgentsConfig(config: AgentsConfigView): Promise<{ data: { 
 }
 
 // 软重载：重新读取 config.yaml 并热刷新 skill/command/rule 扫描目录（不杀进程）。
-// 浏览器访问远程后端时使用；桌面版走 IPC 硬重载（window.nexusagent.reloadBackend）。
+// 浏览器访问远程后端时使用；桌面版走 IPC 硬重载（window.opennexus.reloadBackend）。
 export function reloadProgram(): Promise<{ data: { message: string; restarted: boolean } }> {
   return apiFetch('/config/reload', { method: 'POST' })
 }

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"nexusagent/internal/acp"
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	"opennexus/internal/acp"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 
 // DefaultNoteClassifyPrompt 是笔记自动分类与标题的默认提示词模板。

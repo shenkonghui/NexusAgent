@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // ConfigBackend 是基于 models.AgentConfig 的通用 ACP 后端实现。

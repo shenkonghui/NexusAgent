@@ -5,7 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // RunningTaskRepository 是进行中任务的持久化仓库，用于服务重启后的中断恢复。

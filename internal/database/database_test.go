@@ -3,7 +3,7 @@ package database
 import (
 	"testing"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 func TestConnect_MigratesTables(t *testing.T) {

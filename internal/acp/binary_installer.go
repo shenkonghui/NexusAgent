@@ -29,7 +29,7 @@ func binariesCacheDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("获取用户目录: %w", err)
 	}
-	return filepath.Join(home, ".nexusagent", "binaries"), nil
+	return filepath.Join(home, ".openNexus", "binaries"), nil
 }
 
 // VersionRecord 记录单个 agent 当前激活的版本信息，持久化到 versions.json。
@@ -425,7 +425,7 @@ func downloadArchiveOnce(client *http.Client, url string) (string, error) {
 		return "", fmt.Errorf("下载 %s 返回状态码 %d", url, resp.StatusCode)
 	}
 
-	f, err := os.CreateTemp("", "nexus-binary-*")
+	f, err := os.CreateTemp("", "opennexus-binary-*")
 	if err != nil {
 		return "", fmt.Errorf("创建临时文件: %w", err)
 	}

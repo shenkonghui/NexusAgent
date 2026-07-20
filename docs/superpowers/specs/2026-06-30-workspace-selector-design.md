@@ -13,7 +13,7 @@
 
 ## 方案
 
-采用 localStorage（`nexus.current.workspace`）持久化当前工作区，不改动 URL 路由结构。
+采用 localStorage（`opennexus.current.workspace`）持久化当前工作区，不改动 URL 路由结构。
 
 ## 组件
 

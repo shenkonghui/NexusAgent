@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 var ErrSessionNotFound = errors.New("会话不存在")

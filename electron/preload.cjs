@@ -1,5 +1,5 @@
 /*
- * NexusAgent 预加载脚本
+ * openNexus 预加载脚本
  *
  * 当前前端完全通过 HTTP/SSE/WebSocket 与后端交互,不需要 Node 能力。
  * 这里仅暴露最小运行时信息(platform / versions),为未来扩展(如原生文件对话框、
@@ -13,7 +13,7 @@
 
 const { contextBridge, webUtils, ipcRenderer } = require('electron')
 
-contextBridge.exposeInMainWorld('nexusagent', {
+contextBridge.exposeInMainWorld('opennexus', {
   platform: process.platform,
   versions: {
     electron: process.versions.electron,

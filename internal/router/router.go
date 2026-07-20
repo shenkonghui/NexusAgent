@@ -9,11 +9,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/agent"
-	"nexusagent/internal/config"
-	"nexusagent/internal/handlers"
-	"nexusagent/internal/middleware"
-	"nexusagent/internal/services"
+	"opennexus/internal/agent"
+	"opennexus/internal/config"
+	"opennexus/internal/handlers"
+	"opennexus/internal/middleware"
+	"opennexus/internal/services"
 )
 
 func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, registryH *handlers.RegistryHandler, schedTaskH *handlers.ScheduledTaskHandler, noteH *handlers.NoteHandler, taskSettingsH *handlers.TaskSettingsHandler, agentPrefsH *handlers.AgentPrefsHandler, configH *handlers.ConfigHandler, mcpH *handlers.MCPHandler, logH *handlers.LogHandler, debugH *handlers.DebugHandler, subAgentH *handlers.SubAgentHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, rulesCfg config.RulesConfig, subAgentsCfg config.SubAgentsConfig, mode, webDist string, autoLogin bool) *gin.Engine {
@@ -186,7 +186,7 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			protected.GET("/agent-prefs", agentPrefsH.Get)
 			protected.PATCH("/agent-prefs", agentPrefsH.Patch)
 
-			// Subagent 定义管理（主 agent 通过 nexus-subagent MCP 调起）
+			// Subagent 定义管理（主 agent 通过 opennexus-subagent MCP 调起）
 			if subAgentH != nil {
 				subAgentH.RegisterRoutes(protected)
 			}

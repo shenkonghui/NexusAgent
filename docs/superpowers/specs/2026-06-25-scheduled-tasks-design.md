@@ -1,4 +1,4 @@
-# NexusAgent 定时任务功能设计文档
+# openNexus 定时任务功能设计文档
 
 - 日期：2026-06-25
 - 子项目：P7 — 定时任务（Scheduled Tasks）
@@ -6,7 +6,7 @@
 
 ## 1. 背景与定位
 
-NexusAgent 已具备手动会话（P4/P5/P6）：用户选择 agent + cwd 创建会话，发送 prompt 与 agent 流式对话。本子项目在此基础上新增**定时任务**能力：用户配置 cron 表达式 + 固定 prompt + agent + cwd，由进程内调度器按计划自动触发执行。
+openNexus 已具备手动会话（P4/P5/P6）：用户选择 agent + cwd 创建会话，发送 prompt 与 agent 流式对话。本子项目在此基础上新增**定时任务**能力：用户配置 cron 表达式 + 固定 prompt + agent + cwd，由进程内调度器按计划自动触发执行。
 
 关键决策（已与用户确认）：
 

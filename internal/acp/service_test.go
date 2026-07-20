@@ -9,10 +9,10 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/internal/config"
-	"nexusagent/internal/database"
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	"opennexus/internal/config"
+	"opennexus/internal/database"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 
 func setupACPTestDB(t *testing.T) *gorm.DB {

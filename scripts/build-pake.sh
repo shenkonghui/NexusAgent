@@ -1,6 +1,6 @@
 #!/bin/bash
 # Pake 桌面客户端打包脚本
-# 使用 Pake (基于 Tauri) 将 NexusAgent 封装为原生桌面客户端
+# 使用 Pake (基于 Tauri) 将 openNexus 封装为原生桌面客户端
 # 客户端连接到本地后端服务 http://127.0.0.1:8080
 #
 # 依赖:
@@ -17,7 +17,7 @@ set -euo pipefail
 OUT_DIR="${1:-dist}"
 APP_VERSION="${2:-1.0.0}"
 PAKE_TARGET="${3:-${PAKE_TARGET:-}}"
-APP_NAME="NexusAgent-Client"
+APP_NAME="openNexus-Client"
 URL="http://127.0.0.1:8080"
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ICON_PATH="$SCRIPT_DIR/assets/icon.png"

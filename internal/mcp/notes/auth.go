@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"nexusagent/internal/repository"
+	"opennexus/internal/repository"
 )
 
 type userIDKey struct{}

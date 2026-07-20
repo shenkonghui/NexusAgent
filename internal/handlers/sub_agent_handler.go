@@ -8,18 +8,18 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/acp"
-	"nexusagent/internal/middleware"
-	"nexusagent/internal/repository"
+	"opennexus/internal/acp"
+	"opennexus/internal/middleware"
+	"opennexus/internal/repository"
 )
 
 // SubAgentMCPName 是 subagent MCP server 在 mcp.json 中的条目名。
-const SubAgentMCPName = "nexus-subagent"
+const SubAgentMCPName = "opennexus-subagent"
 
 // SubAgentHandler 负责 subagent MCP 条目的同步自愈。
 //
 // subagent 的定义本身来自 markdown 文件（由 acp.ScanSubAgents 扫描，见 Service.ListSubAgents），
-// 此处仅保留"把 nexus-subagent 条目写入全局 mcp.json"的逻辑，让主 agent 会话能发现该 MCP server。
+// 此处仅保留"把 opennexus-subagent 条目写入全局 mcp.json"的逻辑，让主 agent 会话能发现该 MCP server。
 type SubAgentHandler struct {
 	settingsRepo  *repository.NoteSettingsRepository
 	mcpConfigPath string
@@ -55,7 +55,7 @@ func (h *SubAgentHandler) currentUserID(c *gin.Context) (uint, bool) {
 
 // ====== MCP 配置同步 ======
 
-// SyncMCPServer 手动同步 nexus-subagent 条目到 mcp.json（按当前用户 token）。
+// SyncMCPServer 手动同步 opennexus-subagent 条目到 mcp.json（按当前用户 token）。
 // 该接口在 token 生成后由前端调用，确保 agent 会话能发现 subagent MCP server。
 func (h *SubAgentHandler) SyncMCPServer(c *gin.Context) {
 	uid, ok := h.currentUserID(c)
@@ -75,7 +75,7 @@ func (h *SubAgentHandler) SyncMCPServer(c *gin.Context) {
 	Success(c, http.StatusOK, gin.H{"synced": true})
 }
 
-// syncSubagentMCPServer 把 nexus-subagent 条目写入全局 mcp.json。
+// syncSubagentMCPServer 把 opennexus-subagent 条目写入全局 mcp.json。
 // 写入失败返回 error（启动自愈场景调用方决定是否仅记日志）。
 func (h *SubAgentHandler) syncSubagentMCPServer(token string) error {
 	if h.mcpConfigPath == "" || h.publicBaseURL == "" || token == "" {
@@ -89,7 +89,7 @@ func (h *SubAgentHandler) syncSubagentMCPServer(token string) error {
 	return acp.UpsertMCPServerEntry(h.mcpConfigPath, SubAgentMCPName, entry)
 }
 
-// SyncAllSubagentMCP 启动自愈：遍历有 token 的用户，确保 nexus-subagent 条目存在于 mcp.json。
+// SyncAllSubagentMCP 启动自愈：遍历有 token 的用户，确保 opennexus-subagent 条目存在于 mcp.json。
 // 复用与 SyncAllNotesMCP 一致的全局共享 token 策略（取 list[0] 的 token）。
 func (h *SubAgentHandler) SyncAllSubagentMCP() {
 	if h.mcpConfigPath == "" || h.publicBaseURL == "" || h.settingsRepo == nil {

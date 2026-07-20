@@ -7,7 +7,7 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 func TestMapUpdate_UserMessageChunk(t *testing.T) {

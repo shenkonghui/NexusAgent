@@ -9,8 +9,8 @@ import (
 	acpsdk "github.com/coder/acp-go-sdk"
 	"github.com/gin-gonic/gin"
 
-	acplocal "nexusagent/internal/acp"
-	"nexusagent/internal/agent"
+	acplocal "opennexus/internal/acp"
+	"opennexus/internal/agent"
 )
 
 // AgentLister 暴露 agent 列表查询能力（*agent.Router 实现该接口）。

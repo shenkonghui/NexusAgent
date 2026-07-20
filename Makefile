@@ -31,7 +31,7 @@ build:
 	@echo "==> 构建前端"
 	@cd web && npm run build
 	@echo "==> 构建后端 ($(VERSION))"
-	@CGO_ENABLED=1 go build $(LDFLAGS) -o nexusagent ./cmd/server
+	@CGO_ENABLED=1 go build $(LDFLAGS) -o opennexus ./cmd/server
 
 # 使用 Pake (Tauri) 打包桌面客户端壳子
 # 依赖: Rust + Node + pake-cli (pnpm install -g pake-cli@3.13.0)
@@ -47,14 +47,14 @@ desktop:
 	@cd web && npm run build
 	@echo "==> 2/3 构建后端 binary"
 	@mkdir -p dist
-	@CGO_ENABLED=1 go build $(LDFLAGS) -o dist/nexusagent ./cmd/server
+	@CGO_ENABLED=1 go build $(LDFLAGS) -o dist/opennexus ./cmd/server
 	@echo "==> 3/3 Pake 客户端 + 组装 app bundle"
 	@./scripts/build-pake.sh dist $(VERSION) app
-	@./scripts/package-darwin.sh dist nexusagent dist
+	@./scripts/package-darwin.sh dist opennexus dist
 	@echo ""
 	@echo "✅ 桌面应用打包完成"
-	@du -sh dist/NexusAgent.app
-	@echo "   双击 dist/NexusAgent.app 启动"
+	@du -sh dist/openNexus.app
+	@echo "   双击 dist/openNexus.app 启动"
 
 # Linux amd64 桌面应用打包
 # 用法: make desktop-linux
@@ -63,13 +63,13 @@ desktop-linux:
 	@cd web && npm run build
 	@echo "==> 2/3 构建后端 binary"
 	@mkdir -p dist
-	@CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/nexusagent-linux-amd64 ./cmd/server
+	@CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o dist/opennexus-linux-amd64 ./cmd/server
 	@echo "==> 3/3 Pake AppImage + 组装桌面目录"
 	@./scripts/build-pake.sh dist $(VERSION) appimage
-	@./scripts/package-linux.sh dist nexusagent-linux-amd64 dist
-	@cd dist && tar czf nexusagent-linux-desktop.tar.gz NexusAgent
+	@./scripts/package-linux.sh dist opennexus-linux-amd64 dist
+	@cd dist && tar czf opennexus-linux-desktop.tar.gz openNexus
 	@echo ""
-	@echo "✅ Linux 桌面应用打包完成: dist/nexusagent-linux-desktop.tar.gz"
+	@echo "✅ Linux 桌面应用打包完成: dist/opennexus-linux-desktop.tar.gz"
 
 # Windows amd64 桌面应用打包（需在 Windows 或交叉编译环境运行 Pake 步骤）
 # 用法: make desktop-windows
@@ -78,24 +78,24 @@ desktop-windows:
 	@cd web && npm run build
 	@echo "==> 2/3 构建后端 binary"
 	@mkdir -p dist
-	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags=sqlite_nocgo $(LDFLAGS) -o dist/nexusagent-windows-amd64.exe ./cmd/server
+	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags=sqlite_nocgo $(LDFLAGS) -o dist/opennexus-windows-amd64.exe ./cmd/server
 	@echo "==> 3/3 Pake 客户端 + 组装桌面目录（需在 Windows 上执行 Pake）"
 	@./scripts/build-pake.sh dist $(VERSION) x64
-	@pwsh -File ./scripts/package-windows.ps1 -OutDir dist -BinName nexusagent-windows-amd64.exe -PakeDir dist
+	@pwsh -File ./scripts/package-windows.ps1 -OutDir dist -BinName opennexus-windows-amd64.exe -PakeDir dist
 	@echo ""
-	@echo "✅ Windows 桌面应用打包完成: dist/NexusAgent/"
+	@echo "✅ Windows 桌面应用打包完成: dist/openNexus/"
 
 # 开发模式：构建后以 release 模式启动并打开浏览器
 # 用法: make run-desktop
 run-desktop: build
 	@echo "==> 单端口模式启动 http://localhost:8080"
-	@SERVER_MODE=release ./nexusagent --open
+	@SERVER_MODE=release ./opennexus --open
 
 # 单端口运行：先构建前端，再以 release 模式启动后端（前端 + API 同端口）
 # 用法: make run
 run: build
 	@echo "==> 单端口启动 http://localhost:8080"
-	@SERVER_MODE=release ./nexusagent
+	@SERVER_MODE=release ./opennexus
 
 # 生产环境发布构建：跨平台编译
 # 用法: make release
@@ -104,18 +104,18 @@ release:
 	@cd web && npm run build
 	@echo "==> 交叉编译"
 	@mkdir -p dist
-	@CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o "dist/nexusagent-darwin-amd64" ./cmd/server
-	@CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o "dist/nexusagent-darwin-arm64" ./cmd/server
-	@CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o "dist/nexusagent-linux-amd64" ./cmd/server
-	@CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o "dist/nexusagent-linux-arm64" ./cmd/server
-	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags=sqlite_nocgo $(LDFLAGS) -o "dist/nexusagent-windows-amd64.exe" ./cmd/server
+	@CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o "dist/opennexus-darwin-amd64" ./cmd/server
+	@CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o "dist/opennexus-darwin-arm64" ./cmd/server
+	@CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o "dist/opennexus-linux-amd64" ./cmd/server
+	@CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o "dist/opennexus-linux-arm64" ./cmd/server
+	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags=sqlite_nocgo $(LDFLAGS) -o "dist/opennexus-windows-amd64.exe" ./cmd/server
 	@echo "==> 打包"
-	cd dist && tar czf nexusagent-darwin-amd64.tar.gz nexusagent-darwin-amd64 && tar czf nexusagent-darwin-arm64.tar.gz nexusagent-darwin-arm64 && tar czf nexusagent-linux-amd64.tar.gz nexusagent-linux-amd64 && tar czf nexusagent-linux-arm64.tar.gz nexusagent-linux-arm64 && zip nexusagent-windows-amd64.zip nexusagent-windows-amd64.exe
+	cd dist && tar czf opennexus-darwin-amd64.tar.gz opennexus-darwin-amd64 && tar czf opennexus-darwin-arm64.tar.gz opennexus-darwin-arm64 && tar czf opennexus-linux-amd64.tar.gz opennexus-linux-amd64 && tar czf opennexus-linux-arm64.tar.gz opennexus-linux-arm64 && zip opennexus-windows-amd64.zip opennexus-windows-amd64.exe
 	@echo "==> 创建 macOS 桌面应用包"
 	@if command -v pake &>/dev/null; then \
 		./scripts/build-pake.sh dist $(VERSION) app && \
-		./scripts/package-darwin.sh dist nexusagent-darwin-arm64 dist && \
-		cd dist && tar czf nexusagent-darwin-desktop.tar.gz NexusAgent.app; \
+		./scripts/package-darwin.sh dist opennexus-darwin-arm64 dist && \
+		cd dist && tar czf opennexus-darwin-desktop.tar.gz openNexus.app; \
 	else \
 		echo "⚠️  未安装 pake-cli，跳过桌面客户端打包"; \
 		echo "   安装: pnpm install -g pake-cli"; \
@@ -129,14 +129,14 @@ test:
 
 # 清理构建产物
 clean:
-	@-rm -f nexusagent
+	@-rm -f opennexus
 	@-rm -rf web/dist dist
 
 # 构建 Docker 镜像（多阶段构建，含前端 + 后端）
 # 用法: make docker-build
 docker-build:
-	@echo "==> 构建 Docker 镜像 nexusagent:latest"
-	@docker build -t nexusagent:latest .
+	@echo "==> 构建 Docker 镜像 opennexus:latest"
+	@docker build -t opennexus:latest .
 
 # 启动 docker-compose（前台，Ctrl+C 停止）
 # 用法: make docker-up
@@ -185,49 +185,49 @@ electron-dist: build
 # 用法: make electron-install
 electron-install: electron-dist
 ifeq ($(shell uname -s),Darwin)
-	@echo "==> 安装 NexusAgent 到 /Applications"
-	@osascript -e 'quit app "NexusAgent"' 2>/dev/null || true
+	@echo "==> 安装 openNexus 到 /Applications"
+	@osascript -e 'quit app "openNexus"' 2>/dev/null || true
 	@sleep 1
 	@bash -c '\
-		APP_SRC=$$(ls -d electron/dist/mac-*/NexusAgent.app 2>/dev/null | head -1); \
+		APP_SRC=$$(ls -d electron/dist/mac-*/openNexus.app 2>/dev/null | head -1); \
 		if [ -z "$$APP_SRC" ]; then echo "❌ 未找到打包产物，请先 make electron-dist"; exit 1; fi; \
 		echo "   源: $$APP_SRC"; \
-		if [ -d /Applications/NexusAgent.app ]; then \
-		  if [ -w /Applications ]; then rm -rf /Applications/NexusAgent.app; \
-		  else sudo rm -rf /Applications/NexusAgent.app; fi; \
+		if [ -d /Applications/openNexus.app ]; then \
+		  if [ -w /Applications ]; then rm -rf /Applications/openNexus.app; \
+		  else sudo rm -rf /Applications/openNexus.app; fi; \
 		fi; \
 		if [ -w /Applications ]; then cp -R "$$APP_SRC" /Applications/; \
 		else echo "   /Applications 需要管理员权限:"; sudo cp -R "$$APP_SRC" /Applications/; fi; \
-		xattr -cr /Applications/NexusAgent.app 2>/dev/null || sudo xattr -cr /Applications/NexusAgent.app; \
+		xattr -cr /Applications/openNexus.app 2>/dev/null || sudo xattr -cr /Applications/openNexus.app; \
 		/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
-		  -f /Applications/NexusAgent.app 2>/dev/null || true; \
-		echo "✅ 已安装到 /Applications/NexusAgent.app"; \
-		echo "   启动: make electron-run  或  open /Applications/NexusAgent.app"'
+		  -f /Applications/openNexus.app 2>/dev/null || true; \
+		echo "✅ 已安装到 /Applications/openNexus.app"; \
+		echo "   启动: make electron-run  或  open /Applications/openNexus.app"'
 else
 	@echo "❌ make electron-install 仅支持 macOS，Linux 请用 make electron-dist 产出 AppImage 后直接运行"
 endif
 
-# 卸载已安装的 NexusAgent
+# 卸载已安装的 openNexus
 # 用法: make electron-uninstall
 electron-uninstall:
 ifeq ($(shell uname -s),Darwin)
-	@-osascript -e 'quit app "NexusAgent"' 2>/dev/null || true
-	@if [ -d /Applications/NexusAgent.app ]; then \
-	  if [ -w /Applications ]; then rm -rf /Applications/NexusAgent.app; \
-	  else sudo rm -rf /Applications/NexusAgent.app; fi; \
-	  echo "✅ 已卸载 /Applications/NexusAgent.app"; \
-	else echo "ℹ️  /Applications/NexusAgent.app 不存在，无需卸载"; fi
+	@-osascript -e 'quit app "openNexus"' 2>/dev/null || true
+	@if [ -d /Applications/openNexus.app ]; then \
+	  if [ -w /Applications ]; then rm -rf /Applications/openNexus.app; \
+	  else sudo rm -rf /Applications/openNexus.app; fi; \
+	  echo "✅ 已卸载 /Applications/openNexus.app"; \
+	else echo "ℹ️  /Applications/openNexus.app 不存在，无需卸载"; fi
 else
 	@echo "❌ make electron-uninstall 仅支持 macOS"
 endif
 
-# 启动已安装到 /Applications 的 NexusAgent
+# 启动已安装到 /Applications 的 openNexus
 # 用法: make electron-run
 electron-run:
 ifeq ($(shell uname -s),Darwin)
-	@if [ -d /Applications/NexusAgent.app ]; then \
-	  open /Applications/NexusAgent.app; \
-	  echo "✅ 已启动 /Applications/NexusAgent.app"; \
+	@if [ -d /Applications/openNexus.app ]; then \
+	  open /Applications/openNexus.app; \
+	  echo "✅ 已启动 /Applications/openNexus.app"; \
 	else echo "❌ 未安装，请先 make electron-install"; fi
 else
 	@echo "❌ make electron-run 仅支持 macOS"

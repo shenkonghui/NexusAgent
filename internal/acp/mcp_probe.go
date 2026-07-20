@@ -79,7 +79,7 @@ func probeOne(ctx context.Context, named NamedMCPServerEntry) MCPServerStatus {
 		return status
 	}
 
-	client := mcp.NewClient(&mcp.Implementation{Name: "nexus-mcp-probe", Version: "v1.0.0"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "opennexus-mcp-probe", Version: "v1.0.0"}, nil)
 	session, err := client.Connect(pctx, transport, nil)
 	if err != nil {
 		status.Error = fmt.Sprintf("连接失败: %v", err)

@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // Workspace 管理会话的工作目录。
@@ -28,17 +28,17 @@ func NewExternalWorkspace(cwd string, dirs ...string) *Workspace {
 }
 
 // NewTemporaryWorkspace 创建一个临时目录作为工作区。
-// baseDir 指定会话工作区的存放根目录（如 ~/.nextAgent/session），
+// baseDir 指定会话工作区的存放根目录（如 ~/.openNexus/session），
 // 会话目录在该根目录下以 prefix 为前缀创建，由程序在删除会话时清理，
 // 而不依赖操作系统对系统临时目录的清理。
-// baseDir 为空时回退到 ~/.nextAgent/session。
+// baseDir 为空时回退到 ~/.openNexus/session。
 func NewTemporaryWorkspace(baseDir, prefix string) (*Workspace, error) {
 	if baseDir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, fmt.Errorf("获取用户主目录: %w", err)
 		}
-		baseDir = filepath.Join(home, ".nextAgent", "session")
+		baseDir = filepath.Join(home, ".openNexus", "session")
 	}
 	if err := os.MkdirAll(baseDir, 0o755); err != nil {
 		return nil, fmt.Errorf("创建会话根目录 %s: %w", baseDir, err)

@@ -153,7 +153,7 @@ func TestValidate_WorkspaceSessionDir_Default(t *testing.T) {
 	if err != nil {
 		t.Fatalf("获取主目录失败: %v", err)
 	}
-	expected := filepath.Join(home, ".nextAgent", "session")
+	expected := filepath.Join(home, ".openNexus", "session")
 	if cfg.Agents.Workspace.SessionDir != expected {
 		t.Errorf("SessionDir = %q, 期望 %q", cfg.Agents.Workspace.SessionDir, expected)
 	}
@@ -171,16 +171,16 @@ func TestValidate_DatabasePath_Default(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := filepath.Join(home, ".nextAgent", "nexus.db")
+	expected := filepath.Join(home, ".openNexus", "opennexus.db")
 	if cfg.Database.Path != expected {
 		t.Errorf("Database.Path = %q, 期望 %q", cfg.Database.Path, expected)
 	}
 }
 
 func TestResolveConfigPath_Env(t *testing.T) {
-	t.Setenv("CONFIG_PATH", "/tmp/custom-nexus-config.yaml")
-	if got := ResolveConfigPath(); got != "/tmp/custom-nexus-config.yaml" {
-		t.Errorf("ResolveConfigPath = %q, 期望 /tmp/custom-nexus-config.yaml", got)
+	t.Setenv("CONFIG_PATH", "/tmp/custom-opennexus-config.yaml")
+	if got := ResolveConfigPath(); got != "/tmp/custom-opennexus-config.yaml" {
+		t.Errorf("ResolveConfigPath = %q, 期望 /tmp/custom-opennexus-config.yaml", got)
 	}
 }
 
@@ -191,7 +191,7 @@ func TestResolveConfigPath_Fallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	userCfg := filepath.Join(home, ".nextAgent", "config.yaml")
+	userCfg := filepath.Join(home, ".openNexus", "config.yaml")
 	if _, err := os.Stat(userCfg); err == nil {
 		if got != userCfg {
 			t.Errorf("ResolveConfigPath = %q, 期望 %q", got, userCfg)

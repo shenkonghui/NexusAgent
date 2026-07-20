@@ -8,11 +8,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/acp"
-	"nexusagent/internal/agent"
-	"nexusagent/internal/database"
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	"opennexus/internal/acp"
+	"opennexus/internal/agent"
+	"opennexus/internal/database"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 
 // recordingRegistrar 记录注册/注销操作以便断言。

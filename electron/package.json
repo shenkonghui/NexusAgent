@@ -1,9 +1,9 @@
 {
-  "name": "nexusagent-electron",
+  "name": "opennexus-electron",
   "version": "1.0.0",
   "private": true,
-  "description": "NexusAgent Electron desktop client (launches the Go backend and loads its web UI)",
-  "author": "NexusAgent",
+  "description": "openNexus Electron desktop client (launches the Go backend and loads its web UI)",
+  "author": "openNexus",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
@@ -14,8 +14,8 @@
     "electron-builder": "^25.1.0"
   },
   "build": {
-    "appId": "com.nexusagent.app",
-    "productName": "NexusAgent",
+    "appId": "com.opennexus.app",
+    "productName": "openNexus",
     "directories": {
       "output": "dist",
       "buildResources": "."
@@ -52,8 +52,8 @@
       "hardenedRuntime": false,
       "extraResources": [
         {
-          "from": "../nexusagent",
-          "to": "backend/nexusagent",
+          "from": "../opennexus",
+          "to": "backend/opennexus",
           "filter": [
             "**"
           ]
@@ -73,8 +73,8 @@
       "category": "Development",
       "extraResources": [
         {
-          "from": "../nexusagent",
-          "to": "backend/nexusagent",
+          "from": "../opennexus",
+          "to": "backend/opennexus",
           "filter": [
             "**"
           ]
@@ -93,8 +93,8 @@
       "icon": "icon.png",
       "extraResources": [
         {
-          "from": "../nexusagent.exe",
-          "to": "backend/nexusagent.exe",
+          "from": "../opennexus.exe",
+          "to": "backend/opennexus.exe",
           "filter": [
             "**"
           ]

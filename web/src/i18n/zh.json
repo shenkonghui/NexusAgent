@@ -278,7 +278,7 @@
     "rules": "Rules 规则配置",
     "rulesDesc": "配置 Rule 扫描路径（目录或单个文件，如 CLAUDE.md）",
     "subagents": "Subagent 子代理配置",
-    "subagentsDesc": "配置 subagent 扫描目录（markdown 文件：frontmatter 含 name/description/model/tools，正文当 system_prompt；主 agent 通过 nexus-subagent MCP 调用）",
+    "subagentsDesc": "配置 subagent 扫描目录（markdown 文件：frontmatter 含 name/description/model/tools，正文当 system_prompt；主 agent 通过 opennexus-subagent MCP 调用）",
     "userDirs": "用户目录",
     "projectDirs": "项目目录",
     "addPath": "添加路径",

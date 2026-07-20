@@ -58,7 +58,7 @@ jobs:
           mkdir -p dist
           GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} CGO_ENABLED=1 go build \
             -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
-            -o "dist/nexusagent-${{ matrix.os }}-${{ matrix.arch }}" ./cmd/server
+            -o "dist/opennexus-${{ matrix.os }}-${{ matrix.arch }}" ./cmd/server
 
       - name: Build Binary (Windows)
         if: matrix.os == 'windows'
@@ -70,20 +70,20 @@ jobs:
           $env:CGO_ENABLED = "0"
           go build -tags=sqlite_nocgo `
             -ldflags="-s -w -X main.version=${{ github.ref_name }}" `
-            -o "dist/nexusagent-${{ matrix.os }}-${{ matrix.arch }}.exe" ./cmd/server
+            -o "dist/opennexus-${{ matrix.os }}-${{ matrix.arch }}.exe" ./cmd/server
 
       - name: Package CLI (Linux / macOS)
         if: matrix.os != 'windows'
         run: |
           cd dist
-          tar czf "nexusagent-${{ matrix.os }}-${{ matrix.arch }}.tar.gz" "nexusagent-${{ matrix.os }}-${{ matrix.arch }}"
+          tar czf "opennexus-${{ matrix.os }}-${{ matrix.arch }}.tar.gz" "opennexus-${{ matrix.os }}-${{ matrix.arch }}"
 
       - name: Package CLI (Windows)
         if: matrix.os == 'windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path "dist/nexusagent-${{ matrix.os }}-${{ matrix.arch }}.exe" `
-            -DestinationPath "dist/nexusagent-${{ matrix.os }}-${{ matrix.arch }}.zip" -Force
+          Compress-Archive -Path "dist/opennexus-${{ matrix.os }}-${{ matrix.arch }}.exe" `
+            -DestinationPath "dist/opennexus-${{ matrix.os }}-${{ matrix.arch }}.zip" -Force
 
       # ========== 桌面客户端：macOS arm64 / Linux amd64 / Windows amd64 ==========
       - name: Setup Rust (Desktop)
@@ -114,16 +114,16 @@ jobs:
         run: |
           chmod +x scripts/build-pake.sh scripts/package-darwin.sh
           ./scripts/build-pake.sh dist ${{ github.ref_name }} app
-          ./scripts/package-darwin.sh dist nexusagent-darwin-arm64 dist
-          cd dist && tar czf nexusagent-darwin-desktop.tar.gz NexusAgent.app
+          ./scripts/package-darwin.sh dist opennexus-darwin-arm64 dist
+          cd dist && tar czf opennexus-darwin-desktop.tar.gz openNexus.app
 
       - name: Build Linux Desktop (amd64)
         if: matrix.os == 'linux' && matrix.arch == 'amd64'
         run: |
           chmod +x scripts/build-pake.sh scripts/package-linux.sh
           ./scripts/build-pake.sh dist ${{ github.ref_name }} appimage
-          ./scripts/package-linux.sh dist nexusagent-linux-amd64 dist
-          cd dist && tar czf nexusagent-linux-desktop.tar.gz NexusAgent
+          ./scripts/package-linux.sh dist opennexus-linux-amd64 dist
+          cd dist && tar czf opennexus-linux-desktop.tar.gz openNexus
 
       - name: Build Windows Desktop (amd64)
         if: matrix.os == 'windows' && matrix.arch == 'amd64'
@@ -135,13 +135,13 @@ jobs:
         if: matrix.os == 'windows' && matrix.arch == 'amd64'
         shell: pwsh
         run: |
-          ./scripts/package-windows.ps1 -OutDir dist -BinName nexusagent-windows-amd64.exe -PakeDir dist
-          Compress-Archive -Path dist/NexusAgent -DestinationPath dist/nexusagent-windows-desktop.zip -Force
+          ./scripts/package-windows.ps1 -OutDir dist -BinName opennexus-windows-amd64.exe -PakeDir dist
+          Compress-Archive -Path dist/openNexus -DestinationPath dist/opennexus-windows-desktop.zip -Force
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: nexusagent-${{ matrix.os }}-${{ matrix.arch }}
+          name: opennexus-${{ matrix.os }}-${{ matrix.arch }}
           path: |
             dist/*.tar.gz
             dist/*.zip
@@ -198,7 +198,7 @@ jobs:
         run: |
           GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build \
             -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
-            -o nexusagent ./cmd/server
+            -o opennexus ./cmd/server
 
       - name: Build Backend (Windows)
         if: matrix.target == 'windows-x64'
@@ -209,7 +209,7 @@ jobs:
           $env:CGO_ENABLED = "0"
           go build -tags=sqlite_nocgo `
             -ldflags="-s -w -X main.version=${{ github.ref_name }}" `
-            -o nexusagent.exe ./cmd/server
+            -o opennexus.exe ./cmd/server
 
       # electron-builder 要求 package.json 的 version 是合法 semver（去掉 tag 前缀 v）
       - name: Set app version
@@ -238,7 +238,7 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: nexusagent-electron-${{ matrix.target }}
+          name: opennexus-electron-${{ matrix.target }}
           path: |
             electron/dist/*.dmg
             electron/dist/*.exe
@@ -258,45 +258,45 @@ jobs:
       - name: Generate Release Notes
         run: |
           {
-            echo "## NexusAgent ${{ github.ref_name }}"
+            echo "## openNexus ${{ github.ref_name }}"
             echo ""
             echo "### Electron 桌面客户端（推荐）"
             echo ""
             echo "| 平台 | 文件 | 说明 |"
             echo "|------|------|------|"
-            echo "| macOS Apple Silicon | \`NexusAgent-*-arm64.dmg\` | 双击安装，拖入 Applications |"
-            echo "| Windows x86_64 | \`NexusAgent-*-x64.exe\` | 双击 NSIS 安装程序 |"
+            echo "| macOS Apple Silicon | \`openNexus-*-arm64.dmg\` | 双击安装，拖入 Applications |"
+            echo "| Windows x86_64 | \`openNexus-*-x64.exe\` | 双击 NSIS 安装程序 |"
             echo ""
             echo "### Pake 桌面客户端（轻量，系统 WebView）"
             echo ""
             echo "| 平台 | 文件 | 说明 |"
             echo "|------|------|------|"
-            echo "| macOS Apple Silicon | \`nexusagent-darwin-desktop.tar.gz\` | 解压后双击 \`NexusAgent.app\` |"
-            echo "| Linux x86_64 | \`nexusagent-linux-desktop.tar.gz\` | 解压后运行 \`NexusAgent/launch.sh\` |"
-            echo "| Windows x86_64 | \`nexusagent-windows-desktop.zip\` | 解压后运行 \`NexusAgent/launch.bat\` |"
+            echo "| macOS Apple Silicon | \`opennexus-darwin-desktop.tar.gz\` | 解压后双击 \`openNexus.app\` |"
+            echo "| Linux x86_64 | \`opennexus-linux-desktop.tar.gz\` | 解压后运行 \`openNexus/launch.sh\` |"
+            echo "| Windows x86_64 | \`opennexus-windows-desktop.zip\` | 解压后运行 \`openNexus/launch.bat\` |"
             echo ""
             echo "### 命令行版本"
             echo ""
             echo "| 平台 | 文件 | 说明 |"
             echo "|------|------|------|"
-            echo "| macOS Intel | \`nexusagent-darwin-amd64.tar.gz\` | 命令行运行 |"
-            echo "| macOS Apple Silicon | \`nexusagent-darwin-arm64.tar.gz\` | 命令行运行 |"
-            echo "| Linux x86_64 | \`nexusagent-linux-amd64.tar.gz\` | 命令行运行 |"
-            echo "| Linux ARM64 | \`nexusagent-linux-arm64.tar.gz\` | 命令行运行 |"
-            echo "| Windows x86_64 | \`nexusagent-windows-amd64.zip\` | 命令行运行 |"
+            echo "| macOS Intel | \`opennexus-darwin-amd64.tar.gz\` | 命令行运行 |"
+            echo "| macOS Apple Silicon | \`opennexus-darwin-arm64.tar.gz\` | 命令行运行 |"
+            echo "| Linux x86_64 | \`opennexus-linux-amd64.tar.gz\` | 命令行运行 |"
+            echo "| Linux ARM64 | \`opennexus-linux-arm64.tar.gz\` | 命令行运行 |"
+            echo "| Windows x86_64 | \`opennexus-windows-amd64.zip\` | 命令行运行 |"
             echo ""
             echo "### 使用方式"
             echo ""
             echo "- **Electron macOS**：下载 \`.dmg\`，拖拽安装到 Applications 后启动"
             echo "- **Electron Windows**：下载 \`.exe\`，按安装向导完成"
             echo "- **Pake 桌面版**：解压后运行对应启动脚本"
-            echo "- **命令行版**：解压后执行 \`./nexusagent\`，浏览器访问 http://127.0.0.1:8080"
+            echo "- **命令行版**：解压后执行 \`./opennexus\`，浏览器访问 http://127.0.0.1:8080"
           } > release-notes.md
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          name: NexusAgent ${{ github.ref_name }}
+          name: openNexus ${{ github.ref_name }}
           body_path: release-notes.md
           files: |
             artifacts/**/*.tar.gz

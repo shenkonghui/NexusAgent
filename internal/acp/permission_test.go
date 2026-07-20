@@ -16,7 +16,7 @@ func TestTrustedMCPAutoApprove(t *testing.T) {
 	_ = b.registerWaiter(sid)
 	defer b.unregisterWaiter(sid)
 
-	title := "nexus-notes-list_notes: list_notes"
+	title := "opennexus-notes-list_notes: list_notes"
 	resp, err := b.request(context.Background(), acp.RequestPermissionRequest{
 		SessionId: sid,
 		ToolCall:  acp.ToolCallUpdate{Title: &title},

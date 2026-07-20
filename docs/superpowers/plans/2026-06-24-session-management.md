@@ -30,7 +30,7 @@
 | `internal/agent/router.go` | 修改：Prompt 返回类型改为 `<-chan models.Message`；新增 GetSessionByDBID/ListMessages/ResumeSession 委托 |
 | `internal/agent/router_test.go` | 修改：适配 Prompt 返回类型变更 |
 
-**包名约定：** 目录名作包名（`models`、`repository`、`acp`、`agent`）。模块名 `nexusagent`，导入路径 `nexusagent/internal/...`。
+**包名约定：** 目录名作包名（`models`、`repository`、`acp`、`agent`）。模块名 `opennexus`，导入路径 `opennexus/internal/...`。
 
 **测试约定：** 内存 SQLite（DSN `file::memory:?cache=shared`），运行命令 `go test ./...`。
 
@@ -132,7 +132,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/internal/database"
+	"opennexus/internal/database"
 )
 
 func TestMessage_TableExists(t *testing.T) {
@@ -200,7 +200,7 @@ package repository
 import (
 	"testing"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 func TestMessageRepo_Create(t *testing.T) {
@@ -343,7 +343,7 @@ package repository
 import (
 	"gorm.io/gorm"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // MessageRepository 是消息持久化仓库，提供消息 CRUD 操作。
@@ -532,7 +532,7 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 func TestMapUpdate_UserMessageChunk(t *testing.T) {
@@ -778,7 +778,7 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // MapUpdate 将 acp.SessionUpdate 映射为 models.Message 的字段值。
@@ -1202,9 +1202,9 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/internal/config"
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	"opennexus/internal/config"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 ```
 
@@ -1223,9 +1223,9 @@ import (
 	"github.com/coder/acp-go-sdk"
 	"gorm.io/gorm"
 
-	"nexusagent/internal/config"
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	"opennexus/internal/config"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 ```
 

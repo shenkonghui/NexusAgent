@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 
 // AgentPrefsHandler 处理用户 agent 最近使用偏好。

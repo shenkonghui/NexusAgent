@@ -9,8 +9,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 
 var (
@@ -57,7 +57,7 @@ func (s *AuthService) SeedAdminUser() {
 	}
 	user := &models.User{
 		Username:     "admin",
-		Email:        "admin@nexus.local",
+		Email:        "admin@opennexus.local",
 		PasswordHash: string(hash),
 		Role:         models.RoleAdmin,
 		Status:       models.StatusActive,

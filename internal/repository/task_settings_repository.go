@@ -5,7 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // ErrTaskSettingsNotFound 任务设置不存在。

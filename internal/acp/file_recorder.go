@@ -9,7 +9,7 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // FileWriteNotify 是 WriteTextFile 回调推送给 Prompt 流的文件改动事件。

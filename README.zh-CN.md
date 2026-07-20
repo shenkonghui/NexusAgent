@@ -1,4 +1,4 @@
-# NexusAgent
+# openNexus
 
 基于 [Agent Client Protocol (ACP)](https://github.com/coder/acp-go-sdk) 的多 Agent 统一管理与对话平台。在一个界面中接入并驱动 Claude Code、CodeBuddy、Kilo Code、Devin 等编码 Agent，实现多会话并发、流式对话、文件浏览编辑、终端交互与定时任务调度。
 
@@ -33,7 +33,7 @@
 ## 项目结构
 
 ```
-NexusAgent/
+openNexus/
 ├── cmd/server/          # 程序入口
 ├── internal/
 │   ├── acp/             # ACP 协议封装：连接、客户端、会话管理、健康检查
@@ -111,13 +111,35 @@ ANTHROPIC_API_KEY=sk-xxx make docker-up-d
 | `server.port` | `SERVER_PORT` | 服务端口，默认 `8080` |
 | `server.mode` | `SERVER_MODE` | `debug` / `release`，release 为单端口模式 |
 | `server.web_dist` | `WEB_DIST` | 前端构建产物目录，默认 `./web/dist` |
-| `database.path` | `DATABASE_PATH` | SQLite 数据库路径，默认 `~/.nextAgent/nexus.db` |
+| `database.path` | `DATABASE_PATH` | SQLite 数据库路径，默认 `~/.openNexus/opennexus.db` |
 | `jwt.secret` | `JWT_SECRET` | JWT 签名密钥（生产环境务必修改） |
-| `agents.workspace.session_dir` | `AGENTS_WORKSPACE_SESSION_DIR` | 会话工作区根目录，默认 `~/.nextAgent/session` |
+| `agents.workspace.session_dir` | `AGENTS_WORKSPACE_SESSION_DIR` | 会话工作区根目录，默认 `~/.openNexus/session` |
 
-配置文件查找顺序：`CONFIG_PATH` → `~/.nextAgent/config.yaml` → `./config.yaml`。数据库与会话数据默认均在 `~/.nextAgent/`。
+配置文件查找顺序：`CONFIG_PATH` → `~/.openNexus/config.yaml` → `./config.yaml`。数据库与会话数据默认均在 `~/.openNexus/`。
 
 Agent 的连接命令、参数、API Key 等可在前端「设置」页面动态管理，修改后实时生效。
+
+## 数据迁移（自动）
+
+启动时，openNexus 会自动迁移历史版本遗留的数据目录，老用户可无感升级。迁移在配置加载之前执行一次，**幂等**——重复运行无副作用。
+
+| 历史目录 | 迁移到 | 内容 |
+|---------|--------|------|
+| `~/.nextAgent` | `~/.openNexus` | 数据库、会话工作区、配置、ACP 调试日志 |
+| `~/.nexusagent/binaries` | `~/.openNexus/binaries` | 已下载的 agent 二进制与 `versions.json` |
+| `~/.openNexus/nexus.db` | `~/.openNexus/opennexus.db` | 数据目录内的库文件改名 |
+
+**迁移策略（目标优先）：** 若 `~/.openNexus` 已存在且非空，主目录迁移会跳过以避免覆盖已有数据（历史目录原样保留，日志会提示用户手动处理）。二进制缓存仍会逐条目合并（目标已有的条目保留）。当 `nexus.db` 与 `opennexus.db` 同时存在时，保留 `opennexus.db`，删除旧文件。
+
+迁移过程出错**不阻断启动**——仅记录警告日志后继续（与现有 `RestoreBinarySymlinks` / `RecoverActiveSessions` 等启动自愈逻辑风格一致）。
+
+**跳过迁移**（如 Docker / CI 场景由外部管理数据）：
+
+```bash
+SKIP_DATA_MIGRATION=1 ./opennexus
+```
+
+> **手动恢复：** 若新版首次启动已创建了空的 `~/.openNexus`（导致自动迁移被跳过），可手动恢复——停掉服务，用 `~/.nextAgent/nexus.db` 覆盖 `~/.openNexus/opennexus.db`，并把 `~/.nextAgent/session/*` 移入 `~/.openNexus/session/`。迁移逻辑不会删除原始历史目录，数据始终安全。
 
 ## Agent 接入
 
@@ -129,7 +151,7 @@ Agent 的连接命令、参数、API Key 等可在前端「设置」页面动态
 
 ### 后台认证
 
-启用 Agent 后，NexusAgent 会在后台自动执行以下步骤（`PreconnectAllAsync` + 健康检查重连），无需在前端手动操作：
+启用 Agent 后，openNexus 会在后台自动执行以下步骤（`PreconnectAllAsync` + 健康检查重连），无需在前端手动操作：
 
 1. **启动子进程**：按配置执行 `npx` / `uvx` 或 binary 分发命令
 2. **ACP 握手**：调用 `initialize` 协商协议能力
@@ -145,13 +167,13 @@ Agent 的连接命令、参数、API Key 等可在前端「设置」页面动态
 |---------|---------|---------|
 | `npx` | `npm exec --include=optional --yes <package>` | 需 Node.js / npm；Docker 镜像已内置 |
 | `uvx` | `uvx <package>` | 宿主机需安装 [uv](https://github.com/astral-sh/uv) |
-| `binary` | 从 Registry 下载平台对应压缩包 | 首次启用时自动下载到 `~/.nexusagent/binaries/<agent>-<version>/` |
+| `binary` | 从 Registry 下载平台对应压缩包 | 首次启用时自动下载到 `~/.openNexus/binaries/<agent>-<version>/` |
 
 **binary 分发 Agent 注意事项：**
 
 - 下载按当前 OS/架构（如 `darwin-aarch64`、`linux-x86_64`）自动选择；Registry 未提供当前平台条目时会连接失败
 - 确保二进制有执行权限；下载失败或解压后找不到可执行文件时，查看日志中 `安装 binary agent 失败` 相关错误
-- Docker 部署时 binary 缓存在容器内 `~/.nexusagent/binaries/`，如需避免重复下载可挂载该目录
+- Docker 部署时 binary 缓存在容器内 `~/.openNexus/binaries/`，如需避免重复下载可挂载该目录
 - Alpine 容器使用 musl libc，部分 binary 分发包（基于 glibc 编译）可能无法运行，建议在宿主机直接部署或使用 npx 分发
 
 **启用前验证二进制可用：**
@@ -208,9 +230,9 @@ npm exec --include=optional --yes @agentclientprotocol/claude-agent-acp@latest -
 
 | 平台 | 桌面版产物 | 命令行产物 |
 |------|-----------|-----------|
-| macOS Apple Silicon | `nexusagent-darwin-desktop.tar.gz` | `nexusagent-darwin-arm64.tar.gz` |
-| Linux x86_64 | `nexusagent-linux-desktop.tar.gz` | `nexusagent-linux-amd64.tar.gz` |
-| Windows x86_64 | `nexusagent-windows-desktop.zip` | `nexusagent-windows-amd64.zip` |
+| macOS Apple Silicon | `opennexus-darwin-desktop.tar.gz` | `opennexus-darwin-arm64.tar.gz` |
+| Linux x86_64 | `opennexus-linux-desktop.tar.gz` | `opennexus-linux-amd64.tar.gz` |
+| Windows x86_64 | `opennexus-windows-desktop.zip` | `opennexus-windows-amd64.zip` |
 
 本地打包依赖 Rust、pnpm 与 `pake-cli@3.13.0`，详见 `scripts/build-pake.sh`。
 

@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"nexusagent/internal/acp"
+	"opennexus/internal/acp"
 )
 
 // Registrar 组合 Registry 与 acp.Service 的后端注册能力，

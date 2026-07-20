@@ -5,7 +5,7 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // MapUpdate 将 acp.SessionUpdate 映射为 models.Message 的字段值。

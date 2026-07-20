@@ -230,7 +230,7 @@ func createDefaultWorkspacesForEmptyUsers(db *gorm.DB) error {
 		}
 		if count == 0 {
 			// 创建默认 temporary workspace
-			ws, err := createTempWorkspace("", "nexus-")
+			ws, err := createTempWorkspace("", "opennexus-")
 			if err != nil {
 				return fmt.Errorf("为用户 %d 创建默认 workspace: %w", uid, err)
 			}
@@ -253,7 +253,7 @@ func createTempWorkspace(baseDir, prefix string) (*models.Workspace, error) {
 		if err != nil {
 			return nil, fmt.Errorf("获取用户主目录: %w", err)
 		}
-		dir = filepath.Join(home, ".nextAgent", "session")
+		dir = filepath.Join(home, ".openNexus", "session")
 	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, fmt.Errorf("创建临时根目录: %w", err)
@@ -283,7 +283,7 @@ import (
 - [ ] **步骤 2：编译验证**
 
 ```bash
-cd /Users/shenkonghui/src/mywork/NexusAgent && go build ./...
+cd /Users/shenkonghui/src/mywork/openNexus && go build ./...
 ```
 预期：可能会因其他文件引用旧字段而编译失败（后续任务解决）。
 
@@ -308,7 +308,7 @@ package repository
 
 import (
 	"gorm.io/gorm"
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 type WorkspaceRepository struct {
@@ -407,7 +407,7 @@ func (r *SessionRepository) FindByWorkspaceID(workspaceID uint) ([]models.Sessio
 - [ ] **步骤 2：Compile verification**
 
 ```bash
-cd /Users/shenkonghui/src/mywork/NexusAgent && go build ./...
+cd /Users/shenkonghui/src/mywork/openNexus && go build ./...
 ```
 
 - [ ] **步骤 3：Commit**
@@ -437,8 +437,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 
 // WorkspaceStore 暴露 workspace 相关能力。
@@ -982,7 +982,7 @@ func (s *Service) cleanupProbeSession(ctx context.Context, sess *models.Session)
 - [ ] **步骤 9：编译验证**
 
 ```bash
-cd /Users/shenkonghui/src/mywork/NexusAgent && go build ./internal/acp/
+cd /Users/shenkonghui/src/mywork/openNexus && go build ./internal/acp/
 ```
 预期可能因调用方尚未更新签名而报错（后续任务解决）。
 
@@ -1190,7 +1190,7 @@ if sess.WorkspaceID != nil {
 - [ ] **步骤 3：编译整个项目**
 
 ```bash
-cd /Users/shenkonghui/src/mywork/NexusAgent && go build ./...
+cd /Users/shenkonghui/src/mywork/openNexus && go build ./...
 ```
 预期：全部编译通过。
 
@@ -1244,7 +1244,7 @@ func (r *Router) GetWorkspaceCwd(workspaceID uint) (string, error) { return r.se
 - [ ] **步骤 2：编译验证**
 
 ```bash
-cd /Users/shenkonghui/src/mywork/NexusAgent && go build ./...
+cd /Users/shenkonghui/src/mywork/openNexus && go build ./...
 ```
 预期：全部编译通过。
 
@@ -1529,7 +1529,7 @@ import CreateWorkspaceDialog from '../components/CreateWorkspaceDialog'
 import UserMenu from '../components/UserMenu'
 import styles from './HomePage.module.css'
 
-const DEFAULT_AGENT_KEY = 'nexus.default.agent'
+const DEFAULT_AGENT_KEY = 'opennexus.default.agent'
 
 export default function HomePage() {
   const { t } = useTranslation()
@@ -1768,7 +1768,7 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import UserMenu from '../components/UserMenu'
 import styles from './WorkspacePage.module.css'
 
-const DEFAULT_AGENT_KEY = 'nexus.default.agent'
+const DEFAULT_AGENT_KEY = 'opennexus.default.agent'
 
 export default function WorkspacePage() {
   const { t } = useTranslation()
@@ -2060,7 +2060,7 @@ export default function SessionRedirect() {
 - [ ] **步骤 3：编译前端**
 
 ```bash
-cd /Users/shenkonghui/src/mywork/NexusAgent/web && npm run build
+cd /Users/shenkonghui/src/mywork/openNexus/web && npm run build
 ```
 预期：编译成功。
 
@@ -2078,7 +2078,7 @@ git commit -m "feat: 更新路由为 workspace 结构，添加旧路由重定向
 - [ ] **步骤 1：启动服务**
 
 ```bash
-cd /Users/shenkonghui/src/mywork/NexusAgent && go run ./cmd/server/
+cd /Users/shenkonghui/src/mywork/openNexus && go run ./cmd/server/
 ```
 
 - [ ] **步骤 2：测试 workspace 创建**

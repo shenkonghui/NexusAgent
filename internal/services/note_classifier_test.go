@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"nexusagent/internal/acp"
-	"nexusagent/internal/database"
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	"opennexus/internal/acp"
+	"opennexus/internal/database"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 
 // fakeClassifyExecutor 记录 RunSubAgent 调用，返回预设文本，用于验证分类走临时会话路径。

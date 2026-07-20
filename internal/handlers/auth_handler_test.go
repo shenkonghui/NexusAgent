@@ -10,8 +10,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/database"
-	"nexusagent/internal/services"
+	"opennexus/internal/database"
+	"opennexus/internal/services"
 )
 
 func setupRouter(t *testing.T) (*gin.Engine, *services.AuthService) {

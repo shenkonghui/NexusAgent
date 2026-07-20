@@ -7,7 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // UserAgentPrefsRepository 管理用户 agent 最近使用偏好。

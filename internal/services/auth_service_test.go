@@ -6,8 +6,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/internal/database"
-	"nexusagent/internal/models"
+	"opennexus/internal/database"
+	"opennexus/internal/models"
 )
 
 func newAuthSvc(t *testing.T) (*AuthService, *gorm.DB) {

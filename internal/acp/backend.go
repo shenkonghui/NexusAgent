@@ -4,7 +4,7 @@ import (
 	"os"
 	"time"
 
-	"nexusagent/internal/config"
+	"opennexus/internal/config"
 )
 
 // Backend 定义 ACP agent 后端的接口。

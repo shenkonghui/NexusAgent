@@ -3,26 +3,26 @@
 #
 # 将 Go 后端 binary + Pake 桌面客户端组合成一个 macOS 应用包:
 #
-#   NexusAgent.app/
+#   openNexus.app/
 #     Contents/
 #       Info.plist          → 指向 launcher 脚本
 #       MacOS/
 #         launcher          → 启动脚本（启动后端 + 打开 Pake 客户端）
 #       Resources/
-#         nexusagent        → Go 后端 binary
-#         NexusAgent-Client.app → Pake 打包的桌面客户端
+#         opennexus        → Go 后端 binary
+#         openNexus-Client.app → Pake 打包的桌面客户端
 #
 # 用法: ./scripts/package-darwin.sh <输出目录> <二进制名称> [Pake客户端目录]
-# 例如: ./scripts/package-darwin.sh dist nexusagent-darwin-arm64 dist
+# 例如: ./scripts/package-darwin.sh dist opennexus-darwin-arm64 dist
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="${1:-dist}"
-BIN_NAME="${2:-nexusagent-darwin-arm64}"
+BIN_NAME="${2:-opennexus-darwin-arm64}"
 PAKE_DIR="${3:-dist}"
-APP_NAME="NexusAgent"
-CLIENT_NAME="NexusAgent-Client"
+APP_NAME="openNexus"
+CLIENT_NAME="openNexus-Client"
 APP_VERSION="${GITHUB_REF_NAME:-${VERSION:-1.0.0}}"
 
 APP_DIR="$OUT_DIR/$APP_NAME.app"
@@ -51,8 +51,8 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
 # ========== 复制后端 binary ==========
 
-cp "$OUT_DIR/$BIN_NAME" "$MACOS_DIR/nexusagent"
-chmod +x "$MACOS_DIR/nexusagent"
+cp "$OUT_DIR/$BIN_NAME" "$MACOS_DIR/opennexus"
+chmod +x "$MACOS_DIR/opennexus"
 
 # 复制 config.yaml 到 Resources（后端需要配置文件）
 if [ -f "$SCRIPT_DIR/config.yaml" ]; then
@@ -91,11 +91,11 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
 	<key>CFBundleExecutable</key>
 	<string>launcher</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.nexusagent.app</string>
+	<string>com.opennexus.app</string>
 	<key>CFBundleName</key>
-	<string>NexusAgent</string>
+	<string>openNexus</string>
 	<key>CFBundleDisplayName</key>
-	<string>NexusAgent</string>
+	<string>openNexus</string>
 	<key>CFBundleVersion</key>
 	<string>${APP_VERSION}</string>
 	<key>CFBundleShortVersionString</key>
@@ -123,15 +123,15 @@ EOF
 
 cat > "$MACOS_DIR/launcher.sh" << 'SCRIPT'
 #!/bin/bash
-# NexusAgent macOS 启动器
+# openNexus macOS 启动器
 # 负责启动后端服务并打开 Pake 桌面客户端
 
-# 解析路径：launcher 和 nexusagent 都在 MacOS/ 目录，Pake 客户端在 Resources/
+# 解析路径：launcher 和 opennexus 都在 MacOS/ 目录，Pake 客户端在 Resources/
 MACOS_DIR="$(cd "$(dirname "$0")" && pwd)"
 RESOURCES_DIR="$(cd "$MACOS_DIR/../Resources" && pwd)"
-BINARY="$MACOS_DIR/nexusagent"
-CLIENT_APP="$RESOURCES_DIR/NexusAgent-Client.app"
-DATA_DIR="$HOME/.nextAgent"
+BINARY="$MACOS_DIR/opennexus"
+CLIENT_APP="$RESOURCES_DIR/openNexus-Client.app"
+DATA_DIR="$HOME/.openNexus"
 LOG_FILE="$DATA_DIR/launcher.log"
 PORT=8080
 
@@ -141,7 +141,7 @@ mkdir -p "$DATA_DIR"
 exec > "$LOG_FILE" 2>&1
 
 echo "========================================"
-echo "NexusAgent 启动于 $(date)"
+echo "openNexus 启动于 $(date)"
 echo "MACOS_DIR: $MACOS_DIR"
 echo "RESOURCES_DIR: $RESOURCES_DIR"
 echo "DATA_DIR: $DATA_DIR"
@@ -159,7 +159,7 @@ fi
 # ========== 启动后端服务 ==========
 # 仅当用户目录无 config.yaml 时，回退到 app bundle 内配置
 
-echo "启动 NexusAgent 后端服务..."
+echo "启动 openNexus 后端服务..."
 if [ ! -f "$DATA_DIR/config.yaml" ]; then
   export CONFIG_PATH="$RESOURCES_DIR/config.yaml"
   echo "CONFIG_PATH: $CONFIG_PATH"
@@ -172,7 +172,7 @@ BACKEND_PID=$!
 echo "后端 PID: $BACKEND_PID"
 
 cleanup() {
-  echo "正在关闭 NexusAgent..."
+  echo "正在关闭 openNexus..."
   kill "$BACKEND_PID" 2>/dev/null || true
   wait "$BACKEND_PID" 2>/dev/null || true
   exit 0
@@ -225,7 +225,7 @@ while true; do
     break
   fi
   # Pake 客户端进程退出
-  if ! pgrep -f "NexusAgent-Client" >/dev/null 2>&1; then
+  if ! pgrep -f "openNexus-Client" >/dev/null 2>&1; then
     echo "桌面客户端已退出"
     break
   fi
@@ -262,5 +262,5 @@ fi
 
 echo ""
 echo "✅ macOS 桌面应用已创建: $APP_DIR"
-echo "   双击 $APP_NAME.app 启动，数据保存在 ~/.nextAgent/"
+echo "   双击 $APP_NAME.app 启动，数据保存在 ~/.openNexus/"
 echo "   包含: Go 后端服务 + Pake 桌面客户端"

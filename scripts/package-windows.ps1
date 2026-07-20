@@ -1,25 +1,25 @@
 # Windows 桌面应用打包脚本
 #
 # 将 Go 后端 + Pake 客户端组合为可分发目录:
-#   NexusAgent/
-#     nexusagent.exe
-#     NexusAgent-Client.exe
+#   openNexus/
+#     opennexus.exe
+#     openNexus-Client.exe
 #     config.yaml
 #     web/
 #     launch.ps1
 #
-# 用法: pwsh ./scripts/package-windows.ps1 -OutDir dist -BinName nexusagent-windows-amd64.exe
+# 用法: pwsh ./scripts/package-windows.ps1 -OutDir dist -BinName opennexus-windows-amd64.exe
 
 param(
     [string]$OutDir = "dist",
-    [string]$BinName = "nexusagent-windows-amd64.exe",
+    [string]$BinName = "opennexus-windows-amd64.exe",
     [string]$PakeDir = "dist"
 )
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$AppDir = Join-Path $OutDir "NexusAgent"
-$ClientName = "NexusAgent-Client"
+$AppDir = Join-Path $OutDir "openNexus"
+$ClientName = "openNexus-Client"
 
 $BackendBin = Join-Path $OutDir $BinName
 if (-not (Test-Path $BackendBin)) {
@@ -35,7 +35,7 @@ Write-Host "==> 创建 Windows 桌面应用目录..."
 if (Test-Path $AppDir) { Remove-Item -Recurse -Force $AppDir }
 New-Item -ItemType Directory -Path $AppDir | Out-Null
 
-Copy-Item $BackendBin (Join-Path $AppDir "nexusagent.exe")
+Copy-Item $BackendBin (Join-Path $AppDir "opennexus.exe")
 Copy-Item $ClientExe.FullName (Join-Path $AppDir $ClientExe.Name)
 
 $ConfigSrc = Join-Path $ScriptDir "config.yaml"
@@ -53,16 +53,16 @@ if (Test-Path $WebSrc) {
 @'
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Binary = Join-Path $Root "nexusagent.exe"
-$Client = Get-ChildItem -Path $Root -Filter "NexusAgent-Client*.exe" -File | Select-Object -First 1
-$DataDir = Join-Path $env:LOCALAPPDATA "NexusAgent"
+$Binary = Join-Path $Root "opennexus.exe"
+$Client = Get-ChildItem -Path $Root -Filter "openNexus-Client*.exe" -File | Select-Object -First 1
+$DataDir = Join-Path $env:LOCALAPPDATA "openNexus"
 $LogFile = Join-Path $DataDir "launcher.log"
 $Port = 8080
 
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 Start-Transcript -Path $LogFile -Append | Out-Null
 
-Write-Host "NexusAgent 启动于 $(Get-Date)"
+Write-Host "openNexus 启动于 $(Get-Date)"
 
 $conn = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
 if ($conn) {

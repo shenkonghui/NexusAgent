@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // msgBroadcaster 将一个进行中的 prompt 产生的消息分发给多个订阅者。

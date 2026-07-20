@@ -3,8 +3,8 @@ package agent
 import (
 	"testing"
 
-	"nexusagent/internal/acp"
-	"nexusagent/internal/config"
+	"opennexus/internal/acp"
+	"opennexus/internal/config"
 )
 
 func TestRegistry_RegisterAndGet(t *testing.T) {

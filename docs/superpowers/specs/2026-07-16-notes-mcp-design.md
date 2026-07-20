@@ -5,7 +5,7 @@
 
 ## 1. 背景与目标
 
-NexusAgent 已具备用户级笔记（CRUD、标签、Agent 自动分类）与 REST API（含 `?tag=` 过滤）。设置页「笔记设置」当前只配置分类 Agent，与 MCP 无关。ACP `NewSession` 的 `McpServers` 目前固定传空数组。
+openNexus 已具备用户级笔记（CRUD、标签、Agent 自动分类）与 REST API（含 `?tag=` 过滤）。设置页「笔记设置」当前只配置分类 Agent，与 MCP 无关。ACP `NewSession` 的 `McpServers` 目前固定传空数组。
 
 目标：暴露只读 Notes MCP（HTTP），同时服务：
 
@@ -81,7 +81,7 @@ NexusAgent 已具备用户级笔记（CRUD、标签、Agent 自动分类）与 R
 `NewSession` 时若该用户 `mcp_token` 非空，注入例如：
 
 - `type`: `http`（若目标 Agent 仅声明 SSE，则用 `sse`，以实现时 Agent 能力为准）
-- `name`: `nexus-notes`
+- `name`: `opennexus-notes`
 - `url`: `{public_base}/mcp/notes`
 - `headers`: `Authorization: Bearer <token>`
 
@@ -123,7 +123,7 @@ NexusAgent 已具备用户级笔记（CRUD、标签、Agent 自动分类）与 R
 
 - Token：未生成不可用；生成一次成功；再次生成拒绝；设置可回读。
 - Tools：按 tag 列表；无 title 带全文；有 title 不带正文；`get_note` 成功；越权 id「未找到」。
-- ACP：有 Token 时 `McpServers` 含 `nexus-notes`；无 Token 时为空。
+- ACP：有 Token 时 `McpServers` 含 `opennexus-notes`；无 Token 时为空。
 
 ## 9. 明确不做（本版）
 

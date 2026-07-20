@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"nexusagent/internal/config"
+	"opennexus/internal/config"
 )
 
 func TestClaudeCodeBackend_Name(t *testing.T) {

@@ -3,7 +3,7 @@ import { initReactI18next } from 'react-i18next'
 import zh from './zh.json'
 import en from './en.json'
 
-const savedLang = localStorage.getItem('nexus-lang') || 'zh'
+const savedLang = localStorage.getItem('opennexus-lang') || 'zh'
 
 i18n.use(initReactI18next).init({
   resources: {

@@ -20,16 +20,16 @@
 debug:
   acp:
     enabled: false
-    dir: ~/.nextAgent/acp-debug
+    dir: ~/.openNexus/acp-debug
 ```
 
 - `enabled`：默认 `false`；关闭时不包装 tee、不写文件，调试 Tab 隐藏。
-- `dir`：空则默认 `~/.nextAgent/acp-debug`，启动时展开 `~`。
+- `dir`：空则默认 `~/.openNexus/acp-debug`，启动时展开 `~`。
 
 ## 3. 目录结构
 
 ```text
-~/.nextAgent/acp-debug/
+~/.openNexus/acp-debug/
 ├── <dbSessionID>/
 │   ├── raw.ndjson      # {ts,direction,session_id,db_session_id,line}
 │   └── events.ndjson   # {ts,event,session_id,db_session_id,detail}

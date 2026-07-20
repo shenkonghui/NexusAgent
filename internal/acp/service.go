@@ -17,10 +17,10 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"nexusagent/internal/config"
-	"nexusagent/internal/logging"
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	"opennexus/internal/config"
+	"opennexus/internal/logging"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 
 var (
@@ -198,7 +198,7 @@ func (s *Service) configuredMCPServers() []acp.McpServer {
 
 // sessionMCPServers 汇总注入给指定会话的全部 MCP server：全局共享 + 笔记 MCP。
 //
-// 去重：若全局 mcp.json 已含 nexus-notes 条目（生成 token 时自动写入），
+// 去重：若全局 mcp.json 已含 opennexus-notes 条目（生成 token 时自动写入），
 // 则不再追加按用户 token 动态注入的笔记 MCP，避免同名 server 重复注入。
 func (s *Service) sessionMCPServers(userID uint) []acp.McpServer {
 	configured := s.configuredMCPServers()
@@ -209,7 +209,7 @@ func (s *Service) sessionMCPServers(userID uint) []acp.McpServer {
 }
 
 // notesMCPName 是笔记 MCP server 的固定名称（与 mcp.json 中写入的条目名一致）。
-const notesMCPName = "nexus-notes"
+const notesMCPName = "opennexus-notes"
 
 // hasServerNamed 判断 server 列表中是否存在指定名称的条目（任意传输类型）。
 func hasServerNamed(servers []acp.McpServer, name string) bool {
@@ -302,7 +302,7 @@ func (s *Service) notesMCPServers(userID uint) []acp.McpServer {
 	}
 	return []acp.McpServer{{
 		Http: &acp.McpServerHttpInline{
-			Name: "nexus-notes",
+			Name: "opennexus-notes",
 			Type: "http",
 			Url:  s.publicBaseURL + "/mcp/notes",
 			Headers: []acp.HttpHeader{{

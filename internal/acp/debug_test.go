@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 func TestACPDebugger_BindPending_RoutesSessionNew(t *testing.T) {

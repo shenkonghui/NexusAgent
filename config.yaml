@@ -7,8 +7,8 @@ logging:
     # debug 时会输出每次与 agent 的交互（prompt、session update、ACP 请求等）
     level: info
 database:
-    # 默认 ~/.nextAgent/nexus.db；可用 DATABASE_PATH 或 --data-dir 覆盖
-    path: ~/.nextAgent/nexus.db
+    # 默认 ~/.openNexus/opennexus.db；可用 DATABASE_PATH 或 --data-dir 覆盖
+    path: ~/.openNexus/opennexus.db
 jwt:
     secret: "nexusagent-dev-secret-key-32+bytes!"
     access_ttl: 15m
@@ -22,14 +22,14 @@ debug:
     acp:
         # 开启后记录 ACP JSON-RPC 原始报文与高层事件到本地目录，供对话页「调试」Tab 查看
         enabled: true
-        dir: ~/.nextAgent/acp-debug
+        dir: ~/.openNexus/acp-debug
 agents:
     workspace:
         default_mode: temporary
-        temp_dir_prefix: nexus-
-        # temporary 模式会话工作区的存放根目录，默认 ~/.nextAgent/session。
+        temp_dir_prefix: opennexus-
+        # temporary 模式会话工作区的存放根目录，默认 ~/.openNexus/session。
         # 由程序在删除会话时清理，不依赖操作系统清理临时目录。
-        session_dir: ~/.nextAgent/session
+        session_dir: ~/.openNexus/session
     skills:
         # 用户级 skills 根目录（agentskills.io：递归扫描子目录中的 SKILL.md）
         user_dirs:

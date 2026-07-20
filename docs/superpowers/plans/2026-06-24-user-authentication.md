@@ -2,7 +2,7 @@
 
 > **面向 AI 代理的工作者：** 必需子技能：使用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务实现此计划。步骤使用复选框（`- [ ]`）语法来跟踪进度。
 
-**目标：** 为 NexusAgent 平台实现独立可用的用户认证系统（注册/登录/刷新/登出 + JWT 双令牌 + RBAC 中间件）。
+**目标：** 为 openNexus 平台实现独立可用的用户认证系统（注册/登录/刷新/登出 + JWT 双令牌 + RBAC 中间件）。
 
 **架构：** 分层 Go 服务（Gin + GORM + SQLite）。handler → service → repository → model 四层，中间件做认证拦截。Access Token 无状态 JWT（15m），Refresh Token 落库可吊销（7d），刷新采用轮换 + 重放检测。
 
@@ -40,7 +40,7 @@
 | `internal/middleware/auth_middleware_test.go` | 中间件测试 |
 | `internal/router/router.go` | 路由注册 |
 
-**包名约定：** 目录名作包名（`config`、`database`、`models`、`repository`、`services`、`handlers`、`middleware`、`router`）。模块名 `nexusagent`。
+**包名约定：** 目录名作包名（`config`、`database`、`models`、`repository`、`services`、`handlers`、`middleware`、`router`）。模块名 `opennexus`。
 
 **测试约定：** 单元测试用内存 SQLite（DSN `file::memory:?cache=shared`），handler 测试用 `httptest` + Gin test mode。运行测试命令：`go test ./...`。
 
@@ -57,7 +57,7 @@
 
 运行：
 ```bash
-go mod init nexusagent
+go mod init opennexus
 ```
 
 - [ ] **步骤 2：添加依赖**
@@ -82,7 +82,7 @@ server:
   port: 8080
   mode: debug
 database:
-  path: ./data/nexus.db
+  path: ./data/opennexus.db
 jwt:
   secret: ""
   access_ttl: 15m
@@ -355,7 +355,7 @@ package database
 import (
 	"testing"
 
-	"nexusagent/models"
+	"opennexus/models"
 )
 
 func TestConnect_MigratesTables(t *testing.T) {
@@ -390,7 +390,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"nexusagent/models"
+	"opennexus/models"
 )
 
 func Connect(dsn string) (*gorm.DB, error) {
@@ -436,8 +436,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/database"
-	"nexusagent/models"
+	"opennexus/database"
+	"opennexus/models"
 )
 
 func setupTestDB(t *testing.T) *gorm.DB {
@@ -545,7 +545,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/models"
+	"opennexus/models"
 )
 
 var ErrUserNotFound = errors.New("用户不存在")
@@ -625,7 +625,7 @@ import (
 	"testing"
 	"time"
 
-	"nexusagent/models"
+	"opennexus/models"
 )
 
 func TestRefreshTokenRepo_CreateAndFindByJTI(t *testing.T) {
@@ -707,7 +707,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/models"
+	"opennexus/models"
 )
 
 var ErrTokenNotFound = errors.New("令牌不存在")
@@ -985,8 +985,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/database"
-	"nexusagent/models"
+	"opennexus/database"
+	"opennexus/models"
 )
 
 func newAuthSvc(t *testing.T) (*AuthService, *gorm.DB) {
@@ -1065,8 +1065,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
-	"nexusagent/models"
-	"nexusagent/repository"
+	"opennexus/models"
+	"opennexus/repository"
 )
 
 var (
@@ -1572,8 +1572,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/database"
-	"nexusagent/services"
+	"opennexus/database"
+	"opennexus/services"
 )
 
 func setupRouter(t *testing.T) (*gin.Engine, *services.AuthService) {
@@ -1724,7 +1724,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/services"
+	"opennexus/services"
 )
 
 type AuthHandler struct {
@@ -1872,7 +1872,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/services"
+	"opennexus/services"
 )
 
 const mwSecret = "this-is-a-very-long-jwt-secret-key-32+bytes!"
@@ -1987,7 +1987,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/services"
+	"opennexus/services"
 )
 
 const (
@@ -2048,7 +2048,7 @@ func UserIDKey() string { return ctxUserID }
 func RoleKey() string   { return ctxRole }
 ```
 
-并在 `auth_handler.go` 的 `Me` 中将 `c.Get("user_id")` 改为 `c.Get(middleware.UserIDKey())`（需 import `nexusagent/middleware`）。
+并在 `auth_handler.go` 的 `Me` 中将 `c.Get("user_id")` 改为 `c.Get(middleware.UserIDKey())`（需 import `opennexus/middleware`）。
 
 - [ ] **步骤 4：运行测试验证通过**
 
@@ -2080,9 +2080,9 @@ package router
 import (
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/handlers"
-	"nexusagent/middleware"
-	"nexusagent/services"
+	"opennexus/handlers"
+	"opennexus/middleware"
+	"opennexus/services"
 )
 
 func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, mode string) *gin.Engine {
@@ -2154,10 +2154,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/config"
-	"nexusagent/database"
-	"nexusagent/router"
-	"nexusagent/services"
+	"opennexus/config"
+	"opennexus/database"
+	"opennexus/router"
+	"opennexus/services"
 )
 
 func main() {
@@ -2192,7 +2192,7 @@ func main() {
 
 	go func() {
 		addr := fmt.Sprintf(":%d", cfg.Server.Port)
-		log.Printf("NexusAgent 认证服务启动于 %s", addr)
+		log.Printf("openNexus 认证服务启动于 %s", addr)
 		if err := engine.Run(addr); err != nil {
 			log.Fatalf("服务器启动失败: %v", err)
 		}
@@ -2245,9 +2245,9 @@ git commit -m "feat(server): 添加程序入口与启动校验"
 运行（设置一个合法 secret）：
 ```bash
 JWT_SECRET="this-is-a-very-long-jwt-secret-key-32+bytes!" SERVER_PORT=8080 \
-DATABASE_PATH="./data/nexus.db" go run ./cmd/server
+DATABASE_PATH="./data/opennexus.db" go run ./cmd/server
 ```
-预期：日志输出 `NexusAgent 认证服务启动于 :8080`。
+预期：日志输出 `openNexus 认证服务启动于 :8080`。
 
 - [ ] **步骤 2：注册**
 

@@ -29,7 +29,7 @@ ENV GOFLAGS=-mod=vendor
 # 复制源码并编译（CGO_ENABLED=1 以支持 SQLite）
 COPY . .
 COPY --from=web-builder /app/web/dist ./web/dist
-RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /out/nexusagent ./cmd/server
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /out/opennexus ./cmd/server
 
 # ===== Stage 3: 运行时 =====
 # 使用包含 npm/npx 的 node 镜像，因为 agents 通过 npx 调用 claude-agent-acp
@@ -45,7 +45,7 @@ RUN apk add --no-cache ca-certificates sqlite-libs musl-locales tzdata git \
     && echo "Asia/Shanghai" > /etc/timezone
 
 # 复制后端二进制
-COPY --from=go-builder /out/nexusagent /app/nexusagent
+COPY --from=go-builder /out/opennexus /app/opennexus
 
 # 复制前端构建产物（后端 release 模式会服务这些静态文件）
 COPY --from=web-builder /app/web/dist /app/web/dist
@@ -64,7 +64,7 @@ ENV NPM_CONFIG_CACHE=/root/.npm \
     SERVER_MODE=release \
     SERVER_PORT=8080 \
     WEB_DIST=/app/web/dist \
-    DATABASE_PATH=/app/data/nexus.db \
+    DATABASE_PATH=/app/data/opennexus.db \
     AGENTS_WORKSPACE_SESSION_DIR=/app/data/session \
     NODE_ENV=production
 
@@ -73,4 +73,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD wget -qO- http://127.0.0.1:8080/health >/dev/null 2>&1 || exit 1
 
-ENTRYPOINT ["/app/nexusagent"]
+ENTRYPOINT ["/app/opennexus"]

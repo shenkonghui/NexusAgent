@@ -44,7 +44,7 @@ export default function UserMenu() {
   // 中英文切换：在 zh / en 间切换并持久化
   function handleToggleLanguage() {
     const next = i18n.language.startsWith('zh') ? 'en' : 'zh'
-    localStorage.setItem('nexus-lang', next)
+    localStorage.setItem('opennexus-lang', next)
     i18n.changeLanguage(next)
   }
 

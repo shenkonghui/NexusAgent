@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"strings"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // fanoutHandler 是一个把日志同时输出到多个目的地的 slog.Handler。

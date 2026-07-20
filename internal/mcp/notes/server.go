@@ -10,8 +10,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 
 // Handler 返回带 Bearer 鉴权的 Notes MCP Streamable HTTP Handler。
@@ -31,7 +31,7 @@ func Handler(noteRepo *repository.NoteRepository, settingsRepo *repository.NoteS
 }
 
 func newServer(noteRepo *repository.NoteRepository) *mcp.Server {
-	srv := mcp.NewServer(&mcp.Implementation{Name: "nexus-notes", Version: "1.0.0"}, nil)
+	srv := mcp.NewServer(&mcp.Implementation{Name: "opennexus-notes", Version: "1.0.0"}, nil)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_note_tags",
 		Description: "列出当前用户全部笔记标签",

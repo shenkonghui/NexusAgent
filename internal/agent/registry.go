@@ -5,7 +5,7 @@ import (
 	"sort"
 	"sync"
 
-	"nexusagent/internal/acp"
+	"opennexus/internal/acp"
 )
 
 var ErrAgentNotFound = errors.New("agent 类型未注册")

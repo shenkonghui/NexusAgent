@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/services"
+	"opennexus/internal/services"
 )
 
 const (

@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/services"
+	"opennexus/internal/services"
 )
 
 const mwSecret = "this-is-a-very-long-jwt-secret-key-32+bytes!"

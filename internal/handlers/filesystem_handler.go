@@ -10,8 +10,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	acplocal "nexusagent/internal/acp"
-	"nexusagent/internal/config"
+	acplocal "opennexus/internal/acp"
+	"opennexus/internal/config"
 )
 
 // dirEntry 是目录浏览 API 返回的单个目录项。

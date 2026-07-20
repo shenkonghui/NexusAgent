@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"nexusagent/internal/database"
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	"opennexus/internal/database"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 
 func setupNotesMCP(t *testing.T) (http.Handler, *repository.NoteRepository, *repository.NoteSettingsRepository) {
@@ -116,7 +116,7 @@ func TestHandler_Initialize(t *testing.T) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 	raw := w.Body.String()
-	if !strings.Contains(raw, "nexus-notes") && !strings.Contains(raw, "result") {
+	if !strings.Contains(raw, "opennexus-notes") && !strings.Contains(raw, "result") {
 		var resp map[string]any
 		_ = json.Unmarshal(w.Body.Bytes(), &resp)
 		t.Fatalf("unexpected body: %s", raw)

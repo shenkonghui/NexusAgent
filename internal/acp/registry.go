@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"time"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 //go:embed registry.json

@@ -7,9 +7,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/database"
-	"nexusagent/internal/middleware"
-	"nexusagent/internal/repository"
+	"opennexus/internal/database"
+	"opennexus/internal/middleware"
+	"opennexus/internal/repository"
 )
 
 func setupAgentPrefsRouter(t *testing.T, userID uint) *gin.Engine {

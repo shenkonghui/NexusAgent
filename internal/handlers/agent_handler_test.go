@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/agent"
+	"opennexus/internal/agent"
 )
 
 type fakeAgentLister struct{ descs []*agent.AgentDescriptor }

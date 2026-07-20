@@ -1,5 +1,7 @@
 import type { ConfigOption } from '../types'
 
+// 注意：这两个 key 的值必须保留旧名（nexus.*），用于读取并迁移老用户浏览器里已存在的旧 localStorage 数据。
+// 改名后老数据会读不到，迁移失效。
 const LEGACY_MODELS_KEY = 'nexus.agent.models'
 const LEGACY_DEFAULT_AGENT_KEY = 'nexus.default.agent'
 

@@ -10,7 +10,7 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 
-	"nexusagent/internal/logging"
+	"opennexus/internal/logging"
 )
 
 // subscriber 表示一个会话 update 流的订阅者，每个订阅者拥有独立的 buffered channel。

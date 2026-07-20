@@ -47,7 +47,7 @@ function findModelConfigOption(opts: ConfigOption[]) {
 function buildNoteMcpConfig(endpoint: string, token: string): string {
   return JSON.stringify({
     mcpServers: {
-      'nexus-notes': {
+      'opennexus-notes': {
         type: 'http',
         url: endpoint,
         headers: { Authorization: `Bearer ${token}` },
@@ -292,9 +292,9 @@ export default function SettingsPage() {
     if (reloadStatus === 'reloading') return
     setReloadStatus('reloading'); setReloadError('')
     try {
-      if (window.nexusagent?.isElectron) {
+      if (window.opennexus?.isElectron) {
         // 桌面版:IPC 成功后主进程会 webContents.reload(),本页随后整页刷新,无需 setState
-        const result = await window.nexusagent.reloadBackend!()
+        const result = await window.opennexus.reloadBackend!()
         if (!result?.ok) {
           setReloadStatus('failed')
           setReloadError(result?.error || t('system.reloadFailed', { error: '' }).split(':')[0])
@@ -389,7 +389,7 @@ export default function SettingsPage() {
 
   function switchLang(lang: string) {
     i18n.changeLanguage(lang)
-    localStorage.setItem('nexus-lang', lang)
+    localStorage.setItem('opennexus-lang', lang)
   }
 
   if (authLoading) return <LoadingSpinner text={t('common.loading')} />
@@ -836,7 +836,7 @@ export default function SettingsPage() {
                       <span className={`${styles.savedHint} ${styles.errorText}`}>{reloadError}</span>
                     )}
                     <p className={styles.sectionHint}>
-                      {window.nexusagent?.isElectron ? t('system.desktopHint') : t('system.browserHint')}
+                      {window.opennexus?.isElectron ? t('system.desktopHint') : t('system.browserHint')}
                     </p>
                   </div>
                 </>

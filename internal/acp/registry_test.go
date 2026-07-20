@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // fakeRegistryStore 是 AgentConfigSyncer 的内存实现，用于单测 SyncRegistryToStore。

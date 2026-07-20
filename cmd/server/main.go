@@ -18,18 +18,18 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/acp"
-	"nexusagent/internal/agent"
-	"nexusagent/internal/config"
-	"nexusagent/internal/database"
-	"nexusagent/internal/handlers"
-	"nexusagent/internal/logging"
-	notesmcp "nexusagent/internal/mcp/notes"
-	subagentmcp "nexusagent/internal/mcp/subagent"
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
-	"nexusagent/internal/router"
-	"nexusagent/internal/services"
+	"opennexus/internal/acp"
+	"opennexus/internal/agent"
+	"opennexus/internal/config"
+	"opennexus/internal/database"
+	"opennexus/internal/handlers"
+	"opennexus/internal/logging"
+	notesmcp "opennexus/internal/mcp/notes"
+	subagentmcp "opennexus/internal/mcp/subagent"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
+	"opennexus/internal/router"
+	"opennexus/internal/services"
 )
 
 // ldflags 注入
@@ -56,8 +56,17 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("NexusAgent %s %s/%s\n", version, runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("openNexus %s %s/%s\n", version, runtime.GOOS, runtime.GOARCH)
 		return
+	}
+
+	// 启动时一次性迁移改名前的历史数据目录（~/.nextAgent / ~/.nexusagent → ~/.openNexus）。
+	// 必须在 ResolveConfigPath 之前执行：后者会检查 ~/.openNexus/config.yaml 是否存在。
+	// 幂等：已迁移过则无操作；失败仅警告不影响启动。SKIP_DATA_MIGRATION=1 可禁用。
+	if moved, err := config.MigrateLegacyDataDir(); err != nil {
+		log.Printf("数据目录迁移失败（不影响启动）: %v", err)
+	} else if moved > 0 {
+		log.Printf("已迁移历史数据目录到 ~/.openNexus（%d 项）", moved)
 	}
 
 	cfgPath := config.ResolveConfigPath()
@@ -76,7 +85,7 @@ func main() {
 
 	// --data-dir 覆盖数据库路径与会话工作区
 	if *dataDir != "" {
-		cfg.Database.Path = filepath.Join(*dataDir, "nexus.db")
+		cfg.Database.Path = filepath.Join(*dataDir, "opennexus.db")
 		cfg.Agents.Workspace.SessionDir = filepath.Join(*dataDir, "session")
 	}
 
@@ -177,10 +186,10 @@ func main() {
 	debugH := handlers.NewDebugHandler(agentRouter, acpSvc.Debugger())
 
 	// Subagent：定义来自 markdown 文件（~/.agents/agents/*.md，由 Service 扫描），
-	// 供主 agent 通过 nexus-subagent MCP 调起。这里仅负责 MCP 条目同步自愈。
+	// 供主 agent 通过 opennexus-subagent MCP 调起。这里仅负责 MCP 条目同步自愈。
 	agentPrefsRepo := repository.NewUserAgentPrefsRepository(db)
 	subAgentH := handlers.NewSubAgentHandler(noteSettingsRepo, cfg.Agents.MCP.ConfigPath, publicBase)
-	// 启动自愈：把 nexus-subagent 条目同步到全局 mcp.json（复用笔记 token 体系）。
+	// 启动自愈：把 opennexus-subagent 条目同步到全局 mcp.json（复用笔记 token 体系）。
 	subAgentH.SyncAllSubagentMCP()
 
 	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, registryH, schedTaskH, noteH, taskSettingsH, agentPrefsH, configH, mcpH, logH, debugH, subAgentH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Agents.SubAgents, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
@@ -195,9 +204,9 @@ func main() {
 	srv := &http.Server{Addr: addr, Handler: engine}
 	go func() {
 		if cfg.Server.Mode == "release" {
-			log.Printf("NexusAgent %s 启动于 %s（单端口模式，前端 + API）", version, addr)
+			log.Printf("openNexus %s 启动于 %s（单端口模式，前端 + API）", version, addr)
 		} else {
-			log.Printf("NexusAgent API 启动于 %s（开发模式，前端请访问 vite dev server）", addr)
+			log.Printf("openNexus API 启动于 %s（开发模式，前端请访问 vite dev server）", addr)
 		}
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("服务器启动失败: %v", err)

@@ -7,9 +7,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
-	"nexusagent/internal/services"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
+	"opennexus/internal/services"
 )
 
 // TaskSettingsHandler 处理任务自动分类 / 标题生成设置。

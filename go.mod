@@ -1,4 +1,4 @@
-module nexusagent
+module opennexus
 
 go 1.25.0
 

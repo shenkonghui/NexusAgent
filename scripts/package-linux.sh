@@ -2,9 +2,9 @@
 # Linux 桌面应用打包脚本
 #
 # 将 Go 后端 + Pake AppImage 客户端组合为可分发目录:
-#   NexusAgent/
-#     bin/nexusagent
-#     bin/NexusAgent-Client*.AppImage
+#   openNexus/
+#     bin/opennexus
+#     bin/openNexus-Client*.AppImage
 #     config.yaml
 #     web/
 #     launch.sh
@@ -15,10 +15,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="${1:-dist}"
-BIN_NAME="${2:-nexusagent-linux-amd64}"
+BIN_NAME="${2:-opennexus-linux-amd64}"
 PAKE_DIR="${3:-dist}"
-APP_DIR="$OUT_DIR/NexusAgent"
-CLIENT_NAME="NexusAgent-Client"
+APP_DIR="$OUT_DIR/openNexus"
+CLIENT_NAME="openNexus-Client"
 
 if [ ! -f "$OUT_DIR/$BIN_NAME" ]; then
   echo "❌ 未找到后端 binary: $OUT_DIR/$BIN_NAME"
@@ -36,8 +36,8 @@ echo "==> 创建 Linux 桌面应用目录..."
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/bin"
 
-cp "$OUT_DIR/$BIN_NAME" "$APP_DIR/bin/nexusagent"
-chmod +x "$APP_DIR/bin/nexusagent"
+cp "$OUT_DIR/$BIN_NAME" "$APP_DIR/bin/opennexus"
+chmod +x "$APP_DIR/bin/opennexus"
 cp "$CLIENT_APP" "$APP_DIR/bin/"
 chmod +x "$APP_DIR/bin/"*.AppImage
 
@@ -56,16 +56,16 @@ cat > "$APP_DIR/launch.sh" << 'SCRIPT'
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-BINARY="$ROOT/bin/nexusagent"
-CLIENT=$(find "$ROOT/bin" -maxdepth 1 -name 'NexusAgent-Client*.AppImage' -print -quit)
-DATA_DIR="$HOME/.nextAgent"
+BINARY="$ROOT/bin/opennexus"
+CLIENT=$(find "$ROOT/bin" -maxdepth 1 -name 'openNexus-Client*.AppImage' -print -quit)
+DATA_DIR="$HOME/.openNexus"
 LOG_FILE="$DATA_DIR/launcher.log"
 PORT=8080
 
 mkdir -p "$DATA_DIR"
 exec > "$LOG_FILE" 2>&1
 
-echo "NexusAgent 启动于 $(date)"
+echo "openNexus 启动于 $(date)"
 
 EXISTING_PID=$(lsof -ti:$PORT 2>/dev/null || true)
 if [ -n "$EXISTING_PID" ]; then

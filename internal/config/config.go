@@ -30,7 +30,7 @@ type DebugConfig struct {
 // ACPDebugConfig 控制 ACP JSON-RPC 原始报文与高层事件的本地记录。
 type ACPDebugConfig struct {
 	Enabled bool   `yaml:"enabled"`
-	Dir     string `yaml:"dir"` // 默认 ~/.nextAgent/acp-debug
+	Dir     string `yaml:"dir"` // 默认 ~/.openNexus/acp-debug
 }
 
 // LoggingConfig 控制应用与 ACP 交互日志输出。
@@ -117,7 +117,7 @@ type WorkspaceConfig struct {
 	DefaultMode   string `yaml:"default_mode"`
 	TempDirPrefix string `yaml:"temp_dir_prefix"`
 	// SessionDir 是 temporary 模式会话工作区的存放根目录。
-	// 默认 ~/.nextAgent/session，仅在删除工作区时清理，不依赖系统清理临时目录。
+	// 默认 ~/.openNexus/session，仅在删除工作区时清理，不依赖系统清理临时目录。
 	SessionDir string `yaml:"session_dir"`
 }
 
@@ -130,14 +130,14 @@ type ClaudeCodeConfig struct {
 }
 
 // ResolveConfigPath 按优先级解析配置文件路径：
-// CONFIG_PATH → ~/.nextAgent/config.yaml（存在时）→ ./config.yaml
+// CONFIG_PATH → ~/.openNexus/config.yaml（存在时）→ ./config.yaml
 func ResolveConfigPath() string {
 	if p := os.Getenv("CONFIG_PATH"); p != "" {
 		return p
 	}
 	home, err := os.UserHomeDir()
 	if err == nil {
-		p := filepath.Join(home, ".nextAgent", "config.yaml")
+		p := filepath.Join(home, ".openNexus", "config.yaml")
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
@@ -231,7 +231,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("agents.workspace.default_mode 必须是 external 或 temporary，当前 %q", c.Agents.Workspace.DefaultMode)
 	}
 	if c.Agents.Workspace.TempDirPrefix == "" {
-		c.Agents.Workspace.TempDirPrefix = "nexus-"
+		c.Agents.Workspace.TempDirPrefix = "opennexus-"
 	}
 	if err := c.resolveDataPaths(); err != nil {
 		return err
@@ -276,7 +276,7 @@ func (c *ACPDebugConfig) normalize() error {
 		return fmt.Errorf("获取用户主目录以设置 acp-debug 路径: %w", err)
 	}
 	if c.Dir == "" {
-		c.Dir = filepath.Join(home, ".nextAgent", "acp-debug")
+		c.Dir = filepath.Join(home, ".openNexus", "acp-debug")
 		return nil
 	}
 	abs, err := expandPath(c.Dir)
@@ -287,14 +287,14 @@ func (c *ACPDebugConfig) normalize() error {
 	return nil
 }
 
-// resolveDataPaths 将 database.path 与 session_dir 默认到 ~/.nextAgent 并展开 ~。
+// resolveDataPaths 将 database.path 与 session_dir 默认到 ~/.openNexus 并展开 ~。
 func (c *Config) resolveDataPaths() error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("获取用户主目录以设置数据路径: %w", err)
 	}
 	if c.Database.Path == "" {
-		c.Database.Path = filepath.Join(home, ".nextAgent", "nexus.db")
+		c.Database.Path = filepath.Join(home, ".openNexus", "opennexus.db")
 	} else if c.Database.Path != ":memory:" {
 		abs, err := expandPath(c.Database.Path)
 		if err != nil {
@@ -303,7 +303,7 @@ func (c *Config) resolveDataPaths() error {
 		c.Database.Path = abs
 	}
 	if c.Agents.Workspace.SessionDir == "" {
-		c.Agents.Workspace.SessionDir = filepath.Join(home, ".nextAgent", "session")
+		c.Agents.Workspace.SessionDir = filepath.Join(home, ".openNexus", "session")
 	} else {
 		abs, err := expandPath(c.Agents.Workspace.SessionDir)
 		if err != nil {

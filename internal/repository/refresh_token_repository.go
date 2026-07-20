@@ -5,7 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 var ErrTokenNotFound = errors.New("令牌不存在")

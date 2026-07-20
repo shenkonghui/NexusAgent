@@ -14,11 +14,11 @@ import (
 	"github.com/coder/acp-go-sdk"
 	"github.com/gin-gonic/gin"
 
-	acplocal "nexusagent/internal/acp"
-	"nexusagent/internal/agent"
-	"nexusagent/internal/middleware"
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	acplocal "opennexus/internal/acp"
+	"opennexus/internal/agent"
+	"opennexus/internal/middleware"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 
 // fakeSessionStore 是内存版 SessionStore，用于隔离真实 ACP 子进程。

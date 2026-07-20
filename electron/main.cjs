@@ -1,5 +1,5 @@
 /*
- * NexusAgent Electron 主进程
+ * openNexus Electron 主进程
  *
  * 职责与现有 Pake 方案一致:
  *   1. 探测一个空闲端口(避免固定 8080 的冲突,支持多开)
@@ -23,7 +23,7 @@ let backend = null
 let mainWindow = null
 let backendCrashed = false
 let currentPort = null // 当前后端监听端口，重载时复用以保持前端 baseURL 不变
-const LOG_TAG = '[nexusagent-electron]'
+const LOG_TAG = '[opennexus-electron]'
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -40,21 +40,21 @@ function pickFreePort() {
   })
 }
 
-// 数据目录：与本地开发统一为 ~/.nextAgent
+// 数据目录：与本地开发统一为 ~/.openNexus
 function userDataDir() {
-  return path.join(os.homedir(), '.nextAgent')
+  return path.join(os.homedir(), '.openNexus')
 }
 
 // 定位 Go 后端二进制:打包后位于 resources/backend,开发模式为项目根编译产物。
 function backendBinPath() {
-  const binName = process.platform === 'win32' ? 'nexusagent.exe' : 'nexusagent'
+  const binName = process.platform === 'win32' ? 'opennexus.exe' : 'opennexus'
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'backend', binName)
   }
   return path.join(__dirname, '..', binName)
 }
 
-// 定位回退用 config.yaml（仅当 ~/.nextAgent/config.yaml 不存在时使用）
+// 定位回退用 config.yaml（仅当 ~/.openNexus/config.yaml 不存在时使用）
 function fallbackConfigPath() {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'config.yaml')
@@ -188,7 +188,7 @@ async function bootstrap() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    title: 'NexusAgent',
+    title: 'openNexus',
     icon: path.join(__dirname, 'icon.png'),
     show: false,
     webPreferences: {
@@ -218,7 +218,7 @@ async function bootstrap() {
 function fatal(message) {
   console.error(`${LOG_TAG} FATAL: ${message}`)
   if (app.isReady()) {
-    dialog.showErrorBox('NexusAgent 启动失败', message)
+    dialog.showErrorBox('openNexus 启动失败', message)
   }
   app.quit()
 }

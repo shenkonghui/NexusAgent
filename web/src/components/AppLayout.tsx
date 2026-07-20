@@ -5,7 +5,7 @@ import SessionSidebar from './SessionSidebar'
 import styles from './AppLayout.module.css'
 
 // 整体隐藏/展开侧边栏的状态，独立于 SessionSidebar 内部分组折叠状态
-const STORAGE_KEY = 'nexus.sidebar.hidden'
+const STORAGE_KEY = 'opennexus.sidebar.hidden'
 
 function loadHidden(): boolean {
   try { return localStorage.getItem(STORAGE_KEY) === '1' } catch { return false }

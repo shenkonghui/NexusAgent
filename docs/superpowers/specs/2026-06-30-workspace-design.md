@@ -191,7 +191,7 @@ User (1) ──< (N) Workspace ──< (N) Session ──< (N) Message
 ### 3.3 默认 Workspace 逻辑
 
 - 用户首次请求（创建 Session 或获取 workspace 列表）时，后端自动创建 `mode: "temporary"` 的默认 workspace
-- 临时目录路径沿用现有配置 `~/.nextAgent/session/<uuid>`
+- 临时目录路径沿用现有配置 `~/.openNexus/session/<uuid>`
 - 用户可通过 `save` 接口将临时 workspace 转为 persistent
 - temporary workspace 永不被自动删除（除非用户登出/删除账号）
 

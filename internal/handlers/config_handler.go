@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gopkg.in/yaml.v3"
 
-	"nexusagent/internal/config"
+	"opennexus/internal/config"
 )
 
 // ConfigReloader 由持有 skill/command/rule/subagent 扫描目录配置的组件实现。

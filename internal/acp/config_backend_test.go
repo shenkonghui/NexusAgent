@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 func TestConfigBackend_BasicFields(t *testing.T) {

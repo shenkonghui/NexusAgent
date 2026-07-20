@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"strings"
 
-	"nexusagent/internal/repository"
+	"opennexus/internal/repository"
 )
 
 type userIDKey struct{}
 
-// BearerUserID 从 Authorization Bearer 解析 MCP Token（复用 nexus-notes 的 token 体系）并返回 userID。
+// BearerUserID 从 Authorization Bearer 解析 MCP Token（复用 opennexus-notes 的 token 体系）并返回 userID。
 func BearerUserID(r *http.Request, settings *repository.NoteSettingsRepository) (uint, error) {
 	h := r.Header.Get("Authorization")
 	if !strings.HasPrefix(h, "Bearer ") {

@@ -1,4 +1,4 @@
-# NexusAgent ACP 客户端与 Agent 编排（P1+P2）设计文档
+# openNexus ACP 客户端与 Agent 编排（P1+P2）设计文档
 
 - 日期：2026-06-24
 - 子项目：P1 — ACP 客户端核心库 / P2 — Agent 注册与编排层
@@ -6,7 +6,7 @@
 
 ## 1. 背景与定位
 
-NexusAgent 是一个用 Go 开发的全栈平台，目标是通过 ACP（Agent Client Protocol）协议调用 Claude Code、Codex 等编码 agent 执行任务，并支持用户认证。
+openNexus 是一个用 Go 开发的全栈平台，目标是通过 ACP（Agent Client Protocol）协议调用 Claude Code、Codex 等编码 agent 执行任务，并支持用户认证。
 
 整个平台被拆分为 6 个可独立设计的子项目：
 
@@ -281,7 +281,7 @@ server:
   port: 8080
   mode: debug
 database:
-  path: ./data/nexus.db
+  path: ./data/opennexus.db
 jwt:
   secret: ""
   access_ttl: 15m
@@ -291,7 +291,7 @@ password:
 agents:                        # 新增
   workspace:
     default_mode: external     # external | temporary
-    temp_dir_prefix: nexus-    # 临时目录前缀
+    temp_dir_prefix: opennexus-    # 临时目录前缀
   claude_code:
     enabled: true
     command: npx               # 可覆盖命令路径
@@ -382,7 +382,7 @@ type ClaudeCodeConfig struct {
 - 不实现会话恢复（`session/resume`）—— 留待 P4。
 - 不实现 Codex / Gemini 后端（P1 只内置 Claude Code，其他后端后续添加）。
 - 不实现权限交互（自动批准所有权限请求）。
-- 通用 MCP server 配置 UI 不实现；例外：笔记只读 MCP（`nexus-notes`）在用户已生成 Token 时由服务端注入 `NewSessionRequest.McpServers`（见 `docs/superpowers/specs/2026-07-16-notes-mcp-design.md`）。
+- 通用 MCP server 配置 UI 不实现；例外：笔记只读 MCP（`opennexus-notes`）在用户已生成 Token 时由服务端注入 `NewSessionRequest.McpServers`（见 `docs/superpowers/specs/2026-07-16-notes-mcp-design.md`）。
 
 ## 11. 成功标准
 

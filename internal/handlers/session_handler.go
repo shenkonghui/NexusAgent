@@ -13,11 +13,11 @@ import (
 	"github.com/coder/acp-go-sdk"
 	"github.com/gin-gonic/gin"
 
-	acplocal "nexusagent/internal/acp"
-	"nexusagent/internal/agent"
-	"nexusagent/internal/middleware"
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	acplocal "opennexus/internal/acp"
+	"opennexus/internal/agent"
+	"opennexus/internal/middleware"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 
 // SessionStore 暴露会话相关业务能力（*agent.Router 实现该接口）。

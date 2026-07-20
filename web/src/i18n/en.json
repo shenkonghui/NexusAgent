@@ -278,7 +278,7 @@
     "rules": "Rules Configuration",
     "rulesDesc": "Configure Rule scan paths (directories or single files, e.g. CLAUDE.md)",
     "subagents": "Subagent Configuration",
-    "subagentsDesc": "Configure subagent scan directories (markdown files: frontmatter with name/description/model/tools, body as system_prompt; invoked by main agent via nexus-subagent MCP)",
+    "subagentsDesc": "Configure subagent scan directories (markdown files: frontmatter with name/description/model/tools, body as system_prompt; invoked by main agent via opennexus-subagent MCP)",
     "userDirs": "User Directories",
     "projectDirs": "Project Directories",
     "addPath": "Add Path",

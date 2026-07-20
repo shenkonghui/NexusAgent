@@ -8,7 +8,7 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 
-	"nexusagent/internal/logging"
+	"opennexus/internal/logging"
 )
 
 // Connection 封装 acp.ClientSideConnection，管理一个 agent 进程与一条 ACP 连接。

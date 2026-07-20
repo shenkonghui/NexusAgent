@@ -11,7 +11,7 @@ import (
 
 	"github.com/coder/acp-go-sdk"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 var ErrPermissionNotFound = errors.New("权限请求不存在或已过期")
@@ -81,7 +81,7 @@ func (b *permissionBroker) cancelSession(sessionID acp.SessionId) {
 }
 
 func (b *permissionBroker) request(ctx context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
-	// 内置 nexus-notes MCP 由本服务注入，自动放行，避免并行 list_notes 把 UI 卡死。
+	// 内置 opennexus-notes MCP 由本服务注入，自动放行，避免并行 list_notes 把 UI 卡死。
 	if isTrustedMCPTool(params) {
 		return autoApprovePermission(params), nil
 	}
@@ -164,7 +164,7 @@ func isTrustedMCPTool(params acp.RequestPermissionRequest) bool {
 	if params.ToolCall.Title == nil {
 		return false
 	}
-	return strings.HasPrefix(*params.ToolCall.Title, "nexus-notes")
+	return strings.HasPrefix(*params.ToolCall.Title, "opennexus-notes")
 }
 
 func (b *permissionBroker) removePending(requestID string) {

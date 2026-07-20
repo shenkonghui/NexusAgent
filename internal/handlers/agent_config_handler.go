@@ -11,9 +11,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/acp"
-	"nexusagent/internal/agent"
-	"nexusagent/internal/models"
+	"opennexus/internal/acp"
+	"opennexus/internal/agent"
+	"opennexus/internal/models"
 )
 
 // AgentConfigStore 暴露 AgentConfig 持久化能力。

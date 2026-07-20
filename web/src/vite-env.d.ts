@@ -1,9 +1,9 @@
 /// <reference types="vite/client" />
 
-// Electron preload 通过 contextBridge 注入 window.nexusagent。
+// Electron preload 通过 contextBridge 注入 window.opennexus。
 // 浏览器(远程运行)场景下整个对象为 undefined。
 interface Window {
-  nexusagent?: {
+  opennexus?: {
     isElectron: boolean
     platform: string
     versions: {

@@ -5,7 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 var ErrAgentConfigNotFound = errors.New("agent 配置不存在")

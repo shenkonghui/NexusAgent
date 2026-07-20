@@ -8,7 +8,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 func Connect(dsn string) (*gorm.DB, error) {
@@ -95,11 +95,11 @@ func createDefaultWorkspacesForEmptyUsers(db *gorm.DB) error {
 			if err != nil {
 				return fmt.Errorf("获取用户主目录: %w", err)
 			}
-			baseDir := filepath.Join(home, ".nextAgent", "session")
+			baseDir := filepath.Join(home, ".openNexus", "session")
 			if err := os.MkdirAll(baseDir, 0o700); err != nil {
 				return fmt.Errorf("创建临时根目录: %w", err)
 			}
-			tempDir, err := os.MkdirTemp(baseDir, "nexus-")
+			tempDir, err := os.MkdirTemp(baseDir, "opennexus-")
 			if err != nil {
 				return fmt.Errorf("创建临时目录: %w", err)
 			}

@@ -6,9 +6,9 @@ import (
 
 	acpsdk "github.com/coder/acp-go-sdk"
 
-	"nexusagent/internal/acp"
-	"nexusagent/internal/models"
-	"nexusagent/internal/repository"
+	"opennexus/internal/acp"
+	"opennexus/internal/models"
+	"opennexus/internal/repository"
 )
 
 // Router 路由用户请求到对应的 agent 后端，委托 acp.Service 执行。

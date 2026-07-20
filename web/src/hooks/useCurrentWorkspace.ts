@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { listWorkspaces, getWorkspace } from '../api/workspaces'
 import type { Workspace, Session } from '../types'
 
-export const WORKSPACE_STORAGE_KEY = 'nexus.current.workspace'
+export const WORKSPACE_STORAGE_KEY = 'opennexus.current.workspace'
 
 export function resolveWorkspaceId(
   workspaces: (Workspace & { session_count?: number })[],

@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"nexusagent/internal/models"
+	"opennexus/internal/models"
 )
 
 // 文件读写大小上限（1MB），避免传输超大文件。
