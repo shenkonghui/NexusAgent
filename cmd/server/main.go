@@ -25,6 +25,7 @@ import (
 	"nexusagent/internal/handlers"
 	"nexusagent/internal/logging"
 	notesmcp "nexusagent/internal/mcp/notes"
+	subagentmcp "nexusagent/internal/mcp/subagent"
 	"nexusagent/internal/models"
 	"nexusagent/internal/repository"
 	"nexusagent/internal/router"
@@ -96,7 +97,7 @@ func main() {
 	authSvc.SeedAdminUser()
 
 	// P1: ACP 服务
-	acpSvc := acp.NewService(db, cfg.Agents.Workspace, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules)
+	acpSvc := acp.NewService(db, cfg.Agents.Workspace, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Agents.SubAgents)
 	acpSvc.SetDebugConfig(cfg.Debug)
 
 	// P2: Agent 注册表与路由
@@ -108,11 +109,21 @@ func main() {
 	seedDefaultClaudeCodeAgent(agentCfgRepo, cfg.Agents.ClaudeCode)
 	loadRegistryAgents(agentCfgRepo)
 
+	// 恢复 binary agent 的 symlink：读 versions.json，把每个 agent 的稳定路径
+	// 重新指向用户上次通过"更新"选定的版本。这是重启不回退的关键——
+	// 内存 BinaryRegistry 从内嵌 registry 重填的是旧 version，但 symlink 指向激活版本。
+	if restored, err := acp.RestoreBinarySymlinks(); err != nil {
+		log.Printf("恢复 binary symlink 失败（不影响启动）: %v", err)
+	} else if restored > 0 {
+		log.Printf("已恢复 %d 个 binary agent 的 symlink", restored)
+	}
+
 	// 2. 从数据库加载用户启用的 agent 配置
 	loadDBAgentConfigs(agentCfgRepo, registrar)
 
 	agentRouter := agent.NewRouter(agentRegistry, acpSvc)
 	agentCfgH := handlers.NewAgentConfigHandler(agentCfgRepo, registrar)
+	registryH := handlers.NewRegistryHandler(agentCfgRepo)
 
 	// 恢复上次服务重启中断的状态：将 running 状态的 running_task 标记为 interrupted，
 	// 将 active 状态的会话标记为 error（agent 进程已随上次退出终止）。
@@ -157,7 +168,7 @@ func main() {
 	taskSettingsH := handlers.NewTaskSettingsHandler(taskSettingsRepo)
 	agentPrefsH := handlers.NewAgentPrefsHandler(repository.NewUserAgentPrefsRepository(db))
 
-	configH := handlers.NewConfigHandler(cfgPath)
+	configH := handlers.NewConfigHandler(cfgPath, acpSvc)
 	mcpH := handlers.NewMCPHandler(cfg.Agents.MCP.ConfigPath)
 
 	// 日志查看器：复用 logging 包在 Setup 时初始化的日志中心单例，
@@ -165,9 +176,20 @@ func main() {
 	logH := handlers.NewLogHandler(logging.DefaultHub())
 	debugH := handlers.NewDebugHandler(agentRouter, acpSvc.Debugger())
 
-	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, schedTaskH, noteH, taskSettingsH, agentPrefsH, configH, mcpH, logH, debugH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
+	// Subagent：定义来自 markdown 文件（~/.agents/agents/*.md，由 Service 扫描），
+	// 供主 agent 通过 nexus-subagent MCP 调起。这里仅负责 MCP 条目同步自愈。
+	agentPrefsRepo := repository.NewUserAgentPrefsRepository(db)
+	subAgentH := handlers.NewSubAgentHandler(noteSettingsRepo, cfg.Agents.MCP.ConfigPath, publicBase)
+	// 启动自愈：把 nexus-subagent 条目同步到全局 mcp.json（复用笔记 token 体系）。
+	subAgentH.SyncAllSubagentMCP()
+
+	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, registryH, schedTaskH, noteH, taskSettingsH, agentPrefsH, configH, mcpH, logH, debugH, subAgentH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Agents.SubAgents, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
 	engine.Any("/mcp/notes", gin.WrapH(notesmcp.Handler(noteRepo, noteSettingsRepo)))
 	engine.Any("/mcp/notes/*path", gin.WrapH(notesmcp.Handler(noteRepo, noteSettingsRepo)))
+	// subagent MCP server：主 agent 通过 tools/call 调起预定义的 subagent。
+	// 数据源是文件扫描（acpSvc.ListSubAgents）；agentPrefsRepo 用于解析"继承父 agent"（用户最近使用的 agent）。
+	engine.Any("/mcp/subagent", gin.WrapH(subagentmcp.Handler(acpSvc, noteSettingsRepo, agentPrefsRepo, agentRouter)))
+	engine.Any("/mcp/subagent/*path", gin.WrapH(subagentmcp.Handler(acpSvc, noteSettingsRepo, agentPrefsRepo, agentRouter)))
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	srv := &http.Server{Addr: addr, Handler: engine}
@@ -266,7 +288,9 @@ func seedDefaultClaudeCodeAgent(repo *repository.AgentConfigRepository, cc confi
 	}
 }
 
-// loadRegistryAgents 从内嵌的 registry.json 加载所有 agent，写入数据库并注册到内存。
+// loadRegistryAgents 从内嵌的 registry.json 加载所有 agent，合并写入数据库。
+// 合并语义：新 agent 以 enabled=false 创建；已有 agent 仅刷新名称/描述，保留用户修改。
+// 不在此处注册 backend——统一交由 loadDBAgentConfigs 根据 DB 中的 enabled 状态注册。
 func loadRegistryAgents(repo *repository.AgentConfigRepository) {
 	agents, err := acp.FetchEmbeddedRegistry()
 	if err != nil {
@@ -275,27 +299,8 @@ func loadRegistryAgents(repo *repository.AgentConfigRepository) {
 	}
 	log.Printf("加载到 %d 个 agent", len(agents))
 
-	configs := acp.RegistryToAgentConfigs(agents)
-	for _, cfg := range configs {
-		// 写入数据库（只更新 display_name/description，不覆盖用户修改的 command/args/enabled）
-		existing, _ := repo.FindByType(cfg.Type)
-		if existing != nil {
-			existing.DisplayName = cfg.DisplayName
-			existing.Description = cfg.Description
-			if err := repo.Update(existing); err != nil {
-				log.Printf("更新 registry agent %s 失败: %v", cfg.Type, err)
-			}
-		} else {
-			enabled := false
-			cfg.Enabled = &enabled
-			if err := repo.Create(&cfg); err != nil {
-				log.Printf("写入 registry agent %s 失败: %v", cfg.Type, err)
-				continue
-			}
-		}
-	}
-	// 不在此处注册 backend——统一交由 loadDBAgentConfigs 根据 DB 中的 enabled 状态注册
-	log.Printf("registry agent 已同步到数据库（%d 个），等待用户在设置中启用", len(agents))
+	added, updated, _ := acp.SyncRegistryToStore(agents, repo)
+	log.Printf("registry agent 已同步到数据库（新增 %d，更新 %d），等待用户在设置中启用", added, updated)
 }
 
 // loadDBAgentConfigs 加载数据库中启用的 agent 配置并注册到 registry 与 acp service。

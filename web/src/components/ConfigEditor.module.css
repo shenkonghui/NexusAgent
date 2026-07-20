@@ -227,6 +227,23 @@
   white-space: nowrap;
 }
 
+.scanItemTools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.toolChip {
+  font-size: 11px;
+  padding: 1px 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-family: 'IBM Plex Mono', 'Monaco', 'Menlo', monospace;
+}
+
 /* MCP server 状态项 */
 .serverRow {
   padding: 10px 12px;

@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -137,18 +138,20 @@ func validateTimeout(timeout string) error {
 }
 
 // applyToRegistrar 根据 cfg 在 registrar 中注册/替换或注销。
+// 用 NewBackendFromAgentConfig 而非 NewConfigBackend:对 binary 类 agent(如 amp-acp、crow-cli)
+// 走 BinaryBackend 的延迟下载 + 缓存绝对路径，与启动流程一致。
 func (h *AgentConfigHandler) applyToRegistrar(cfg *models.AgentConfig) {
 	if cfg.Enabled == nil || !*cfg.Enabled {
 		h.registrar.UnregisterAgent(cfg.Type)
 		h.registrar.UnregisterBackend(cfg.Type)
 		return
 	}
-	h.registrar.ReplaceBackend(acp.NewConfigBackend(*cfg))
+	h.registrar.ReplaceBackend(acp.NewBackendFromAgentConfig(*cfg))
 	h.registrar.ReplaceAgent(&agent.AgentDescriptor{
 		Type:        cfg.Type,
 		DisplayName: cfg.DisplayName,
 		Description: cfg.Description,
-		Backend:     acp.NewConfigBackend(*cfg),
+		Backend:     acp.NewBackendFromAgentConfig(*cfg),
 	})
 	h.registrar.PreconnectAgent(cfg.Type)
 }
@@ -267,6 +270,167 @@ func (h *AgentConfigHandler) Delete(c *gin.Context) {
 	h.registrar.UnregisterAgent(cfg.Type)
 	h.registrar.UnregisterBackend(cfg.Type)
 	Success(c, http.StatusOK, struct{}{})
+}
+
+// registryDefaultResponse 是 GetRegistryDefault 的返回结构，仅含可重置字段。
+type registryDefaultResponse struct {
+	Command     string   `json:"command"`
+	Args        []string `json:"args"`
+	DisplayName string   `json:"display_name"`
+	Description string   `json:"description"`
+	Version     string   `json:"version"`
+	ArchiveURL  string   `json:"archive_url"` // binary 类 agent 才有；npx/uvx 为空
+}
+
+// resolveRegistryAgent 按 agentType 查 registry：优先 CDN 最新版，失败回退内嵌。
+// 返回的 ra 非空时，caller 可安全调用 ToAgentConfig（会触发 binary 类写入 BinaryRegistry 的副作用）。
+// CDN 与内嵌都找不到返回 (nil, "", nil)；CDN 网络错但内嵌能找到则用内嵌。
+func resolveRegistryAgent(agentType string) (ra *acp.RegistryAgent, source string, err error) {
+	online, onlineErr := acp.FindOnlineRegistryAgent(agentType)
+	if online != nil {
+		return online, "cdn", nil
+	}
+	// CDN 没找到（可能网络错误，也可能确实没有）→ 回退内嵌
+	embedded, embErr := acp.FindEmbeddedRegistryAgent(agentType)
+	if embedded != nil {
+		if onlineErr != nil {
+			slog.Warn("CDN 查询 agent 失败，回退到内嵌 registry", "type", agentType, "err", onlineErr)
+		}
+		return embedded, "embedded", nil
+	}
+	// 两个都没有
+	if embErr != nil {
+		return nil, "", embErr
+	}
+	return nil, "", nil
+}
+
+// GetRegistryDefault GET /api/v1/agent-configs/:id/registry-default
+// 返回该 agent 在 registry 中的默认 command/args（供前端"重置为默认"按钮预填表单）。
+// 数据源：CDN 优先，失败回退内嵌。env 不返回（敏感，不重置）。
+// 注意：调用 ToAgentConfig 会触发 buildCommand 的副作用（binary 类写入 BinaryRegistry），
+// 这使后续 PUT 保存时 applyToRegistrar→NewBackendFromAgentConfig 能正确选择 BinaryBackend。
+func (h *AgentConfigHandler) GetRegistryDefault(c *gin.Context) {
+	id, ok := parseAgentConfigID(c)
+	if !ok {
+		return
+	}
+	cfg, err := h.store.FindByID(id)
+	if err != nil {
+		Fail(c, http.StatusNotFound, "AGENT_CONFIG_NOT_FOUND", "agent 配置不存在")
+		return
+	}
+	ra, _, err := resolveRegistryAgent(cfg.Type)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "REGISTRY_LOAD_ERROR", "加载 registry 失败: "+err.Error())
+		return
+	}
+	if ra == nil {
+		Fail(c, http.StatusNotFound, "REGISTRY_AGENT_NOT_FOUND", "该 agent 不在内置 registry 中，无法重置")
+		return
+	}
+	def, err := ra.ToAgentConfig()
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "REGISTRY_BUILD_ERROR", "构建 registry 默认值失败: "+err.Error())
+		return
+	}
+	Success(c, http.StatusOK, registryDefaultResponse{
+		Command:     def.Command,
+		Args:        parseArgsFromJSON(def.Args),
+		DisplayName: def.DisplayName,
+		Description: def.Description,
+		Version:     ra.Version,
+		ArchiveURL:  ra.Distribution.BinaryArchive,
+	})
+}
+
+// updateFromRegistryResponse 是 UpdateFromRegistry 的返回结构。
+type updateFromRegistryResponse struct {
+	Version       string   `json:"version"`
+	Command       string   `json:"command"`
+	Args          []string `json:"args"`
+	Redownloaded  bool     `json:"redownloaded"`  // binary agent 是否清除了旧缓存（下次启动重下）
+	Source        string   `json:"source"`        // "cdn" | "embedded"
+}
+
+// UpdateFromRegistry POST /api/v1/agent-configs/:id/update-from-registry
+// 从 CDN 最新 registry 同步单个 agent：原子完成"拉取→比对→(可能重下)→更新配置→重新注册"。
+//  - command/args/display_name/description 覆盖为 registry 最新值
+//  - env/enabled 保留（env 常含代理/密钥；enabled 是用户意愿）
+//  - binary 类 agent：若 version 或 archiveURL 变化，清除旧缓存（下次 Prepare 重新下载）
+//  - npx/uvx 类 agent：无下载步骤，npm/uvx 每次启动自动拉最新包，仅更新配置
+func (h *AgentConfigHandler) UpdateFromRegistry(c *gin.Context) {
+	id, ok := parseAgentConfigID(c)
+	if !ok {
+		return
+	}
+	cfg, err := h.store.FindByID(id)
+	if err != nil {
+		Fail(c, http.StatusNotFound, "AGENT_CONFIG_NOT_FOUND", "agent 配置不存在")
+		return
+	}
+	ra, source, err := resolveRegistryAgent(cfg.Type)
+	if err != nil {
+		Fail(c, http.StatusBadGateway, "REGISTRY_FETCH_FAILED", "拉取 registry 失败: "+err.Error())
+		return
+	}
+	if ra == nil {
+		Fail(c, http.StatusNotFound, "REGISTRY_AGENT_NOT_FOUND", "该 agent 不在内置 registry 中，无法更新")
+		return
+	}
+
+	def, err := ra.ToAgentConfig()
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "REGISTRY_BUILD_ERROR", "构建 registry 默认值失败: "+err.Error())
+		return
+	}
+
+	// binary 类 agent：先预下载验证新版本可用，成功才切换 symlink 激活；失败则保留旧版不动。
+	// EnsureBinaryDownloaded 成功后会自动切换 symlink + 记录 versions.json，使重启后仍用新版。
+	// 这样即使新 version 的 URL 下不下来（如 403），agent 仍能用 symlink 指向的旧版工作，不会变砖。
+	// npx/uvx 类无此步骤（npm/uvx 每次启动自动拉最新包）。
+	redownloaded := false
+	if ra.Distribution.Type == "binary" {
+		if dlErr := acp.EnsureBinaryDownloaded(cfg.Type, ra.Version, ra.Distribution.BinaryArchive, ra.Distribution.BinaryCmd); dlErr != nil {
+			// 新版下载失败：保留 symlink 指向的旧版，回退 version 供响应展示
+			slog.Warn("新版本预下载失败，保留旧版", "agent", cfg.Type, "newVersion", ra.Version, "err", dlErr)
+			if old, ok := acp.BinaryRegistry[cfg.Type]; ok && old.Version != "" {
+				ra.Version = old.Version
+			}
+		} else {
+			redownloaded = true
+			// 旧版本目录保留作回滚储备，不主动删除
+		}
+	}
+
+	// 覆盖配置（保留 env/enabled）
+	cfg.Command = def.Command
+	cfg.Args = def.Args
+	cfg.DisplayName = def.DisplayName
+	cfg.Description = def.Description
+	if err := h.store.Update(cfg); err != nil {
+		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
+		return
+	}
+	h.applyToRegistrar(cfg)
+
+	slog.Info("agent 已从 registry 更新", "type", cfg.Type, "source", source, "redownloaded", redownloaded)
+	Success(c, http.StatusOK, updateFromRegistryResponse{
+		Version:      ra.Version,
+		Command:      def.Command,
+		Args:         parseArgsFromJSON(def.Args),
+		Redownloaded: redownloaded,
+		Source:       source,
+	})
+}
+
+// parseArgsFromJSON 将存储的 JSON args 字符串解码为切片；空串或非法返回 nil。
+func parseArgsFromJSON(argsJSON string) []string {
+	var args []string
+	if argsJSON != "" {
+		_ = json.Unmarshal([]byte(argsJSON), &args)
+	}
+	return args
 }
 
 // parseAgentConfigID 解析 :id（uint，>0）。

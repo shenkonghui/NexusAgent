@@ -184,8 +184,52 @@ func FetchEmbeddedRegistry() ([]RegistryAgent, error) {
 	return reg.Agents, nil
 }
 
+// FindEmbeddedRegistryAgent 按 ID 在内嵌 registry 中查找单个 agent。
+// 未找到返回 (nil, nil)。调用方通常接着用 (*RegistryAgent).ToAgentConfig() 取默认 command/args。
+// 注意:对 binary 类 agent 调用 ToAgentConfig 会触发 buildCommand 的副作用——写入 BinaryRegistry，
+// 这是 NewBackendFromAgentConfig 正确选择 BinaryBackend 的前提。
+func FindEmbeddedRegistryAgent(agentID string) (*RegistryAgent, error) {
+	agents, err := FetchEmbeddedRegistry()
+	if err != nil {
+		return nil, err
+	}
+	return findAgentInList(agents, agentID), nil
+}
+
+// FindOnlineRegistryAgent 从 CDN 最新 registry 中按 ID 查单个 agent。
+// 用于"更新"按钮:获取该 agent 最新的 distribution(含 version/archiveURL)。
+// 未找到返回 (nil, nil);网络或解析错误返回 error(调用方可回退到内嵌 registry)。
+func FindOnlineRegistryAgent(agentID string) (*RegistryAgent, error) {
+	doc, err := FetchRegistryFull()
+	if err != nil {
+		return nil, err
+	}
+	return findAgentInList(doc.Agents, agentID), nil
+}
+
+// findAgentInList 在 agent 列表中按 ID 查找，未找到返回 nil。
+func findAgentInList(agents []RegistryAgent, agentID string) *RegistryAgent {
+	for i := range agents {
+		if agents[i].ID == agentID {
+			return &agents[i]
+		}
+	}
+	return nil
+}
+
 // FetchRegistry 从 ACP 官方注册表拉取 agent 列表（在线更新用）。
+// 已废弃：仅返回 agents，丢失顶层 version。新代码请用 FetchRegistryFull。
 func FetchRegistry() ([]RegistryAgent, error) {
+	reg, err := FetchRegistryFull()
+	if err != nil {
+		return nil, err
+	}
+	return reg.Agents, nil
+}
+
+// FetchRegistryFull 从 ACP 官方注册表拉取完整 registry（含顶层 version）。
+// 超时 15s；非 200 或 JSON 解析失败返回错误。
+func FetchRegistryFull() (*RegistryDocument, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(registryURL)
 	if err != nil {
@@ -201,7 +245,13 @@ func FetchRegistry() ([]RegistryAgent, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&reg); err != nil {
 		return nil, fmt.Errorf("解析 registry JSON: %w", err)
 	}
-	return reg.Agents, nil
+	return &RegistryDocument{Version: reg.Version, Agents: reg.Agents}, nil
+}
+
+// RegistryDocument 是在线拉取的完整 registry 文档（含顶层 version）。
+type RegistryDocument struct {
+	Version string
+	Agents  []RegistryAgent
 }
 
 // ToAgentConfig 将 registry agent 转换为 models.AgentConfig。
@@ -256,10 +306,36 @@ func (ra *RegistryAgent) buildCommand() (string, []string, error) {
 			BinaryCmd:  ra.Distribution.BinaryCmd,
 		}
 		// 返回相对路径作为占位 command，后续 BinaryBackend 会替换为完整路径
-		return ra.Distribution.BinaryCmd, ra.Distribution.BinaryArgs, nil
+		args := ra.Distribution.BinaryArgs
+		// cursor-agent 启动时会要求 Workspace Trust 交互确认，不传 --trust 会卡住无法完成 ACP 握手。
+		// registry 默认 args 不含 --trust，这里补上（官方 ACP 文档推荐用法）。
+		if isTrustRequiredAgent(ra.ID) && !containsArg(args, "--trust") {
+			args = append(args, "--trust")
+		}
+		return ra.Distribution.BinaryCmd, args, nil
 	default:
 		return "", nil, fmt.Errorf("不支持的 distribution type: %s", ra.Distribution.Type)
 	}
+}
+
+// trustRequiredAgents 列出启动时需要 --trust 参数才能跳过交互确认的 binary agent ID。
+// 这些 agent 不传 --trust 会卡在 Workspace Trust 提示，无法完成 ACP 握手。
+var trustRequiredAgents = map[string]bool{
+	"cursor": true,
+}
+
+func isTrustRequiredAgent(agentID string) bool {
+	return trustRequiredAgents[agentID]
+}
+
+// containsArgs 检查 args 中是否已包含指定参数。
+func containsArg(args []string, target string) bool {
+	for _, a := range args {
+		if a == target {
+			return true
+		}
+	}
+	return false
 }
 
 // RegistryToAgentConfigs 将 registry agent 列表转换为 AgentConfig 列表。
@@ -274,4 +350,43 @@ func RegistryToAgentConfigs(agents []RegistryAgent) []models.AgentConfig {
 		configs = append(configs, cfg)
 	}
 	return configs
+}
+
+// AgentConfigSyncer 暴露合并 registry agent 所需的最小持久化能力。
+// *repository.AgentConfigRepository 天然满足该接口。
+type AgentConfigSyncer interface {
+	FindByType(agentType string) (*models.AgentConfig, error)
+	Create(cfg *models.AgentConfig) error
+	Update(cfg *models.AgentConfig) error
+}
+
+// SyncRegistryToStore 把 registry agents 合并进存储：
+//   - 新 agent：以 enabled=false 创建（不自动注册，等待用户在设置中启用）
+//   - 已有 agent：仅更新 DisplayName/Description，保留用户修改的 command/args/env/enabled
+//
+// 对正在运行的后端/registrar 零影响。返回 (新增数, 更新数)。
+func SyncRegistryToStore(agents []RegistryAgent, store AgentConfigSyncer) (added, updated int, err error) {
+	configs := RegistryToAgentConfigs(agents)
+	for _, cfg := range configs {
+		existing, _ := store.FindByType(cfg.Type)
+		if existing != nil {
+			existing.DisplayName = cfg.DisplayName
+			existing.Description = cfg.Description
+			if uerr := store.Update(existing); uerr != nil {
+				slog.Warn("更新 registry agent 失败", "type", cfg.Type, "err", uerr)
+				continue
+			}
+			updated++
+		} else {
+			enabled := false
+			cfg.Enabled = &enabled
+			if cerr := store.Create(&cfg); cerr != nil {
+				slog.Warn("写入 registry agent 失败", "type", cfg.Type, "err", cerr)
+				continue
+			}
+			added++
+		}
+	}
+	slog.Info("registry agent 已同步到存储", "total", len(agents), "added", added, "updated", updated)
+	return added, updated, nil
 }

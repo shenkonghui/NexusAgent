@@ -39,6 +39,28 @@
   border-color: var(--accent);
 }
 
+/* 拖拽文件接入对话:container 高亮 + inputWrap 上的遮罩层 */
+.container.dragOver {
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-surface));
+}
+
+.dropOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border: 2px dashed var(--accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 500;
+  pointer-events: none; /* 让事件继续落到 container,避免抖动 */
+}
+
 .input:disabled {
   background: var(--bg-muted);
   cursor: not-allowed;

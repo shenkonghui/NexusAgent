@@ -197,6 +197,16 @@ func (f *fakeSessionStore) ResumeInterruptedTask(_ context.Context, _ uint) (<-c
 	return nil, nil
 }
 
+// DeleteMessagesFromSequence 是会话回滚用的 stub，测试中不涉及真实消息删除。
+func (f *fakeSessionStore) DeleteMessagesFromSequence(_ uint, _ int) (int64, error) {
+	return 0, nil
+}
+
+// FindMessageByID 是按消息主键查询的 stub，测试中不涉及。
+func (f *fakeSessionStore) FindMessageByID(_ uint) (*models.Message, error) {
+	return nil, nil
+}
+
 // closeNotifyRecorder 包装 httptest.ResponseRecorder，补充 CloseNotifier 接口以兼容 Gin 的 c.Stream。
 type closeNotifyRecorder struct {
 	*httptest.ResponseRecorder
@@ -580,6 +590,8 @@ func (s *commandsFakeStore) ListRunningDBSessionIDs(uint) ([]uint, error)       
 func (s *commandsFakeStore) ResumeInterruptedTask(context.Context, uint) (<-chan models.Message, error) {
 	return nil, nil
 }
+func (s *commandsFakeStore) DeleteMessagesFromSequence(uint, int) (int64, error) { return 0, nil }
+func (s *commandsFakeStore) FindMessageByID(uint) (*models.Message, error)      { return nil, nil }
 
 func TestSessionHandler_Prompt_Empty(t *testing.T) {
 	store := newFakeSessionStore()

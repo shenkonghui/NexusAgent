@@ -1,9 +1,211 @@
 package services
 
 import (
+	"context"
+	"errors"
 	"reflect"
+	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"nexusagent/internal/acp"
+	"nexusagent/internal/database"
+	"nexusagent/internal/models"
+	"nexusagent/internal/repository"
 )
+
+// fakeClassifyExecutor 记录 RunSubAgent 调用，返回预设文本，用于验证分类走临时会话路径。
+type fakeClassifyExecutor struct {
+	mu               sync.Mutex
+	runSubAgentCalls int
+	lastPrompt       string
+	lastAgentType    string
+	lastModelValue   string
+	lastUserID       uint
+	subAgentText     string
+	subAgentErr      error
+	// 展示会话相关
+	createdSessions []models.Session
+	updateTitleArgs []struct {
+		dbSessionID uint
+		title       string
+	}
+	// existingSession 模拟 GetSessionByDBID 命中时返回的会话（nil=返回 not found）
+	existingSession *models.Session
+}
+
+func (f *fakeClassifyExecutor) CreateSessionWithSource(_ context.Context, agentType string, _ uint, userID uint, _, modelValue string) (*models.Session, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	s := &models.Session{
+		SessionID:  "display-session-id",
+		AgentType:  agentType,
+		Status:     models.SessionStatusPending,
+		UserID:     userID,
+		Source:     models.SessionSourceClassify,
+		ModelValue: modelValue,
+	}
+	f.createdSessions = append(f.createdSessions, *s)
+	return s, nil
+}
+
+func (f *fakeClassifyExecutor) GetSessionByDBID(id uint) (*models.Session, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.existingSession != nil {
+		return f.existingSession, nil
+	}
+	return nil, repository.ErrSessionNotFound
+}
+
+func (f *fakeClassifyExecutor) UpdateTitle(dbSessionID uint, title string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.updateTitleArgs = append(f.updateTitleArgs, struct {
+		dbSessionID uint
+		title       string
+	}{dbSessionID, title})
+	return nil
+}
+
+func (f *fakeClassifyExecutor) RunSubAgent(_ context.Context, cfg acp.SubAgentRunConfig) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.runSubAgentCalls++
+	f.lastPrompt = cfg.Prompt
+	f.lastAgentType = cfg.AgentType
+	f.lastModelValue = cfg.ModelValue
+	f.lastUserID = cfg.UserID
+	if f.subAgentErr != nil {
+		return "", f.subAgentErr
+	}
+	return f.subAgentText, nil
+}
+
+// setupClassifierTest 用内存 SQLite 初始化笔记/设置仓库，返回 classifier + fake executor。
+func setupClassifierTest(t *testing.T) (*NoteClassifier, *fakeClassifyExecutor, *repository.NoteSettingsRepository, *repository.NoteRepository) {
+	t.Helper()
+	db, err := database.Connect("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatalf("连接测试库失败: %v", err)
+	}
+	db.Exec("DELETE FROM notes")
+	db.Exec("DELETE FROM note_settings")
+	settingsRepo := repository.NewNoteSettingsRepository(db)
+	noteRepo := repository.NewNoteRepository(db)
+	executor := &fakeClassifyExecutor{subAgentText: `{"tags":["工作"],"title":"周会纪要"}`}
+	c := NewNoteClassifier(settingsRepo, noteRepo, executor)
+	return c, executor, settingsRepo, noteRepo
+}
+
+// TestClassifyTagsUsesSubAgent 验证：分类调用走 RunSubAgent 临时会话而非 PromptWithExecution，
+// 且 prompt 正确拼接、结果正确解析、展示会话被创建。
+func TestClassifyTagsUsesSubAgent(t *testing.T) {
+	c, executor, settingsRepo, _ := setupClassifierTest(t)
+
+	// 配置分类 agent
+	if err := settingsRepo.Upsert(&models.NoteSettings{
+		UserID:    1,
+		AgentType: "test-agent",
+	}); err != nil {
+		t.Fatalf("写入设置失败: %v", err)
+	}
+
+	note := &models.Note{
+		UserID:          1,
+		Title:           "原标题",
+		Content:         "今天开了周会，讨论了项目进度",
+		Tags:            "[]",
+		ClassifyPending: true,
+		UpdatedAt:       time.Now().Add(-1 * time.Hour),
+	}
+	ctx := context.Background()
+	tags, title, err := c.classifyTags(ctx, note.UserID, note.ID, note.Content, []string{})
+	if err != nil {
+		t.Fatalf("classifyTags 失败: %v", err)
+	}
+
+	// 必须调用 RunSubAgent 一次（临时会话路径）
+	if executor.runSubAgentCalls != 1 {
+		t.Fatalf("RunSubAgent 调用次数 = %d, 期望 1", executor.runSubAgentCalls)
+	}
+	// 参数透传正确
+	if executor.lastAgentType != "test-agent" {
+		t.Errorf("AgentType = %q, 期望 test-agent", executor.lastAgentType)
+	}
+	if executor.lastUserID != 1 {
+		t.Errorf("UserID = %d, 期望 1", executor.lastUserID)
+	}
+	// prompt 应包含笔记内容
+	if !strings.Contains(executor.lastPrompt, "周会") {
+		t.Errorf("prompt 未包含笔记内容: %q", executor.lastPrompt)
+	}
+	// 结果解析正确
+	if title != "周会纪要" {
+		t.Errorf("title = %q, 期望 周会纪要", title)
+	}
+	if !reflect.DeepEqual(tags, []string{"工作"}) {
+		t.Errorf("tags = %v, 期望 [工作]", tags)
+	}
+	// 展示会话应被创建一次
+	if len(executor.createdSessions) != 1 {
+		t.Fatalf("展示会话创建次数 = %d, 期望 1", len(executor.createdSessions))
+	}
+	if executor.createdSessions[0].Source != models.SessionSourceClassify {
+		t.Errorf("展示会话 source = %q, 期望 classify", executor.createdSessions[0].Source)
+	}
+}
+
+// TestClassifyTagsDisplaySessionReuse 验证：展示会话已存在时不重复创建。
+func TestClassifyTagsDisplaySessionReuse(t *testing.T) {
+	c, executor, settingsRepo, _ := setupClassifierTest(t)
+
+	// 预先创建展示会话引用，模拟二次分类
+	if err := settingsRepo.Upsert(&models.NoteSettings{
+		UserID:              2,
+		AgentType:           "test-agent",
+		ClassifyDBSessionID: 100, // 已有引用
+	}); err != nil {
+		t.Fatalf("写入设置失败: %v", err)
+	}
+	// 让 GetSessionByDBID 返回已存在的会话（AgentType 匹配 → 跳过重建）
+	executor.existingSession = &models.Session{AgentType: "test-agent"}
+
+	ctx := context.Background()
+	_, _, err := c.classifyTags(ctx, 2, 1, "内容", []string{})
+	if err != nil {
+		t.Fatalf("classifyTags 失败: %v", err)
+	}
+	// 已有会话则不应再 CreateSessionWithSource（createdSessions 不新增）
+	if len(executor.createdSessions) != 0 {
+		t.Errorf("展示会话不应重建，当前数 = %d", len(executor.createdSessions))
+	}
+}
+
+// TestClassifyTagsSubAgentError 验证：RunSubAgent 返回错误时正确传递，并保留手动标签。
+func TestClassifyTagsSubAgentError(t *testing.T) {
+	c, executor, settingsRepo, _ := setupClassifierTest(t)
+	executor.subAgentText = ""
+	executor.subAgentErr = errors.New("agent 响应超时")
+
+	if err := settingsRepo.Upsert(&models.NoteSettings{
+		UserID:    3,
+		AgentType: "test-agent",
+	}); err != nil {
+		t.Fatalf("写入设置失败: %v", err)
+	}
+
+	ctx := context.Background()
+	tags, _, err := c.classifyTags(ctx, 3, 1, "内容", []string{"已有标签"})
+	if err == nil {
+		t.Fatal("期望返回错误，实际 nil")
+	}
+	// 出错时应保留手动标签
+	if !reflect.DeepEqual(tags, []string{"已有标签"}) {
+		t.Errorf("出错时 tags = %v, 期望保留手动标签 [已有标签]", tags)
+	}
+}
 
 func TestParseClassifyTags(t *testing.T) {
 	tests := []struct {

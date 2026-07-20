@@ -1002,6 +1002,7 @@ export default function ChatPage() {
             modes={homeModes}
             skills={homeSkills}
             cwd={workspaceCwd}
+            workspaceId={workspaceId}
             placeholder={t('session.quickSendPlaceholder')}
           />
         </div>
@@ -1104,6 +1105,7 @@ export default function ChatPage() {
               sending={sending} disabled={false}
               value={restoreInput} onValueChange={setRestoreInput}
               commands={commands} modes={modes} skills={skills} cwd={activeSession?.workspace?.cwd || ''}
+              workspaceId={workspaceId}
               placeholder={sending ? t(`session.conv_${displayConvState === 'idle' ? 'connecting' : displayConvState}`) : t('session.promptPlaceholder')}
             />
           </div>

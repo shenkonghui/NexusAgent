@@ -1,4 +1,4 @@
-import { apiFetch } from './client'
+import { apiFetch, apiFetchRaw } from './client'
 import type { AgentCommand, AgentSkill } from '../types'
 
 // 目录项
@@ -32,6 +32,32 @@ export interface FileListResponse {
 export function listDirs(path?: string): Promise<{ data: DirListResponse }> {
   const query = path ? `?path=${encodeURIComponent(path)}` : ''
   return apiFetch(`/filesystem/dirs${query}`)
+}
+
+// 上传文件项（拖拽接入对话 —— 远程运行场景）
+export interface UploadedFile {
+  name: string // 原始文件名
+  path: string // 服务器侧绝对路径，前端以 @<path> 引用
+  size: number
+}
+
+// 把浏览器端拖拽的文件上传到 workspace.Cwd/.uploads/ 下，返回服务器侧绝对路径。
+// 仅在"远程运行"(浏览器)场景下调用;本地(Electron)场景直接用 window.nexusagent.getPathForFile 取绝对路径。
+// 注意:不能复用 apiFetch(它强制设 Content-Type: application/json),FormData 必须让浏览器自动设置 boundary。
+export async function uploadFilesToWorkspace(
+  workspaceId: number,
+  files: File[],
+): Promise<{ data: { files: UploadedFile[] } }> {
+  const form = new FormData()
+  for (const f of files) {
+    form.append('files', f, f.name)
+  }
+  const resp = await apiFetchRaw(`/workspaces/${workspaceId}/uploads`, {
+    method: 'POST',
+    body: form,
+    // 不设 Content-Type，让 fetch 根据 FormData 自动带 multipart boundary
+  })
+  return resp.json()
 }
 
 // 列出指定路径下的文件和目录（用于 @ 文件引用补全）

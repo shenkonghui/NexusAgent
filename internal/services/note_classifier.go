@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"sync"
 	"time"
 
+	"nexusagent/internal/acp"
 	"nexusagent/internal/models"
 	"nexusagent/internal/repository"
 )
@@ -59,14 +59,16 @@ func NormalizeClassifyIntervalMinutes(minutes int) int {
 	return minutes
 }
 
-// ClassifyExecutor 在默认工作区会话中执行分类 prompt 并持久化消息。
+// ClassifyExecutor 负责创建展示会话并通过临时会话执行分类。
+//
+// 设计要点（方案 B-2）：
+//   - CreateSessionWithSource 仅创建 pending 展示会话（前端进度展示容器），不会被激活、不接收 prompt
+//   - RunSubAgent 在独立临时 ACP 会话中执行单次分类，调用结束即关闭，零上下文累积
 type ClassifyExecutor interface {
 	CreateSessionWithSource(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string) (*models.Session, error)
 	GetSessionByDBID(id uint) (*models.Session, error)
-	ResumeSession(ctx context.Context, sessionID string) (*models.Session, error)
-	PromptWithExecution(ctx context.Context, sessionID, prompt string, executionID *uint) (<-chan models.Message, error)
-	NextExecutionID(sessionID string) (uint, error)
 	UpdateTitle(dbSessionID uint, title string) error
+	RunSubAgent(ctx context.Context, cfg acp.SubAgentRunConfig) (string, error)
 }
 
 // NoteClassifier 根据用户配置调用 agent 为笔记打标签。
@@ -74,8 +76,6 @@ type NoteClassifier struct {
 	settingsRepo *repository.NoteSettingsRepository
 	noteRepo     *repository.NoteRepository
 	executor     ClassifyExecutor
-	// userPromptMu 按用户串行化分类 prompt：共用同一 ACP 会话，并发会交错回复。
-	userPromptMu sync.Map // userID(uint) -> *sync.Mutex
 }
 
 func NewNoteClassifier(
@@ -84,11 +84,6 @@ func NewNoteClassifier(
 	executor ClassifyExecutor,
 ) *NoteClassifier {
 	return &NoteClassifier{settingsRepo: settingsRepo, noteRepo: noteRepo, executor: executor}
-}
-
-func (c *NoteClassifier) lockUserPrompt(userID uint) *sync.Mutex {
-	v, _ := c.userPromptMu.LoadOrStore(userID, &sync.Mutex{})
-	return v.(*sync.Mutex)
 }
 
 // ProcessPending 处理一批待分类笔记，返回成功处理数量。
@@ -193,11 +188,6 @@ func (c *NoteClassifier) ClassifyNow(ctx context.Context, userID, noteID uint) (
 }
 
 func (c *NoteClassifier) classifyTags(ctx context.Context, userID, noteID uint, content string, manualTags []string) ([]string, string, error) {
-	// 同一用户的分类会话必须串行，否则多 prompt 回复会交错（立即分类 + worker 并发时尤甚）。
-	mu := c.lockUserPrompt(userID)
-	mu.Lock()
-	defer mu.Unlock()
-
 	settings, err := c.settingsRepo.FindByUserID(userID)
 	if err != nil {
 		return manualTags, "", err
@@ -212,21 +202,21 @@ func (c *NoteClassifier) classifyTags(ctx context.Context, userID, noteID uint, 
 		return manualTags, "", err
 	}
 	prompt := buildClassifyPrompt(promptTpl, content, existing)
-	prompt = fmt.Sprintf("【笔记 #%d 自动分类】\n%s", noteID, prompt)
 
-	session, err := c.ensureClassifySession(ctx, userID, agentType, settings)
-	if err != nil {
-		return manualTags, "", err
+	// 确保展示会话存在（仅创建一次 pending 会话，作为前端进度展示容器，不接收 prompt）。
+	c.ensureDisplaySession(ctx, userID, agentType, settings)
+
+	// 真正的分类调用走独立临时 ACP 会话：每条笔记上下文隔离，避免标签漂移。
+	text, runErr := c.executor.RunSubAgent(ctx, acp.SubAgentRunConfig{
+		AgentType:  agentType,
+		ModelValue: settings.ModelValue,
+		Prompt:     prompt,
+		UserID:     userID, // 继承全局 mcpServers，与原 sessionMCPServers(userID) 行为一致
+		// SystemPrompt 留空：分类 prompt 模板本身已含角色定义
+	})
+	if runErr != nil {
+		return manualTags, "", runErr
 	}
-	execID, err := c.executor.NextExecutionID(session.SessionID)
-	if err != nil {
-		return manualTags, "", err
-	}
-	ch, err := c.executor.PromptWithExecution(ctx, session.SessionID, prompt, &execID)
-	if err != nil {
-		return manualTags, "", err
-	}
-	text := collectAssistantText(ch)
 	if text == "" {
 		return manualTags, "", fmt.Errorf("agent 未返回分类结果")
 	}
@@ -237,33 +227,28 @@ func (c *NoteClassifier) classifyTags(ctx context.Context, userID, noteID uint, 
 	return mergeTags(manualTags, autoTags), title, nil
 }
 
-func (c *NoteClassifier) ensureClassifySession(ctx context.Context, userID uint, agentType string, settings *models.NoteSettings) (*models.Session, error) {
+// ensureDisplaySession 幂等确保展示会话存在。
+//
+// 与旧 ensureClassifySession 的区别（方案 B-2）：
+//   - 展示会话保持 pending 状态，永不激活（不创建 ACP 会话、不接收 prompt）
+//   - 不再 ResumeSession：展示会话无需保持 active，前端 ListSessions 不过滤 status
+//   - AgentType 变更时重建展示会话
+func (c *NoteClassifier) ensureDisplaySession(ctx context.Context, userID uint, agentType string, settings *models.NoteSettings) {
 	if settings.ClassifyDBSessionID > 0 {
 		session, err := c.executor.GetSessionByDBID(settings.ClassifyDBSessionID)
 		if err == nil && session.AgentType == agentType {
-			if session.Status != models.SessionStatusActive {
-				oldSessionID := session.SessionID
-				session, err = c.executor.ResumeSession(ctx, session.SessionID)
-				if err != nil {
-					return nil, err
-				}
-				if session.SessionID != oldSessionID {
-					_ = c.settingsRepo.UpdateSessionRef(userID, session.SessionID, session.ID)
-				}
-			}
-			c.refreshClassifySessionTitle(userID)
-			return session, nil
+			// 展示会话已存在且类型匹配，无需操作
+			return
 		}
 	}
 	session, err := c.executor.CreateSessionWithSource(ctx, agentType, 0, userID, models.SessionSourceClassify, settings.ModelValue)
 	if err != nil {
-		return nil, err
+		log.Printf("创建笔记分类展示会话失败: %v", err)
+		return
 	}
 	if err := c.settingsRepo.UpdateSessionRef(userID, session.SessionID, session.ID); err != nil {
 		log.Printf("保存分类会话引用失败: %v", err)
 	}
-	c.refreshClassifySessionTitle(userID)
-	return session, nil
 }
 
 // refreshClassifySessionTitle 将分类会话标题更新为「笔记分类 (已完成/总数)」。
@@ -285,16 +270,6 @@ func (c *NoteClassifier) refreshClassifySessionTitle(userID uint) {
 // FormatClassifySessionTitle 生成分类会话标题。
 func FormatClassifySessionTitle(done, total int64) string {
 	return fmt.Sprintf("%s (%d/%d)", ClassifySessionTitle, done, total)
-}
-
-func collectAssistantText(ch <-chan models.Message) string {
-	var sb strings.Builder
-	for msg := range ch {
-		if msg.Role == models.MessageRoleAssistant && msg.Kind == models.MessageKindAgentMessageChunk {
-			sb.WriteString(msg.Content)
-		}
-	}
-	return strings.TrimSpace(sb.String())
 }
 
 func tagsFromJSON(raw string) []string {

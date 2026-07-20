@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AgentConfig } from '../types'
+import type { RegistryDefault } from '../api/agentConfigs'
 import { X } from 'lucide-react'
 import styles from './EditAgentDialog.module.css'
 
@@ -46,6 +47,9 @@ interface Props {
   onSave: (payload: AgentFormPayload) => void
   onDelete: () => void
   onClose: () => void
+  // 取回该 agent 在 registry 中的默认 command/args（供"重置为默认"预填表单）。
+  // 返回 null 表示不在 registry 中（父组件已处理错误提示）。
+  onResetToRegistry?: () => Promise<RegistryDefault | null>
 }
 
 function toForm(config: AgentConfig) {
@@ -62,13 +66,28 @@ function toForm(config: AgentConfig) {
   }
 }
 
-export default function EditAgentDialog({ config, saving = false, onSave, onDelete, onClose }: Props) {
+export default function EditAgentDialog({ config, saving = false, onSave, onDelete, onClose, onResetToRegistry }: Props) {
   const { t } = useTranslation()
   const [form, setForm] = useState(() => toForm(config))
+  const [resetting, setResetting] = useState(false)
 
   useEffect(() => {
     setForm(toForm(config))
   }, [config])
+
+  // 重置 command/args 为 registry 默认值（仅填表单，不自动提交，用户可预览后点保存）。
+  // env / display_name / description / enabled 不动。
+  async function handleResetToRegistry() {
+    if (!onResetToRegistry || resetting) return
+    setResetting(true)
+    try {
+      const def = await onResetToRegistry()
+      if (!def) return // 父组件已提示错误
+      setForm((f) => ({ ...f, command: def.command, args: (def.args || []).join('\n') }))
+    } finally {
+      setResetting(false)
+    }
+  }
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -115,7 +134,15 @@ export default function EditAgentDialog({ config, saving = false, onSave, onDele
             />
           </div>
           <div className={styles.field}>
-            <label className={styles.label}>{t('settings.command')} *</label>
+            <div className={styles.labelRow}>
+              <label className={styles.label}>{t('settings.command')} *</label>
+              {onResetToRegistry && (
+                <button type="button" className={styles.resetBtn}
+                  onClick={handleResetToRegistry}
+                  disabled={resetting || saving}
+                >{resetting ? t('settings.resettingToRegistry') : t('settings.resetToRegistry')}</button>
+              )}
+            </div>
             <input className={styles.input} value={form.command}
               onChange={(e) => setForm({ ...form, command: e.target.value })}
               placeholder="npx / codebuddy"

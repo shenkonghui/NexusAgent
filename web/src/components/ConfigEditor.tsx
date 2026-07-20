@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getAgentsConfig, updateAgentsConfig, scanSkillFiles, scanCommandFiles, scanRuleFiles, writeFileContent } from '../api/config'
+import { getAgentsConfig, updateAgentsConfig, scanSkillFiles, scanCommandFiles, scanRuleFiles, scanSubAgentFiles, writeFileContent } from '../api/config'
 import type { DirConfigView, AgentsConfigView, ScannedFileItem } from '../api/config'
 import ErrorBanner from './ErrorBanner'
 import FileEditor from './FileEditor'
 import McpConfigCard from './McpConfigCard'
-import { Zap, SquareTerminal, ClipboardList, X, Trash2, Plus } from 'lucide-react'
+import { Zap, SquareTerminal, ClipboardList, Bot, X, Trash2, Plus } from 'lucide-react'
 import styles from './ConfigEditor.module.css'
 
-type ConfigSection = 'skills' | 'commands' | 'rules'
+type ConfigSection = 'skills' | 'commands' | 'rules' | 'subagents'
 
 export default function ConfigEditor() {
   const { t } = useTranslation()
@@ -26,6 +26,7 @@ export default function ConfigEditor() {
   const [scannedSkills, setScannedSkills] = useState<ScannedFileItem[]>([])
   const [scannedCommands, setScannedCommands] = useState<ScannedFileItem[]>([])
   const [scannedRules, setScannedRules] = useState<ScannedFileItem[]>([])
+  const [scannedSubAgents, setScannedSubAgents] = useState<ScannedFileItem[]>([])
 
   // 文件编辑
   const [editingFile, setEditingFile] = useState<ScannedFileItem | null>(null)
@@ -115,6 +116,12 @@ export default function ConfigEditor() {
       } else if (section === 'commands') {
         const resp = await scanCommandFiles()
         setScannedCommands(resp.data.commands || [])
+      } else if (section === 'rules') {
+        const resp = await scanRuleFiles()
+        setScannedRules(resp.data.rules || [])
+      } else if (section === 'subagents') {
+        const resp = await scanSubAgentFiles()
+        setScannedSubAgents(resp.data.subagents || [])
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('settings.loadFailed'))
@@ -123,19 +130,9 @@ export default function ConfigEditor() {
     }
   }
 
-  // rules 扫描
+  // rules 扫描（保留旧入口以最小化 UI 改动）
   async function handleScanRules() {
-    setScanningSection('rules')
-    setError('')
-    setSuccess('')
-    try {
-      const resp = await scanRuleFiles()
-      setScannedRules(resp.data.rules || [])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('settings.loadFailed'))
-    } finally {
-      setScanningSection(null)
-    }
+    await handleScan('rules')
   }
 
   // 打开文件编辑
@@ -170,6 +167,7 @@ export default function ConfigEditor() {
       case 'skills': return <Zap size={14} style={{ verticalAlign: '-2px' }} />
       case 'commands': return <SquareTerminal size={14} style={{ verticalAlign: '-2px' }} />
       case 'rules': return <ClipboardList size={14} style={{ verticalAlign: '-2px' }} />
+      case 'subagents': return <Bot size={14} style={{ verticalAlign: '-2px' }} />
     }
   }
 
@@ -178,6 +176,7 @@ export default function ConfigEditor() {
       case 'skills': return t('configEditor.skills')
       case 'commands': return t('configEditor.commands')
       case 'rules': return t('configEditor.rules')
+      case 'subagents': return t('configEditor.subagents')
     }
   }
 
@@ -186,6 +185,16 @@ export default function ConfigEditor() {
       case 'skills': return t('configEditor.skillsDesc')
       case 'commands': return t('configEditor.commandsDesc')
       case 'rules': return t('configEditor.rulesDesc')
+      case 'subagents': return t('configEditor.subagentsDesc')
+    }
+  }
+
+  function scanHint(section: ConfigSection): string {
+    switch (section) {
+      case 'skills': return t('configEditor.scanSkillsHint')
+      case 'commands': return t('configEditor.scanCommandsHint')
+      case 'subagents': return t('configEditor.scanSubAgentsHint')
+      default: return ''
     }
   }
 
@@ -197,7 +206,7 @@ export default function ConfigEditor() {
     return <div className={styles.empty}>{t('common.noData')}</div>
   }
 
-  const sections: ConfigSection[] = ['skills', 'commands', 'rules']
+  const sections: ConfigSection[] = ['skills', 'commands', 'rules', 'subagents']
 
   return (
     <>
@@ -233,10 +242,7 @@ export default function ConfigEditor() {
                       className={styles.scanBtn}
                       disabled={scanningSection === section}
                       onClick={() => handleScan(section)}
-                      title={
-                        section === 'skills' ? t('configEditor.scanSkillsHint')
-                        : t('configEditor.scanCommandsHint')
-                      }
+                      title={scanHint(section)}
                     >
                       {scanningSection === section ? t('common.loading') : t('configEditor.scanFiles')}
                     </button>
@@ -359,6 +365,40 @@ export default function ConfigEditor() {
                   </div>
                 </div>
               )}
+
+              {/* 扫描结果 - SubAgents */}
+              {section === 'subagents' && scannedSubAgents.length > 0 && (
+                <div className={styles.scanResult}>
+                  <div className={styles.scanResultTitle}>
+                    {t('configEditor.scannedSubAgents')}（{scannedSubAgents.length}）— {t('configEditor.clickToEdit')}
+                  </div>
+                  <div className={styles.scanList}>
+                    {scannedSubAgents.map((s, i) => (
+                      <div
+                        key={i}
+                        className={styles.scanItem}
+                        onClick={() => openFileEditor(s)}
+                        title={t('configEditor.clickToEdit')}
+                      >
+                        <div className={styles.scanItemName}>{s.name}</div>
+                        {s.description && <div className={styles.scanItemDesc}>{s.description}</div>}
+                        <div className={styles.scanItemMeta}>
+                          <span className={styles.scanItemScope}>{s.scope}</span>
+                          {s.model && <span className={styles.scanItemPath}>{t('configEditor.model')}: {s.model}</span>}
+                          {s.path && <span className={styles.scanItemPath}>{s.path}</span>}
+                        </div>
+                        {s.tools && s.tools.length > 0 && (
+                          <div className={styles.scanItemTools}>
+                            {s.tools.map((tool) => (
+                              <span key={tool} className={styles.toolChip}>{tool}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )
         })}
@@ -397,7 +437,7 @@ export default function ConfigEditor() {
                       type="text"
                       value={dir}
                       onChange={(e) => updateDir('user_dirs', i, e.target.value)}
-                      placeholder="~/.claude/skills"
+                      placeholder={editingSection === 'subagents' ? '~/.agents/agents' : '~/.claude/skills'}
                       disabled={saving}
                     />
                     <button
@@ -428,7 +468,7 @@ export default function ConfigEditor() {
                         type="text"
                         value={dir}
                         onChange={(e) => updateDir('project_dirs', i, e.target.value)}
-                        placeholder=".claude/skills"
+                        placeholder={editingSection === 'subagents' ? '.agents/agents' : '.claude/skills'}
                         disabled={saving}
                       />
                       <button

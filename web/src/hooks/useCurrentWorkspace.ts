@@ -49,6 +49,13 @@ export function useCurrentWorkspace(enabled = true) {
 
   useEffect(() => { reload() }, [reload])
 
+  // 定期刷新会话列表，使侧边栏的会话状态（error→active、标题等）不再永久过期。
+  useEffect(() => {
+    if (!enabled) return
+    const timer = setInterval(() => { reload() }, 10000)
+    return () => clearInterval(timer)
+  }, [enabled, reload])
+
   const selectWorkspace = useCallback(async (id: number) => {
     persistId(id)
     await loadSessions(id)

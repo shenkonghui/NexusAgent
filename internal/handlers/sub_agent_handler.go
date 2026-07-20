@@ -1,0 +1,135 @@
+package handlers
+
+import (
+	"errors"
+	"log"
+	"net/http"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+
+	"nexusagent/internal/acp"
+	"nexusagent/internal/middleware"
+	"nexusagent/internal/repository"
+)
+
+// SubAgentMCPName 是 subagent MCP server 在 mcp.json 中的条目名。
+const SubAgentMCPName = "nexus-subagent"
+
+// SubAgentHandler 负责 subagent MCP 条目的同步自愈。
+//
+// subagent 的定义本身来自 markdown 文件（由 acp.ScanSubAgents 扫描，见 Service.ListSubAgents），
+// 此处仅保留"把 nexus-subagent 条目写入全局 mcp.json"的逻辑，让主 agent 会话能发现该 MCP server。
+type SubAgentHandler struct {
+	settingsRepo  *repository.NoteSettingsRepository
+	mcpConfigPath string
+	publicBaseURL string
+}
+
+func NewSubAgentHandler(
+	settingsRepo *repository.NoteSettingsRepository,
+	mcpConfigPath string,
+	publicBaseURL string,
+) *SubAgentHandler {
+	return &SubAgentHandler{
+		settingsRepo:  settingsRepo,
+		mcpConfigPath: strings.TrimSpace(mcpConfigPath),
+		publicBaseURL: strings.TrimRight(strings.TrimSpace(publicBaseURL), "/"),
+	}
+}
+
+// RegisterRoutes 把 sub-agents 路由挂到 protected 组。
+// 仅保留 MCP 同步接口；subagent 定义的增删改查通过编辑 markdown 文件完成。
+func (h *SubAgentHandler) RegisterRoutes(rg *gin.RouterGroup) {
+	rg.POST("/sub-agents/mcp/sync", h.SyncMCPServer)
+}
+
+func (h *SubAgentHandler) currentUserID(c *gin.Context) (uint, bool) {
+	v, exists := c.Get(middleware.UserIDKey())
+	if !exists {
+		return 0, false
+	}
+	uid, ok := v.(uint)
+	return uid, ok && uid > 0
+}
+
+// ====== MCP 配置同步 ======
+
+// SyncMCPServer 手动同步 nexus-subagent 条目到 mcp.json（按当前用户 token）。
+// 该接口在 token 生成后由前端调用，确保 agent 会话能发现 subagent MCP server。
+func (h *SubAgentHandler) SyncMCPServer(c *gin.Context) {
+	uid, ok := h.currentUserID(c)
+	if !ok {
+		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
+		return
+	}
+	st, err := h.settingsRepo.FindByUserID(uid)
+	if err != nil || strings.TrimSpace(st.McpToken) == "" {
+		Fail(c, http.StatusBadRequest, "NO_MCP_TOKEN", "请先在笔记设置生成 MCP Token")
+		return
+	}
+	if err := h.syncSubagentMCPServer(st.McpToken); err != nil {
+		Fail(c, http.StatusInternalServerError, "MCP_SYNC_FAILED", err.Error())
+		return
+	}
+	Success(c, http.StatusOK, gin.H{"synced": true})
+}
+
+// syncSubagentMCPServer 把 nexus-subagent 条目写入全局 mcp.json。
+// 写入失败返回 error（启动自愈场景调用方决定是否仅记日志）。
+func (h *SubAgentHandler) syncSubagentMCPServer(token string) error {
+	if h.mcpConfigPath == "" || h.publicBaseURL == "" || token == "" {
+		return errors.New("mcp 配置缺失：mcpConfigPath / publicBaseURL / token 任一为空")
+	}
+	entry := acp.MCPServerEntry{
+		Type:    acp.MCPTypeHTTP,
+		Url:     h.publicBaseURL + "/mcp/subagent",
+		Headers: map[string]string{"Authorization": "Bearer " + token},
+	}
+	return acp.UpsertMCPServerEntry(h.mcpConfigPath, SubAgentMCPName, entry)
+}
+
+// SyncAllSubagentMCP 启动自愈：遍历有 token 的用户，确保 nexus-subagent 条目存在于 mcp.json。
+// 复用与 SyncAllNotesMCP 一致的全局共享 token 策略（取 list[0] 的 token）。
+func (h *SubAgentHandler) SyncAllSubagentMCP() {
+	if h.mcpConfigPath == "" || h.publicBaseURL == "" || h.settingsRepo == nil {
+		return
+	}
+	list, err := h.settingsRepo.FindAllWithMcpToken()
+	if err != nil {
+		log.Printf("加载笔记 MCP token 列表失败（subagent 同步跳过）: %v", err)
+		return
+	}
+	if len(list) == 0 {
+		return
+	}
+	token := strings.TrimSpace(list[0].McpToken)
+	want := acp.MCPServerEntry{
+		Type:    acp.MCPTypeHTTP,
+		Url:     h.publicBaseURL + "/mcp/subagent",
+		Headers: map[string]string{"Authorization": "Bearer " + token},
+	}
+	if existing := h.findSubagentMCPEntry(); existing != nil && mcpEntryEqual(*existing, want) {
+		log.Printf("subagent MCP 已存在于 %s 且配置一致，跳过更新", h.mcpConfigPath)
+		return
+	}
+	if err := acp.UpsertMCPServerEntry(h.mcpConfigPath, SubAgentMCPName, want); err != nil {
+		log.Printf("写入 subagent MCP 到 %s 失败: %v", h.mcpConfigPath, err)
+		return
+	}
+	log.Printf("已更新 subagent MCP (%s) 到 %s", SubAgentMCPName, h.mcpConfigPath)
+}
+
+func (h *SubAgentHandler) findSubagentMCPEntry() *acp.MCPServerEntry {
+	entries, err := acp.LoadMCPServerEntries(h.mcpConfigPath)
+	if err != nil {
+		return nil
+	}
+	for _, ne := range entries {
+		if ne.Name == SubAgentMCPName {
+			e := ne.Entry
+			return &e
+		}
+	}
+	return nil
+}

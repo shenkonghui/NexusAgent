@@ -75,3 +75,14 @@ func (r *RunningTaskRepository) FindRunningDBSessionIDsByUser(userID uint) ([]ui
 		Pluck("db_session_id", &ids).Error
 	return ids, err
 }
+
+// FindInterruptedDBSessionIDs 返回所有 interrupted 任务对应的 db_session_id（去重）。
+// 用于服务启动恢复：仅将这些会话标记为 error，避免误伤已正常完成的空闲会话。
+func (r *RunningTaskRepository) FindInterruptedDBSessionIDs() ([]uint, error) {
+	var ids []uint
+	err := r.db.Model(&models.RunningTask{}).
+		Where("status = ?", models.RunningTaskStatusInterrupted).
+		Distinct("db_session_id").
+		Pluck("db_session_id", &ids).Error
+	return ids, err
+}

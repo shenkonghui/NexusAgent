@@ -1,7 +1,7 @@
-import { useState, useMemo, useRef, useEffect, useCallback, type FormEvent, type KeyboardEvent } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback, type FormEvent, type KeyboardEvent, type DragEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { AgentCommand, SessionMode, AgentSkill, Note } from '../types'
-import { listFiles, type FileEntry } from '../api/filesystem'
+import { listFiles, type FileEntry, uploadFilesToWorkspace } from '../api/filesystem'
 import { listNotes, listNoteTags } from '../api/notes'
 import styles from './PromptInput.module.css'
 
@@ -19,6 +19,9 @@ interface PromptInputProps {
   modes?: SessionMode[]
   skills?: AgentSkill[]
   cwd?: string
+  // 远程(浏览器)场景拖拽上传所需;本地(Electron)场景不依赖此值(直接取绝对路径)。
+  // 不传时,远程拖拽会提示"该页面不支持上传"。
+  workspaceId?: number
 }
 
 type TriggerType = 'slash' | 'mention' | null
@@ -150,6 +153,7 @@ export default function PromptInput({
   modes = [],
   skills = [],
   cwd = '',
+  workspaceId,
 }: PromptInputProps) {
   const { t } = useTranslation()
   const [internalText, setInternalText] = useState('')
@@ -172,6 +176,13 @@ export default function PromptInput({
   const [notesLoading, setNotesLoading] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 拖拽接入外部文件:本地(Electron)直接取绝对路径,远程(浏览器)上传到 workspace。
+  // isElectron 在浏览器下整个 window.nexusagent 为 undefined,安全降级为 false。
+  const isElectron = window.nexusagent?.isElectron === true
+  const [dragOver, setDragOver] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const dragDepthRef = useRef(0) // dragenter/leave 嵌套计数,避免子元素抖动
 
   const trigger = useMemo(() => detectTrigger(text, cursorPos), [text, cursorPos])
   const fileNavigating = !!cwd && !!fileBrowsePath && fileBrowsePath !== cwd
@@ -489,6 +500,84 @@ export default function PromptInput({
     })
   }
 
+  // 在当前光标位置插入文本并聚焦。供拖拽文件插入 @<path> 复用,与 applyRow 的插入行为保持一致。
+  function insertAtCursor(insertText: string) {
+    const before = text.slice(0, cursorPos)
+    const after = text.slice(cursorPos)
+    const newText = before + insertText + after
+    setText(newText)
+    const newCursor = before.length + insertText.length
+    setCursorPos(newCursor)
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (el) {
+        el.focus()
+        el.setSelectionRange(newCursor, newCursor)
+      }
+    })
+  }
+
+  // 拖拽进入/经过:必须 preventDefault 才能触发 drop,且可阻止 Electron 默认把文件当导航跳走。
+  function handleDragOver(e: DragEvent<HTMLDivElement>) {
+    if (disabled || sending || uploading) return
+    if (!e.dataTransfer?.types?.includes('Files')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  function handleDragEnter(e: DragEvent<HTMLDivElement>) {
+    if (disabled || sending || uploading) return
+    if (!e.dataTransfer?.types?.includes('Files')) return
+    e.preventDefault()
+    dragDepthRef.current += 1
+    setDragOver(true)
+  }
+
+  function handleDragLeave() {
+    if (disabled || sending || uploading) return
+    // 用计数法判断是否真正离开 container(避免子元素 enter/leave 抖动)
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) setDragOver(false)
+  }
+
+  async function handleDrop(e: DragEvent<HTMLDivElement>) {
+    if (disabled || sending || uploading) return
+    const files = e.dataTransfer?.files
+    if (!files || files.length === 0) return
+    e.preventDefault()
+    dragDepthRef.current = 0
+    setDragOver(false)
+
+    const fileArr = Array.from(files)
+
+    if (isElectron) {
+      // 本地:同步取绝对路径,直接以 @<path> 引用,无需上传。
+      const getPath = window.nexusagent?.getPathForFile
+      for (const f of fileArr) {
+        const absPath = getPath ? getPath(f) : ''
+        if (absPath) insertAtCursor(`@${absPath} `)
+      }
+      return
+    }
+
+    // 远程:上传到 workspace 后拿到服务器侧绝对路径。
+    if (!workspaceId) {
+      alert(t('prompt.dropUnsupported'))
+      return
+    }
+    setUploading(true)
+    try {
+      const resp = await uploadFilesToWorkspace(workspaceId, fileArr)
+      for (const f of resp.data.files) {
+        insertAtCursor(`@${f.path} `)
+      }
+    } catch {
+      alert(t('prompt.uploadFailed'))
+    } finally {
+      setUploading(false)
+    }
+  }
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
     const trimmed = text.trim()
@@ -560,9 +649,20 @@ export default function PromptInput({
   )
 
   return (
-    <div className={`${styles.container} ${embedded ? styles.embedded : ''}`}>
+    <div
+      className={`${styles.container} ${embedded ? styles.embedded : ''} ${dragOver ? styles.dragOver : ''}`}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <form className={styles.form} onSubmit={handleSubmit}>
         <div className={styles.inputWrap}>
+          {(dragOver || uploading) && (
+            <div className={styles.dropOverlay}>
+              {uploading ? t('prompt.uploadingFiles') : t('prompt.dropHint')}
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             className={styles.input}

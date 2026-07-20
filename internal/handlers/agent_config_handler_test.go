@@ -61,6 +61,7 @@ func newAgentConfigTestRouter(t *testing.T) (*gin.Engine, *repository.AgentConfi
 	g.POST("", h.Create)
 	g.PUT("/:id", h.Update)
 	g.DELETE("/:id", h.Delete)
+	g.GET("/:id/registry-default", h.GetRegistryDefault)
 	return r, repo, reg
 }
 
@@ -221,5 +222,65 @@ func newAgentConfig(typ, name, command string) *models.AgentConfig {
 		DisplayName: name,
 		Command:     command,
 		Enabled:     &enabled,
+	}
+}
+
+func TestAgentConfigHandler_GetRegistryDefault_OK(t *testing.T) {
+	r, repo, _ := newAgentConfigTestRouter(t)
+	// claude-acp 是内嵌 registry 中真实存在的 npx 类 agent
+	cfg := newAgentConfig("claude-acp", "Claude ACP", "my-custom-cmd")
+	if err := repo.Create(cfg); err != nil {
+		t.Fatalf("创建配置失败: %v", err)
+	}
+
+	w := doJSON(t, r, "GET", "/api/v1/agent-configs/"+strconv.Itoa(int(cfg.ID))+"/registry-default", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d, 期望 200, body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Data struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("解析响应失败: %v, body=%s", err, w.Body.String())
+	}
+	// npx 类 agent 的 command 必为 npm
+	if resp.Data.Command != "npm" {
+		t.Errorf("command = %q, 期望 \"npm\"（npx 分发）", resp.Data.Command)
+	}
+	// args 应包含 exec 子命令
+	found := false
+	for _, a := range resp.Data.Args {
+		if a == "exec" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("args = %v, 期望包含 \"exec\"", resp.Data.Args)
+	}
+}
+
+func TestAgentConfigHandler_GetRegistryDefault_NotInRegistry(t *testing.T) {
+	r, repo, _ := newAgentConfigTestRouter(t)
+	// 一个不在 registry 中的自定义 type
+	cfg := newAgentConfig("my-custom-agent", "Custom", "custom-cmd")
+	if err := repo.Create(cfg); err != nil {
+		t.Fatalf("创建配置失败: %v", err)
+	}
+
+	w := doJSON(t, r, "GET", "/api/v1/agent-configs/"+strconv.Itoa(int(cfg.ID))+"/registry-default", nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("状态码 = %d, 期望 404, body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestAgentConfigHandler_GetRegistryDefault_NotFound(t *testing.T) {
+	r, _, _ := newAgentConfigTestRouter(t)
+	w := doJSON(t, r, "GET", "/api/v1/agent-configs/999/registry-default", nil)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("状态码 = %d, 期望 404", w.Code)
 	}
 }

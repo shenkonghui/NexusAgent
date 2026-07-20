@@ -2,6 +2,7 @@ package agent
 
 import (
 	"errors"
+	"sort"
 	"sync"
 
 	"nexusagent/internal/acp"
@@ -83,12 +84,19 @@ func (r *Registry) Get(agentType string) (*AgentDescriptor, error) {
 }
 
 // List 返回所有已注册的 agent 描述符。
+// r.agents 是 map，遍历顺序随机；按 agent type 排序保证返回顺序稳定，
+// 避免前端 agent 列表/选择器顺序每次刷新都变化。
 func (r *Registry) List() []*AgentDescriptor {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	list := make([]*AgentDescriptor, 0, len(r.agents))
-	for _, desc := range r.agents {
-		list = append(list, desc)
+	types := make([]string, 0, len(r.agents))
+	for t := range r.agents {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	list := make([]*AgentDescriptor, 0, len(types))
+	for _, t := range types {
+		list = append(list, r.agents[t])
 	}
 	return list
 }

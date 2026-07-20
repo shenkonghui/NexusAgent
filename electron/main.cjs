@@ -11,7 +11,7 @@
  * 前端与后端均无改动:前端全部使用相对路径 /api/v1,同源访问后端。
  */
 
-const { app, BrowserWindow, shell, dialog } = require('electron')
+const { app, BrowserWindow, shell, dialog, ipcMain } = require('electron')
 const { spawn, execSync } = require('child_process')
 const net = require('net')
 const http = require('http')
@@ -22,7 +22,10 @@ const os = require('os')
 let backend = null
 let mainWindow = null
 let backendCrashed = false
+let currentPort = null // 当前后端监听端口，重载时复用以保持前端 baseURL 不变
 const LOG_TAG = '[nexusagent-electron]'
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // 探测一个空闲端口传给后端(SERVER_PORT 环境变量,后端 config.go 已支持)。
 function pickFreePort() {
@@ -165,6 +168,7 @@ async function bootstrap() {
   } catch (e) {
     return fatal(`无法获取空闲端口: ${e.message}`)
   }
+  currentPort = port
 
   let dataDir
   try {
@@ -218,6 +222,30 @@ function fatal(message) {
   }
   app.quit()
 }
+
+// 重启后端进程（硬重载）。由设置页"系统 → 重载程序"通过 IPC 触发。
+// 流程：杀旧进程 → 等待端口释放 → 同端口重新 spawn → 等待就绪 → 刷新前端页面。
+// 同端口复用避免前端缓存的 baseURL 失效；刷新页面让前端重新拉取配置。
+// 注意：进行中的会话/任务会随旧后端进程终止而被标记为 interrupted（用户可在任务列表恢复）。
+ipcMain.handle('reload-backend', async () => {
+  if (!currentPort) {
+    return { ok: false, error: '后端尚未运行' }
+  }
+  try {
+    killBackend()
+    // killBackend 有 3s SIGKILL 兜底，等待端口彻底释放后再重新 spawn
+    await sleep(3500)
+    backendCrashed = false // 重置崩溃标记，允许 waitReady 重新轮询
+    startBackend(currentPort)
+    await waitReady(currentPort)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.reload()
+    }
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: (e && e.message) ? e.message : String(e) }
+  }
+})
 
 // ---- 生命周期 ----
 app.whenReady().then(bootstrap).catch((e) => fatal(e && e.message ? e.message : String(e)))

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -85,6 +86,8 @@ type Service struct {
 	commandProjectDirs []string
 	ruleUserDirs       []string
 	ruleProjectDirs    []string
+	subAgentUserDirs   []string
+	subAgentProjectDirs []string
 
 	// 健康检查与自动重连控制
 	hcCtx        context.Context
@@ -115,7 +118,7 @@ func (s *Service) SetTaskMetaTrigger(t TaskMetaTrigger) {
 }
 
 // NewService 创建新的 Service。
-func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig, skillsConfig config.SkillsConfig, commandsConfig config.CommandsConfig, rulesConfig config.RulesConfig) *Service {
+func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig, skillsConfig config.SkillsConfig, commandsConfig config.CommandsConfig, rulesConfig config.RulesConfig, subAgentsConfig config.SubAgentsConfig) *Service {
 	return &Service{
 		sessions:           repository.NewSessionRepository(db),
 		messages:           repository.NewMessageRepository(db),
@@ -140,6 +143,8 @@ func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig, skillsConfig confi
 		commandProjectDirs: append([]string(nil), commandsConfig.ProjectDirs...),
 		ruleUserDirs:       append([]string(nil), rulesConfig.UserDirs...),
 		ruleProjectDirs:    append([]string(nil), rulesConfig.ProjectDirs...),
+		subAgentUserDirs:   append([]string(nil), subAgentsConfig.UserDirs...),
+		subAgentProjectDirs: append([]string(nil), subAgentsConfig.ProjectDirs...),
 	}
 }
 
@@ -153,6 +158,28 @@ func (s *Service) SetNotesMCP(settings *repository.NoteSettingsRepository, publi
 // 该文件（标准 mcpServers 格式）中的 server 会注入给所有 agent 会话。
 func (s *Service) SetMCPConfigPath(path string) {
 	s.mcpConfigPath = strings.TrimSpace(path)
+}
+
+// SetScanDirs 热刷新 skill/command/rule/subagent 的扫描目录配置。
+// 用于"软重载":config.yaml 改动后无需重启进程，调用此方法刷新内存中固化的目录副本，
+// 随后 ListSkills / ListConfiguredCommands / ListSubAgents / 新建会话注入 additionalDirectories 都会用新目录。
+// 同时清空 probe/commands/modes 缓存，下次请求自动重扫。
+// 注意：已存在的会话其 systemPrompt / additionalDirectories 已固化注入，不受影响（仅对新建会话生效）。
+func (s *Service) SetScanDirs(skills config.SkillsConfig, commands config.CommandsConfig, rules config.RulesConfig, subAgents config.SubAgentsConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.skillUserDirs = append([]string(nil), skills.UserDirs...)
+	s.skillProjectDirs = append([]string(nil), skills.ProjectDirs...)
+	s.commandUserDirs = append([]string(nil), commands.UserDirs...)
+	s.commandProjectDirs = append([]string(nil), commands.ProjectDirs...)
+	s.ruleUserDirs = append([]string(nil), rules.UserDirs...)
+	s.ruleProjectDirs = append([]string(nil), rules.ProjectDirs...)
+	s.subAgentUserDirs = append([]string(nil), subAgents.UserDirs...)
+	s.subAgentProjectDirs = append([]string(nil), subAgents.ProjectDirs...)
+	// 清缓存：让下次 probe / list commands / list modes 重新扫描
+	s.probeCache = make(map[string][]acp.SessionConfigOption)
+	s.agentCommands = make(map[string][]acp.AvailableCommand)
+	s.agentModes = make(map[string][]acp.SessionMode)
 }
 
 // configuredMCPServers 读取全局共享 MCP 配置文件并转换为 ACP server 列表。
@@ -1329,14 +1356,23 @@ func (s *Service) UpdateTitle(dbSessionID uint, title string) error {
 
 // RecoverActiveSessions 在服务启动时调用：
 // 1. 将所有 running 状态的 running_task 标记为 interrupted（服务重启导致 prompt 中断）。
-// 2. 将所有 active 状态的会话标记为 error（agent 进程已随重启终止，内存态丢失）。
+// 2. 仅将这些被中断任务对应的会话标记为 error（agent 进程已随重启终止，内存态丢失）。
+//    不再批量标记所有 active 会话——已正常完成的空闲会话应保持 active。
 // 用户可通过 ListInterruptedTasks 查看中断任务并手动重发。
 func (s *Service) RecoverActiveSessions() {
 	if err := s.runningTasks.MarkRunningAsInterrupted(); err != nil {
 		slog.Warn("标记中断任务失败", "err", err)
 	}
-	if err := s.sessions.MarkActiveAsError(); err != nil {
-		slog.Warn("标记活跃会话为 error 失败", "err", err)
+	ids, err := s.runningTasks.FindInterruptedDBSessionIDs()
+	if err != nil {
+		slog.Warn("查询中断任务会话失败", "err", err)
+		return
+	}
+	if len(ids) == 0 {
+		return
+	}
+	if err := s.sessions.MarkSessionsErrorByIDs(ids); err != nil {
+		slog.Warn("标记中断会话为 error 失败", "err", err)
 	}
 }
 
@@ -1434,6 +1470,7 @@ func (s *Service) captureCommands(sessionID string, u acp.SessionUpdate) {
 }
 
 // ListCommands 返回会话可用的 slash command（Agent 原生 + 配置的 Claude Code commands）。
+// 若会话级缓存为空（如服务重启后），回退到 agent 级缓存 agentCommands。
 func (s *Service) ListCommands(sessionID string) ([]acp.AvailableCommand, error) {
 	session, err := s.GetSession(sessionID)
 	if err != nil {
@@ -1442,6 +1479,10 @@ func (s *Service) ListCommands(sessionID string) ([]acp.AvailableCommand, error)
 	cwd := sessionCwd(session, s.workspaces)
 	s.mu.RLock()
 	agentCmds := s.commands[sessionID]
+	if len(agentCmds) == 0 {
+		// 服务重启后会话级缓存丢失，回退到 agent 级缓存
+		agentCmds = s.agentCommands[session.AgentType]
+	}
 	s.mu.RUnlock()
 	return s.mergeCommands(agentCmds, cwd), nil
 }
@@ -1546,13 +1587,19 @@ func (s *Service) ListConfiguredCommandsForSession(sessionID string) ([]SlashCom
 }
 
 // ListConfigOptions 返回会话缓存的 config option 列表（含模型选择等）。
+// 若会话级缓存为空（如服务重启后），回退到 agent 级探测缓存 probeCache。
 func (s *Service) ListConfigOptions(sessionID string) ([]acp.SessionConfigOption, error) {
-	if _, err := s.GetSession(sessionID); err != nil {
+	session, err := s.GetSession(sessionID)
+	if err != nil {
 		return nil, err
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	opts := s.configs[sessionID]
+	if len(opts) == 0 {
+		// 服务重启后会话级缓存丢失，回退到 agent 级缓存
+		opts = s.probeCache[session.AgentType]
+	}
 	out := make([]acp.SessionConfigOption, len(opts))
 	copy(out, opts)
 	return out, nil
@@ -1718,13 +1765,19 @@ func (s *Service) collectProbeCommands(ctx context.Context, conn *Connection, se
 }
 
 // ListModes 返回会话可用的 mode 列表（agent skill/模式，如 plan/act）。
+// 若会话级缓存为空（如服务重启后），回退到 agent 级缓存 agentModes。
 func (s *Service) ListModes(sessionID string) ([]acp.SessionMode, error) {
-	if _, err := s.GetSession(sessionID); err != nil {
+	session, err := s.GetSession(sessionID)
+	if err != nil {
 		return nil, err
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	modes := s.modes[sessionID]
+	if len(modes) == 0 {
+		// 服务重启后会话级缓存丢失，回退到 agent 级缓存
+		modes = s.agentModes[session.AgentType]
+	}
 	out := make([]acp.SessionMode, len(modes))
 	copy(out, modes)
 	return out, nil
@@ -1752,6 +1805,31 @@ func (s *Service) ListSkills(sessionID string) ([]Skill, error) {
 		}
 	}
 	return ScanSkills(cwd, s.skillUserDirs, s.skillProjectDirs), nil
+}
+
+// ListSubAgents 扫描 subagent 定义文件（~/.agents/agents 等）。
+// 使用 probeCwd 作为项目级扫描根（subagent MCP server 无会话上下文）。
+func (s *Service) ListSubAgents() []SubAgentDef {
+	s.mu.RLock()
+	userDirs := append([]string(nil), s.subAgentUserDirs...)
+	projectDirs := append([]string(nil), s.subAgentProjectDirs...)
+	s.mu.RUnlock()
+	return ScanSubAgents(s.probeCwd(), userDirs, projectDirs)
+}
+
+// ResolveSubAgent 按 name 查找单个 subagent 定义。未找到返回 nil。
+func (s *Service) ResolveSubAgent(name string) *SubAgentDef {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	defs := s.ListSubAgents()
+	for i := range defs {
+		if defs[i].Name == name {
+			return &defs[i]
+		}
+	}
+	return nil
 }
 
 // SetConfigOption 设置会话的 config option 值（如切换模型）。
@@ -1990,7 +2068,14 @@ func (s *Service) ListAgentStatus() []AgentStatus {
 	}
 
 	out := make([]AgentStatus, 0, len(s.backends))
+	// s.backends 是 map，遍历顺序随机。按 agent_type 排序保证返回顺序稳定，
+	// 避免前端侧边栏的 agent 状态列表顺序每次刷新都变化。
+	names := make([]string, 0, len(s.backends))
 	for name := range s.backends {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
 		state := agentState[name]
 		if state == "" {
 			state = connStateDisconnected

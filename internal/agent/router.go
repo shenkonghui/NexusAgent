@@ -206,6 +206,18 @@ func (r *Router) RunPromptOnce(ctx context.Context, agentType, modelValue, promp
 	return r.service.RunPromptOnce(ctx, agentType, modelValue, prompt)
 }
 
+// RunSubAgent 在临时 ACP 会话中执行一次 subagent 任务，不落库。
+// 注入全局 mcpServers + SystemPrompt，用于主 agent 通过 MCP 工具调起预定义的 subagent。
+func (r *Router) RunSubAgent(ctx context.Context, cfg acp.SubAgentRunConfig) (string, error) {
+	if r.service == nil {
+		return "", errors.New("service 未配置")
+	}
+	if _, err := r.registry.Get(cfg.AgentType); err != nil {
+		return "", err
+	}
+	return r.service.RunSubAgent(ctx, cfg)
+}
+
 func (r *Router) PromptWithExecution(ctx context.Context, sessionID, prompt string, executionID *uint) (<-chan models.Message, error) {
 	if r.service == nil {
 		return nil, errors.New("service 未配置")

@@ -6,11 +6,12 @@ export interface DirConfigView {
   project_dirs: string[]
 }
 
-// agents 配置视图（skills/commands/rules）
+// agents 配置视图（skills/commands/rules/subagents）
 export interface AgentsConfigView {
   skills: DirConfigView
   commands: DirConfigView
   rules: DirConfigView
+  subagents: DirConfigView
 }
 
 // 获取 agents 配置（skills/commands/rules 目录路径）
@@ -26,6 +27,12 @@ export function updateAgentsConfig(config: AgentsConfigView): Promise<{ data: { 
   })
 }
 
+// 软重载：重新读取 config.yaml 并热刷新 skill/command/rule 扫描目录（不杀进程）。
+// 浏览器访问远程后端时使用；桌面版走 IPC 硬重载（window.nexusagent.reloadBackend）。
+export function reloadProgram(): Promise<{ data: { message: string; restarted: boolean } }> {
+  return apiFetch('/config/reload', { method: 'POST' })
+}
+
 // 扫描到的文件项
 export interface ScannedFileItem {
   name: string
@@ -35,6 +42,8 @@ export interface ScannedFileItem {
   path: string
   always_apply?: boolean
   globs?: string
+  model?: string
+  tools?: string[]
 }
 
 // 扫描技能文件（外部 skill.md）
@@ -53,6 +62,12 @@ export function scanCommandFiles(path?: string): Promise<{ data: { commands: Sca
 export function scanRuleFiles(path?: string): Promise<{ data: { rules: ScannedFileItem[] } }> {
   const qs = path ? `?path=${encodeURIComponent(path)}` : ''
   return apiFetch(`/filesystem/rules${qs}`)
+}
+
+// 扫描 subagent 定义文件
+export function scanSubAgentFiles(path?: string): Promise<{ data: { subagents: ScannedFileItem[] } }> {
+  const qs = path ? `?path=${encodeURIComponent(path)}` : ''
+  return apiFetch(`/filesystem/sub-agents${qs}`)
 }
 
 // 读取文件内容

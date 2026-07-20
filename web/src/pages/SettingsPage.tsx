@@ -3,10 +3,12 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useRequireAuth } from '../hooks/useRequireAuth'
 import { useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
-import { listAgentConfigs, updateAgentConfig, deleteAgentConfig } from '../api/agentConfigs'
+import { listAgentConfigs, updateAgentConfig, deleteAgentConfig, refreshRegistry, getRegistryDefault, updateAgentFromRegistry } from '../api/agentConfigs'
+import type { RegistryRefreshResult } from '../api/agentConfigs'
 import { listAgents, getAgentModels, probeAgentConfigs, clearAgentProbeCache } from '../api/agents'
 import { getNoteSettings, updateNoteSettings, generateNoteMCPToken } from '../api/notes'
 import { getTaskSettings, updateTaskSettings } from '../api/tasks'
+import { reloadProgram } from '../api/config'
 import { getAgentPrefs, patchAgentPrefs } from '../api/agentPrefs'
 import type { AgentConfig, Agent, ModelOption, ConfigOption, TaskSettings } from '../types'
 import { tasksUrl } from '../utils/routes'
@@ -21,10 +23,10 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import i18n from '../i18n'
 import styles from './SettingsPage.module.css'
 
-type SettingsTab = 'language' | 'agent' | 'classify' | 'config' | 'task'
+type SettingsTab = 'language' | 'agent' | 'classify' | 'config' | 'task' | 'system'
 
 function parseSettingsTab(raw: string | null): SettingsTab {
-  if (raw === 'agent' || raw === 'classify' || raw === 'config' || raw === 'task') return raw
+  if (raw === 'agent' || raw === 'classify' || raw === 'config' || raw === 'task' || raw === 'system') return raw
   return 'language'
 }
 
@@ -71,6 +73,10 @@ export default function SettingsPage() {
 
   const [configs, setConfigs] = useState<AgentConfig[]>([])
   const [configSearch, setConfigSearch] = useState('')
+  const [registryRefreshing, setRegistryRefreshing] = useState(false)
+  const [registryResult, setRegistryResult] = useState<RegistryRefreshResult | null>(null)
+  const [updatingAgentId, setUpdatingAgentId] = useState<number | null>(null)
+  const [agentUpdateMsg, setAgentUpdateMsg] = useState('')
   const [agents, setAgents] = useState<Agent[]>([])
   const { workspaceId, sessions } = useCurrentWorkspace(!!user)
   const [defaultAgent, setDefaultAgent] = useState('')
@@ -94,6 +100,8 @@ export default function SettingsPage() {
   const [taskTitlePrompt, setTaskTitlePrompt] = useState('')
   const [taskSettingsSaving, setTaskSettingsSaving] = useState(false)
   const [taskSettingsSaved, setTaskSettingsSaved] = useState(false)
+  const [reloadStatus, setReloadStatus] = useState<'idle' | 'reloading' | 'success' | 'failed'>('idle')
+  const [reloadError, setReloadError] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [editingConfig, setEditingConfig] = useState<AgentConfig | null>(null)
@@ -278,6 +286,34 @@ export default function SettingsPage() {
     }
   }
 
+  // 重载程序:桌面版走 IPC 硬重载(主进程 kill+spawn 后端 + 刷新页面);
+  // 浏览器访问远程后端走软重载 API(热刷新扫描目录,不杀进程)+ 刷新前端。
+  async function handleReloadProgram() {
+    if (reloadStatus === 'reloading') return
+    setReloadStatus('reloading'); setReloadError('')
+    try {
+      if (window.nexusagent?.isElectron) {
+        // 桌面版:IPC 成功后主进程会 webContents.reload(),本页随后整页刷新,无需 setState
+        const result = await window.nexusagent.reloadBackend!()
+        if (!result?.ok) {
+          setReloadStatus('failed')
+          setReloadError(result?.error || t('system.reloadFailed', { error: '' }).split(':')[0])
+        }
+        // 成功时页面将被刷新,setState 无意义故不设
+      } else {
+        // 浏览器:软重载后整页刷新,拉取最新配置
+        await reloadProgram()
+        setReloadStatus('success')
+        // 短暂展示成功后刷新页面,确保所有前端缓存清空
+        setTimeout(() => window.location.reload(), 600)
+      }
+    } catch (err) {
+      setReloadStatus('failed')
+      const msg = err instanceof Error ? err.message : t('common.failed')
+      setReloadError(t('system.reloadFailed', { error: msg }))
+    }
+  }
+
   function closeEditDialog() {
     if (saving) return
     setEditingConfig(null)
@@ -312,6 +348,42 @@ export default function SettingsPage() {
       setError(err instanceof Error ? err.message : t('common.failed'))
     } finally {
       setSaving(false)
+    }
+  }
+
+  // 在线拉取最新 ACP registry 并合并到本地存储。
+  // 新 agent 以禁用状态入库（需手动启用），已有 agent 仅刷新名称/描述，对运行中后端零影响。
+  async function handleRefreshRegistry() {
+    if (registryRefreshing) return
+    setRegistryRefreshing(true); setError(''); setRegistryResult(null)
+    try {
+      const { data } = await refreshRegistry()
+      setRegistryResult(data)
+      await loadData()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('settings.registryFetchFailed'))
+    } finally {
+      setRegistryRefreshing(false)
+    }
+  }
+
+  // 单个 agent 从 CDN 最新 registry 同步：后端原子完成"拉取→更新配置→(binary 类)清缓存触发重下"。
+  // env/enabled 保留（env 常含代理/密钥；enabled 是用户意愿）。保存即重新注册 backend 生效。
+  async function handleUpdateAgent(cfg: AgentConfig) {
+    if (updatingAgentId !== null) return
+    setUpdatingAgentId(cfg.id); setError(''); setAgentUpdateMsg('')
+    try {
+      const { data } = await updateAgentFromRegistry(cfg.id)
+      await loadData()
+      setAgentUpdateMsg(
+        data.redownloaded
+          ? t('settings.agentRedownloaded', { version: data.version })
+          : t('settings.agentUpdated', { version: data.version })
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('settings.agentUpdateNotFound'))
+    } finally {
+      setUpdatingAgentId(null)
     }
   }
 
@@ -372,6 +444,12 @@ export default function SettingsPage() {
               >
                 {t('settings.tabTask')}
               </button>
+              <button type="button"
+                className={`${styles.navItem} ${tab === 'system' ? styles.navItemActive : ''}`}
+                onClick={() => setTab('system')}
+              >
+                {t('settings.tabSystem')}
+              </button>
             </nav>
             <div className={styles.content}>
               {tab === 'language' && (
@@ -419,7 +497,23 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   <div className={styles.configList}>
-                    <h2 className={styles.sectionTitle}>{t('settings.agentList')}（{configs.length}）</h2>
+                    <div className={styles.configListHeader}>
+                      <h2 className={styles.sectionTitle}>{t('settings.agentList')}（{configs.length}）</h2>
+                      <button type="button"
+                        className={styles.registryBtn}
+                        onClick={handleRefreshRegistry}
+                        disabled={registryRefreshing}
+                        title={t('settings.refreshRegistry')}
+                      >{registryRefreshing ? t('settings.refreshingRegistry') : t('settings.refreshRegistry')}</button>
+                    </div>
+                    {registryResult && (
+                      <p className={styles.registryResult}>
+                        {t('settings.registryRefreshed', { added: registryResult.added, updated: registryResult.updated })}
+                      </p>
+                    )}
+                    {agentUpdateMsg && (
+                      <p className={styles.registryResult}>{agentUpdateMsg}</p>
+                    )}
                     {configs.length > 0 && (
                       <input
                         type="search"
@@ -462,6 +556,11 @@ export default function SettingsPage() {
                               }}
                             >{t('settings.enable')}</button>
                           )}
+                          <button type="button" className={styles.updateBtn}
+                            onClick={() => handleUpdateAgent(cfg)}
+                            disabled={updatingAgentId === cfg.id}
+                            title={t('settings.updateAgent')}
+                          >{updatingAgentId === cfg.id ? t('settings.updatingAgent') : t('settings.updateAgent')}</button>
                           <button type="button" className={styles.editIconBtn} title={t('common.edit')}
                             onClick={() => setEditingConfig(cfg)}
                           >⋯</button>
@@ -720,6 +819,29 @@ export default function SettingsPage() {
                 </>
               )}
 
+              {tab === 'system' && (
+                <>
+                  <p className={styles.hint}>{t('system.hint')}</p>
+                  <div className={styles.defaultSection}>
+                    <button type="button" className={styles.saveNoteBtn}
+                      disabled={reloadStatus === 'reloading'}
+                      onClick={handleReloadProgram}
+                    >
+                      {reloadStatus === 'reloading' ? t('system.reloading') : t('system.reloadProgram')}
+                    </button>
+                    {reloadStatus === 'success' && (
+                      <span className={styles.savedHint}>{t('system.reloadSuccess')}</span>
+                    )}
+                    {reloadStatus === 'failed' && reloadError && (
+                      <span className={`${styles.savedHint} ${styles.errorText}`}>{reloadError}</span>
+                    )}
+                    <p className={styles.sectionHint}>
+                      {window.nexusagent?.isElectron ? t('system.desktopHint') : t('system.browserHint')}
+                    </p>
+                  </div>
+                </>
+              )}
+
               <button className={styles.backBtn} type="button" onClick={() => navigate(tasksUrl(workspaceId))}>{t('common.back')}</button>
             </div>
           </div>
@@ -733,6 +855,15 @@ export default function SettingsPage() {
           onSave={handleSaveEdit}
           onDelete={handleDeleteEditing}
           onClose={closeEditDialog}
+          onResetToRegistry={async () => {
+            try {
+              const { data } = await getRegistryDefault(editingConfig.id)
+              return data
+            } catch (err) {
+              setError(err instanceof Error ? err.message : t('settings.resetToRegistryNotFound'))
+              return null
+            }
+          }}
         />
       )}
     </AppLayout>

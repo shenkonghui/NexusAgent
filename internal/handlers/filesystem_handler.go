@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 
@@ -27,25 +28,60 @@ type fileEntry struct {
 }
 
 // FileSystemHandler 提供本地文件系统目录浏览能力（用于前端目录选择器）。
+// 扫描目录配置支持热刷新（SetScanDirs），故用 RWMutex 保护。
 type FileSystemHandler struct {
+	mu                   sync.RWMutex
 	skillUserDirs        []string
 	skillProjectDirs     []string
 	commandUserDirs      []string
 	commandProjectDirs   []string
 	ruleUserDirs         []string
 	ruleProjectDirs      []string
+	subAgentUserDirs     []string
+	subAgentProjectDirs  []string
 }
 
 // NewFileSystemHandler 创建 FileSystemHandler。
-func NewFileSystemHandler(skills config.SkillsConfig, commands config.CommandsConfig, rules config.RulesConfig) *FileSystemHandler {
+func NewFileSystemHandler(skills config.SkillsConfig, commands config.CommandsConfig, rules config.RulesConfig, subAgents config.SubAgentsConfig) *FileSystemHandler {
 	return &FileSystemHandler{
-		skillUserDirs:      append([]string(nil), skills.UserDirs...),
-		skillProjectDirs:   append([]string(nil), skills.ProjectDirs...),
-		commandUserDirs:    append([]string(nil), commands.UserDirs...),
-		commandProjectDirs: append([]string(nil), commands.ProjectDirs...),
-		ruleUserDirs:       append([]string(nil), rules.UserDirs...),
-		ruleProjectDirs:    append([]string(nil), rules.ProjectDirs...),
+		skillUserDirs:       append([]string(nil), skills.UserDirs...),
+		skillProjectDirs:    append([]string(nil), skills.ProjectDirs...),
+		commandUserDirs:     append([]string(nil), commands.UserDirs...),
+		commandProjectDirs:  append([]string(nil), commands.ProjectDirs...),
+		ruleUserDirs:        append([]string(nil), rules.UserDirs...),
+		ruleProjectDirs:     append([]string(nil), rules.ProjectDirs...),
+		subAgentUserDirs:    append([]string(nil), subAgents.UserDirs...),
+		subAgentProjectDirs: append([]string(nil), subAgents.ProjectDirs...),
 	}
+}
+
+// SetScanDirs 热刷新 skill/command/rule/subagent 的扫描目录配置（软重载入口）。
+func (h *FileSystemHandler) SetScanDirs(skills config.SkillsConfig, commands config.CommandsConfig, rules config.RulesConfig, subAgents config.SubAgentsConfig) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.skillUserDirs = append([]string(nil), skills.UserDirs...)
+	h.skillProjectDirs = append([]string(nil), skills.ProjectDirs...)
+	h.commandUserDirs = append([]string(nil), commands.UserDirs...)
+	h.commandProjectDirs = append([]string(nil), commands.ProjectDirs...)
+	h.ruleUserDirs = append([]string(nil), rules.UserDirs...)
+	h.ruleProjectDirs = append([]string(nil), rules.ProjectDirs...)
+	h.subAgentUserDirs = append([]string(nil), subAgents.UserDirs...)
+	h.subAgentProjectDirs = append([]string(nil), subAgents.ProjectDirs...)
+}
+
+// snapshotScanDirs 在读锁下返回当前扫描目录的快照，供 Skills/Commands/Rules/SubAgents handler 安全使用。
+func (h *FileSystemHandler) snapshotScanDirs() (skillUser, skillProj, cmdUser, cmdProj, ruleUser, ruleProj, subUser, subProj []string) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	skillUser = append([]string(nil), h.skillUserDirs...)
+	skillProj = append([]string(nil), h.skillProjectDirs...)
+	cmdUser = append([]string(nil), h.commandUserDirs...)
+	cmdProj = append([]string(nil), h.commandProjectDirs...)
+	ruleUser = append([]string(nil), h.ruleUserDirs...)
+	ruleProj = append([]string(nil), h.ruleProjectDirs...)
+	subUser = append([]string(nil), h.subAgentUserDirs...)
+	subProj = append([]string(nil), h.subAgentProjectDirs...)
+	return
 }
 
 // resolveDirPath 解析并校验请求路径，返回绝对路径。失败时已写入错误响应。
@@ -206,7 +242,8 @@ func (h *FileSystemHandler) Skills(c *gin.Context) {
 			scanCwd = absPath
 		}
 	}
-	skills := acplocal.ScanSkills(scanCwd, h.skillUserDirs, h.skillProjectDirs)
+	skillUser, skillProj, _, _, _, _, _, _ := h.snapshotScanDirs()
+	skills := acplocal.ScanSkills(scanCwd, skillUser, skillProj)
 	items := make([]skillItem, 0, len(skills))
 	for _, s := range skills {
 		items = append(items, skillItem{
@@ -242,7 +279,8 @@ func (h *FileSystemHandler) Commands(c *gin.Context) {
 			scanCwd = absPath
 		}
 	}
-	commands := acplocal.ScanSlashCommands(scanCwd, h.commandUserDirs, h.commandProjectDirs)
+	_, _, cmdUser, cmdProj, _, _, _, _ := h.snapshotScanDirs()
+	commands := acplocal.ScanSlashCommands(scanCwd, cmdUser, cmdProj)
 	items := make([]slashCommandItem, 0, len(commands))
 	for _, cmd := range commands {
 		items = append(items, slashCommandItem{
@@ -289,7 +327,8 @@ func (h *FileSystemHandler) Rules(c *gin.Context) {
 			scanCwd = absPath
 		}
 	}
-	rules := acplocal.ScanRules(scanCwd, h.ruleUserDirs, h.ruleProjectDirs)
+	_, _, _, _, ruleUser, ruleProj, _, _ := h.snapshotScanDirs()
+	rules := acplocal.ScanRules(scanCwd, ruleUser, ruleProj)
 	items := make([]ruleItem, 0, len(rules))
 	for _, r := range rules {
 		items = append(items, ruleItem{
@@ -303,6 +342,48 @@ func (h *FileSystemHandler) Rules(c *gin.Context) {
 		})
 	}
 	Success(c, http.StatusOK, gin.H{"rules": items})
+}
+
+type subAgentItem struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Model       string   `json:"model,omitempty"`
+	Tools       []string `json:"tools,omitempty"`
+	Location    string   `json:"location"`
+	Scope       string   `json:"scope"`
+	Path        string   `json:"path"`
+}
+
+// SubAgents GET /api/v1/filesystem/sub-agents?path=...
+// 扫描指定目录下的 subagent 定义文件（frontmatter 含 name/description/model/tools，正文当 system_prompt）。
+// path 可为空或无效：仍会扫描用户主目录下的 subagents。
+func (h *FileSystemHandler) SubAgents(c *gin.Context) {
+	scanCwd := strings.TrimSpace(c.Query("path"))
+	if scanCwd != "" {
+		absPath, err := filepath.Abs(scanCwd)
+		if err != nil {
+			scanCwd = ""
+		} else if info, err := os.Stat(absPath); err != nil || !info.IsDir() {
+			scanCwd = ""
+		} else {
+			scanCwd = absPath
+		}
+	}
+	_, _, _, _, _, _, subUser, subProj := h.snapshotScanDirs()
+	defs := acplocal.ScanSubAgents(scanCwd, subUser, subProj)
+	items := make([]subAgentItem, 0, len(defs))
+	for _, d := range defs {
+		items = append(items, subAgentItem{
+			Name:        d.Name,
+			Description: d.Description,
+			Model:       d.Model,
+			Tools:       d.Tools,
+			Location:    d.Location,
+			Scope:       d.Scope,
+			Path:        d.Path,
+		})
+	}
+	Success(c, http.StatusOK, gin.H{"subagents": items})
 }
 
 // ReadFile GET /api/v1/filesystem/file?path=...

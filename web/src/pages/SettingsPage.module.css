@@ -363,6 +363,43 @@
   gap: 12px;
 }
 
+.configListHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.registryBtn {
+  padding: 5px 12px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.registryBtn:hover:not(:disabled) {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+
+.registryBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.registryResult {
+  margin: 0;
+  font-size: 12px;
+  color: var(--success);
+}
+
 .configSearch {
   padding: 8px 12px;
   border: 1px solid var(--border);
@@ -493,6 +530,30 @@
 .disableBtn:hover {
   background: var(--danger);
   color: var(--text-on-accent);
+}
+
+.updateBtn {
+  padding: 4px 12px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.updateBtn:hover:not(:disabled) {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+
+.updateBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .editIconBtn {
@@ -685,4 +746,8 @@
   margin-left: 10px;
   font-size: 12px;
   color: var(--success, #2ea043);
+}
+
+.errorText {
+  color: var(--danger, #cf222e);
 }

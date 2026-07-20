@@ -76,6 +76,18 @@ func (r *SessionRepository) MarkActiveAsError() error {
 		Update("status", models.SessionStatusError).Error
 }
 
+// MarkSessionsErrorByIDs 仅将指定 ID 中处于 active 状态的会话标记为 error。
+// 用于服务启动恢复：只标记真正被中断任务影响的会话，而非所有活跃会话。
+// 空列表时直接返回，避免 WHERE id IN () 语法错误。
+func (r *SessionRepository) MarkSessionsErrorByIDs(ids []uint) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return r.db.Model(&models.Session{}).
+		Where("id IN ? AND status = ?", ids, models.SessionStatusActive).
+		Update("status", models.SessionStatusError).Error
+}
+
 // FindByID 按数据库主键查询会话（含关联 Workspace，供前端 @ 文件引用等使用）。
 func (r *SessionRepository) FindByID(id uint) (*models.Session, error) {
 	var s models.Session

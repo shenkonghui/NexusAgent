@@ -16,13 +16,17 @@ import (
 	"nexusagent/internal/services"
 )
 
-func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, schedTaskH *handlers.ScheduledTaskHandler, noteH *handlers.NoteHandler, taskSettingsH *handlers.TaskSettingsHandler, agentPrefsH *handlers.AgentPrefsHandler, configH *handlers.ConfigHandler, mcpH *handlers.MCPHandler, logH *handlers.LogHandler, debugH *handlers.DebugHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, rulesCfg config.RulesConfig, mode, webDist string, autoLogin bool) *gin.Engine {
+func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, registryH *handlers.RegistryHandler, schedTaskH *handlers.ScheduledTaskHandler, noteH *handlers.NoteHandler, taskSettingsH *handlers.TaskSettingsHandler, agentPrefsH *handlers.AgentPrefsHandler, configH *handlers.ConfigHandler, mcpH *handlers.MCPHandler, logH *handlers.LogHandler, debugH *handlers.DebugHandler, subAgentH *handlers.SubAgentHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, rulesCfg config.RulesConfig, subAgentsCfg config.SubAgentsConfig, mode, webDist string, autoLogin bool) *gin.Engine {
 	gin.SetMode(mode)
 	r := gin.New()
 	r.Use(gin.Recovery())
 
 	authHandler := handlers.NewAuthHandler(authSvc, autoLogin)
-	fsHandler := handlers.NewFileSystemHandler(skillsCfg, commandsCfg, rulesCfg)
+	fsHandler := handlers.NewFileSystemHandler(skillsCfg, commandsCfg, rulesCfg, subAgentsCfg)
+	// 把 FileSystemHandler 注入 ConfigHandler，使软重载能同时刷新两处扫描目录副本。
+	if configH != nil {
+		configH.SetFileSystemHandler(fsHandler)
+	}
 
 	v1 := r.Group("/api/v1")
 	{
@@ -57,6 +61,14 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 				agentCfg.POST("", agentCfgH.Create)
 				agentCfg.PUT("/:id", agentCfgH.Update)
 				agentCfg.DELETE("/:id", agentCfgH.Delete)
+				// 取单个 agent 的 registry 默认 command/args（供前端"重置为默认"按钮预填表单）
+				agentCfg.GET("/:id/registry-default", agentCfgH.GetRegistryDefault)
+				// 从 CDN 最新 registry 同步单个 agent（含 binary 缓存清理触发重下）
+				agentCfg.POST("/:id/update-from-registry", agentCfgH.UpdateFromRegistry)
+				// 在线拉取最新 ACP registry 并合并到本地存储（对运行中后端零影响）
+				if registryH != nil {
+					agentCfg.POST("/registry/refresh", registryH.Refresh)
+				}
 			}
 
 			sessionH := handlers.NewSessionHandler(agentRouter)
@@ -91,6 +103,8 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			protected.PUT("/workspaces/:id", workspaceH.Update)
 			protected.DELETE("/workspaces/:id", workspaceH.Delete)
 			protected.POST("/workspaces/:id/save", workspaceH.Save)
+			// 拖拽文件上传(落盘到 workspace.Cwd/.uploads/,返回绝对路径供 @ 引用)
+			protected.POST("/workspaces/:id/uploads", workspaceH.Upload)
 
 			// 会话工作目录文件浏览与编辑（路径限制在 session cwd 内）
 			sessionFileH := handlers.NewSessionFileHandler(agentRouter)
@@ -113,6 +127,8 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			{
 				configG.GET("/agents", configH.GetAgentsConfig)
 				configG.PUT("/agents", configH.UpdateAgentsConfig)
+				// 软重载：热刷新 skill/command/rule 扫描目录配置（不杀进程）
+				configG.POST("/reload", configH.Reload)
 				if mcpH != nil {
 					configG.GET("/mcp", mcpH.GetMCPConfig)
 					configG.PUT("/mcp", mcpH.UpdateMCPConfig)
@@ -126,6 +142,7 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			protected.GET("/filesystem/skills", fsHandler.Skills)
 			protected.GET("/filesystem/commands", fsHandler.Commands)
 			protected.GET("/filesystem/rules", fsHandler.Rules)
+			protected.GET("/filesystem/sub-agents", fsHandler.SubAgents)
 			protected.GET("/filesystem/file", fsHandler.ReadFile)
 			protected.PUT("/filesystem/file", fsHandler.WriteFile)
 
@@ -168,6 +185,11 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			// 用户 agent 最近使用偏好
 			protected.GET("/agent-prefs", agentPrefsH.Get)
 			protected.PATCH("/agent-prefs", agentPrefsH.Patch)
+
+			// Subagent 定义管理（主 agent 通过 nexus-subagent MCP 调起）
+			if subAgentH != nil {
+				subAgentH.RegisterRoutes(protected)
+			}
 
 			// 实时日志流（SSE，供前端日志查看器订阅）
 			protected.GET("/logs/stream", logH.Stream)

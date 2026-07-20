@@ -30,13 +30,13 @@ func setupACPTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-func testDiscoveryConfig(t *testing.T) (config.SkillsConfig, config.CommandsConfig, config.RulesConfig) {
+func testDiscoveryConfig(t *testing.T) (config.SkillsConfig, config.CommandsConfig, config.RulesConfig, config.SubAgentsConfig) {
 	t.Helper()
 	cfg := &config.Config{JWT: config.JWTConfig{Secret: "this-is-a-very-long-jwt-secret-key-32+bytes!"}}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate 默认配置失败: %v", err)
 	}
-	return cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules
+	return cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Agents.SubAgents
 }
 
 func newTestService(t *testing.T) *Service {
@@ -46,8 +46,8 @@ func newTestService(t *testing.T) *Service {
 		DefaultMode:   "external",
 		TempDirPrefix: "test-",
 	}
-	skills, commands, rules := testDiscoveryConfig(t)
-	return NewService(db, wsCfg, skills, commands, rules)
+	skills, commands, rules, subAgents := testDiscoveryConfig(t)
+	return NewService(db, wsCfg, skills, commands, rules, subAgents)
 }
 
 func TestService_RegisterBackend(t *testing.T) {
@@ -93,21 +93,48 @@ func TestService_GetSession_NotFound(t *testing.T) {
 func TestService_RecoverActiveSessions(t *testing.T) {
 	db := setupACPTestDB(t)
 	repo := repository.NewSessionRepository(db)
-	_ = repo.Create(&models.Session{
-		SessionID:     "recovery-1",
+	// interrupted-session：有被中断任务，应被标记为 error
+	interruptedSess := &models.Session{
+		SessionID:     "recovery-interrupted",
 		AgentType:     "claude-code",
 		Cwd:           "/tmp",
 		Status:        models.SessionStatusActive,
 		WorkspaceMode: "",
+	}
+	_ = repo.Create(interruptedSess)
+	// idle-session：无被中断任务（已完成），应保持 active
+	idleSess := &models.Session{
+		SessionID:     "recovery-idle",
+		AgentType:     "claude-code",
+		Cwd:           "/tmp",
+		Status:        models.SessionStatusActive,
+		WorkspaceMode: "",
+	}
+	_ = repo.Create(idleSess)
+
+	// 为 interrupted-session 插入一个 running 状态的任务（恢复后变为 interrupted）
+	taskRepo := repository.NewRunningTaskRepository(db)
+	_ = taskRepo.Create(&models.RunningTask{
+		DBSessionID: interruptedSess.ID,
+		UserID:      1,
+		Prompt:      "interrupted prompt",
+		Status:      models.RunningTaskStatusRunning,
+		StartedAt:   time.Now(),
 	})
 
-	skills, commands, rules := testDiscoveryConfig(t)
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
+	skills, commands, rules, subAgents := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules, subAgents)
 	svc.RecoverActiveSessions()
 
-	s, _ := svc.GetSession("recovery-1")
+	// 有中断任务的会话 → error
+	s, _ := svc.GetSession("recovery-interrupted")
 	if s.Status != models.SessionStatusError {
-		t.Errorf("期望恢复后 status=error，实际 %q", s.Status)
+		t.Errorf("有中断任务的会话期望 status=error，实际 %q", s.Status)
+	}
+	// 无中断任务的空闲会话 → 保持 active（不再被误标为 error）
+	s2, _ := svc.GetSession("recovery-idle")
+	if s2.Status != models.SessionStatusActive {
+		t.Errorf("空闲会话期望保持 status=active，实际 %q", s2.Status)
 	}
 }
 
@@ -153,8 +180,8 @@ func TestService_ListMessages(t *testing.T) {
 	_ = msgRepo.Create(&models.Message{SessionID: "msg-list-1", DBSessionID: sess.ID, Role: models.MessageRoleUser, Kind: models.MessageKindUserMessageChunk, Content: "问题", RawJSON: "{}", Sequence: 1})
 	_ = msgRepo.Create(&models.Message{SessionID: "msg-list-1", DBSessionID: sess.ID, Role: models.MessageRoleAssistant, Kind: models.MessageKindAgentMessageChunk, Content: "回答", RawJSON: "{}", Sequence: 2})
 
-	skills, commands, rules := testDiscoveryConfig(t)
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
+	skills, commands, rules, subAgents := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules, subAgents)
 	msgs, err := svc.ListMessages("msg-list-1")
 	if err != nil {
 		t.Fatalf("ListMessages 返回错误: %v", err)
@@ -185,8 +212,8 @@ func TestService_ListMessages_Empty(t *testing.T) {
 		Status: models.SessionStatusActive, WorkspaceMode: "",
 	})
 
-	skills, commands, rules := testDiscoveryConfig(t)
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
+	skills, commands, rules, subAgents := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules, subAgents)
 	msgs, err := svc.ListMessages("empty-msg-1")
 	if err != nil {
 		t.Fatalf("ListMessages 返回错误: %v", err)
@@ -205,8 +232,8 @@ func TestService_ResumeSession_Closed_NoBackend(t *testing.T) {
 		Status: models.SessionStatusClosed, WorkspaceMode: "",
 	})
 
-	skills, commands, rules := testDiscoveryConfig(t)
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
+	skills, commands, rules, subAgents := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules, subAgents)
 	_, err := svc.ResumeSession(context.Background(), "closed-resume-1")
 	if err == nil {
 		t.Error("期望后端未注册时重开返回错误")
@@ -231,8 +258,8 @@ func TestService_ResumeSession_PersistentCwdNotExists(t *testing.T) {
 		Status: models.SessionStatusError, WorkspaceID: &wid,
 	})
 
-	skills, commands, rules := testDiscoveryConfig(t)
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
+	skills, commands, rules, subAgents := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules, subAgents)
 	_, err := svc.ResumeSession(context.Background(), "closed-resume-3")
 	if err == nil {
 		t.Error("persistent 工作目录不存在时期望返回错误")
@@ -257,8 +284,8 @@ func TestService_ResumeSession_CwdNotExists(t *testing.T) {
 		Status: models.SessionStatusError, WorkspaceID: &wid,
 	})
 
-	skills, commands, rules := testDiscoveryConfig(t)
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
+	skills, commands, rules, subAgents := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules, subAgents)
 	_, err := svc.ResumeSession(context.Background(), "closed-resume-2")
 	if err == nil {
 		t.Error("期望后端未注册时重开返回错误")
@@ -306,8 +333,8 @@ func TestService_DeleteSession_RemovesSessionAndMessages(t *testing.T) {
 		t.Fatalf("创建消息失败: %v", err)
 	}
 
-	skills, commands, rules := testDiscoveryConfig(t)
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
+	skills, commands, rules, subAgents := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules, subAgents)
 	if err := svc.DeleteSession(context.Background(), "delete-1"); err != nil {
 		t.Fatalf("DeleteSession 错误: %v", err)
 	}
@@ -349,8 +376,8 @@ func TestService_DeleteSession_KeepsPersistentWorkspace(t *testing.T) {
 	if err := repo.Create(sess); err != nil {
 		t.Fatalf("创建会话失败: %v", err)
 	}
-	skills, commands, rules := testDiscoveryConfig(t)
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
+	skills, commands, rules, subAgents := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules, subAgents)
 	if err := svc.DeleteSession(context.Background(), "delete-persist"); err != nil {
 		t.Fatalf("DeleteSession 错误: %v", err)
 	}
@@ -396,8 +423,8 @@ func TestMsgBroadcaster_FanOut(t *testing.T) {
 // TestService_RecoverActiveSessions_InterruptsRunningTasks 验证启动恢复会将 running 状态的 running_task 标记为 interrupted。
 func TestService_RecoverActiveSessions_InterruptsRunningTasks(t *testing.T) {
 	db := setupACPTestDB(t)
-	skills, commands, rules := testDiscoveryConfig(t)
-	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules)
+	skills, commands, rules, subAgents := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules, subAgents)
 
 	// 插入一个 running 状态的 running_task
 	taskRepo := repository.NewRunningTaskRepository(db)

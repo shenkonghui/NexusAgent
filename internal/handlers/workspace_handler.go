@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"fmt"
+	"math/rand"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -286,6 +289,110 @@ func (h *WorkspaceHandler) Save(c *gin.Context) {
 	ws.Mode = models.WorkspaceModePersistent
 	ws.Directories = dirs
 	Success(c, http.StatusOK, ws)
+}
+
+// Upload POST /api/v1/workspaces/:id/uploads （multipart/form-data）
+// 接收前端拖拽的文件,落盘到 workspace.Cwd/.uploads/ 子目录,返回落盘后的绝对路径。
+// 用于"远程运行"场景下把浏览器端文件接入对话——前端拿到绝对路径后以 @<path> 引用,
+// 复用与本地场景相同的 @ 引用协议(后端无需感知附件概念)。
+//
+// 字段名 "files" 对应 multipart 各部分;每部分可有多个。
+func (h *WorkspaceHandler) Upload(c *gin.Context) {
+	id, ok := parseWorkspaceID(c)
+	if !ok {
+		return
+	}
+	ws, err := h.store.FindWorkspaceByID(id)
+	if err != nil || ws == nil {
+		Fail(c, http.StatusNotFound, "NOT_FOUND", "工作区不存在")
+		return
+	}
+	uid, _ := currentUserID(c)
+	if ws.UserID != uid {
+		Fail(c, http.StatusNotFound, "NOT_FOUND", "工作区不存在")
+		return
+	}
+	cwd := strings.TrimSpace(ws.Cwd)
+	if cwd == "" {
+		Fail(c, http.StatusBadRequest, "NO_CWD", "工作区未配置目录")
+		return
+	}
+	// 落盘到 .uploads/ 子目录,避免污染工作区根目录。
+	// 额外按上传时间建一层日期目录,便于清理与隔离。
+	uploadDir := filepath.Join(cwd, ".uploads", time.Now().Format("20060102"))
+	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
+		Fail(c, http.StatusInternalServerError, "INTERNAL", "创建上传目录失败: "+err.Error())
+		return
+	}
+
+	form, err := c.MultipartForm()
+	if err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "解析 multipart 失败: "+err.Error())
+		return
+	}
+	files := form.File["files"]
+	if len(files) == 0 {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "未包含任何文件")
+		return
+	}
+
+	type savedFile struct {
+		Name string `json:"name"`
+		Path string `json:"path"` // 服务器侧绝对路径
+		Size int64  `json:"size"`
+	}
+	saved := make([]savedFile, 0, len(files))
+	for _, fh := range files {
+		name := sanitizeUploadName(fh.Filename)
+		if name == "" {
+			continue
+		}
+		dst := filepath.Join(uploadDir, name)
+		// 二次防护:确保最终路径仍位于 uploadDir 之下(防 ../)。
+		if !isWithinDir(uploadDir, dst) {
+			Fail(c, http.StatusBadRequest, "INVALID_PATH", "非法的文件路径: "+fh.Filename)
+			return
+		}
+		if err := c.SaveUploadedFile(fh, dst); err != nil {
+			Fail(c, http.StatusInternalServerError, "INTERNAL", "保存文件失败: "+err.Error())
+			return
+		}
+		saved = append(saved, savedFile{Name: fh.Filename, Path: dst, Size: fh.Size})
+	}
+	Success(c, http.StatusOK, gin.H{"files": saved})
+}
+
+// sanitizeUploadName 清洗上传文件名:
+//   - 取 basename,去掉任何路径前缀
+//   - 空名/全点目录名视为非法
+//   - 追加 时间戳-随机数 前缀避免同名覆盖
+func sanitizeUploadName(name string) string {
+	name = filepath.Base(strings.TrimSpace(name))
+	if name == "" || name == "." || name == ".." {
+		return ""
+	}
+	// 控制字符 / 路径分隔符已由 Base 处理;这里再过滤掉 Windows 非法字符以免跨平台问题。
+	name = strings.Map(func(r rune) rune {
+		switch r {
+		case '\\', '/', ':', '*', '?', '"', '<', '>', '|':
+			return '_'
+		}
+		if r < 0x20 {
+			return '_'
+		}
+		return r
+	}, name)
+	return fmt.Sprintf("%d-%04d-%s", time.Now().UnixNano(), rand.Intn(10000), name)
+}
+
+// isWithinDir 判断 target 是否位于 base 目录之下(均需为已 Clean 的绝对/相对路径)。
+func isWithinDir(base, target string) bool {
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+	rel = filepath.ToSlash(rel)
+	return rel != ".." && !strings.HasPrefix(rel, "../") && rel != "."
 }
 
 // validateDirectories 去重并校验每个附加目录存在且是目录。

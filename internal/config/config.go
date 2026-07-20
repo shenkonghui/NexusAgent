@@ -69,8 +69,17 @@ type AgentsConfig struct {
 	Skills     SkillsConfig     `yaml:"skills"`
 	Commands   CommandsConfig   `yaml:"commands"`
 	Rules      RulesConfig      `yaml:"rules"`
+	SubAgents  SubAgentsConfig  `yaml:"subagents"`
 	MCP        MCPConfig        `yaml:"mcp"`
 	ClaudeCode ClaudeCodeConfig `yaml:"claude_code"`
+}
+
+// SubAgentsConfig 配置 subagent 扫描目录（markdown 文件：frontmatter 含 name/description/model/tools，正文当 system_prompt）。
+type SubAgentsConfig struct {
+	// UserDirs 用户级 subagents 根目录（绝对路径或 ~/ 开头），默认 ~/.agents/agents。
+	UserDirs []string `yaml:"user_dirs"`
+	// ProjectDirs 项目级 subagents 相对工作区 cwd 的子目录，默认 .agents/agents。
+	ProjectDirs []string `yaml:"project_dirs"`
 }
 
 // MCPConfig 配置全局共享的 MCP server 列表来源（标准 mcpServers JSON 格式）。
@@ -176,6 +185,9 @@ func (c *Config) applyEnv() {
 	if v := os.Getenv("AGENTS_RULES_USER_DIRS"); v != "" {
 		c.Agents.Rules.UserDirs = splitCommaList(v)
 	}
+	if v := os.Getenv("AGENTS_SUBAGENTS_USER_DIRS"); v != "" {
+		c.Agents.SubAgents.UserDirs = splitCommaList(v)
+	}
 	if v := os.Getenv("CLAUDE_CODE_COMMAND"); v != "" {
 		c.Agents.ClaudeCode.Command = v
 	}
@@ -243,6 +255,9 @@ func (c *Config) Validate() error {
 		return err
 	}
 	if err := c.Agents.Rules.normalize(); err != nil {
+		return err
+	}
+	if err := c.Agents.SubAgents.normalize(); err != nil {
 		return err
 	}
 	if err := c.Agents.MCP.normalize(); err != nil {
@@ -373,6 +388,31 @@ func (r *RulesConfig) normalize() error {
 	}
 	if len(r.ProjectDirs) == 0 {
 		r.ProjectDirs = []string{".cursor/rules", "CLAUDE.md"}
+	}
+	return nil
+}
+
+// normalize 填充 subagents 默认值并展开路径。
+func (s *SubAgentsConfig) normalize() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("获取用户主目录以设置 subagents 路径: %w", err)
+	}
+	if len(s.UserDirs) == 0 {
+		s.UserDirs = []string{filepath.Join(home, ".agents", "agents")}
+	} else {
+		resolved := make([]string, 0, len(s.UserDirs))
+		for _, p := range s.UserDirs {
+			abs, err := expandPath(p)
+			if err != nil {
+				return fmt.Errorf("subagents.user_dirs 路径 %q 无效: %w", p, err)
+			}
+			resolved = append(resolved, abs)
+		}
+		s.UserDirs = resolved
+	}
+	if len(s.ProjectDirs) == 0 {
+		s.ProjectDirs = []string{".agents/agents"}
 	}
 	return nil
 }
