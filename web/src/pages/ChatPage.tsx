@@ -331,13 +331,14 @@ export default function ChatPage() {
       .catch(() => setHomeSkills([]))
   }, [workspaceCwd, hasSession, isCreateMode])
 
-  // 会话详情模式下，将 URL 中的 workspace 同步到 hook，使 sidebar 展示该 workspace 的会话列表
+  // 将 URL 中的 workspace 同步到 hook，使 sidebar 展示该 workspace 的会话列表。
+  // 任务列表页（无会话）与 会话详情页 都需要同步，否则切换工作区时侧边栏会显示其它工作区的会话。
   useEffect(() => {
-    if (!user || !hasSession || isNaN(urlWorkspaceId)) return
+    if (!user || isNaN(urlWorkspaceId)) return
     if (urlWorkspaceId !== storedWorkspaceId) {
       selectWorkspace(urlWorkspaceId).catch(() => {})
     }
-  }, [user, hasSession, urlWorkspaceId, storedWorkspaceId, selectWorkspace])
+  }, [user, urlWorkspaceId, storedWorkspaceId, selectWorkspace])
 
   useEffect(() => {
     if (!user) return
