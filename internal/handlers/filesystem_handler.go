@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -224,6 +225,82 @@ func (h *FileSystemHandler) ListFiles(c *gin.Context) {
 		"current_path": absPath,
 		"parent_path":  parentPath(absPath),
 		"entries":      result,
+	})
+}
+
+// docFileEntry 是文档扫描 API 返回的单个 .md 文件项。
+type docFileEntry struct {
+	Name    string `json:"name"`     // 文件名（如 foo.md）
+	RelPath string `json:"rel_path"` // 相对扫描根目录的路径（如 sub/foo.md），用于前端展示与路由
+	AbsPath string `json:"abs_path"` // 绝对路径，用于读取内容
+}
+
+// ListDocs GET /api/v1/filesystem/docs?path=<绝对目录>
+// 递归扫描指定目录下所有 .md 文件（含子目录），用于侧边栏文档文件夹绑定。
+// 跳过与 ListFiles 一致的忽略目录（node_modules/.git 等）和隐藏目录，限制结果数量防超大目录。
+func (h *FileSystemHandler) ListDocs(c *gin.Context) {
+	absPath, ok := resolveDirPath(c)
+	if !ok {
+		return
+	}
+
+	// 与 ListFiles 保持一致的忽略目录集合
+	ignoreDirs := map[string]bool{
+		"node_modules": true, ".git": true, "dist": true, "build": true,
+		".next": true, "__pycache__": true, ".venv": true, "vendor": true,
+	}
+
+	const maxFiles = 500 // 扫描结果上限，防超大目录拖慢
+	var files []docFileEntry
+	truncated := false
+
+	_ = filepath.WalkDir(absPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // 跳过无法访问的项，继续扫描
+		}
+		name := d.Name()
+		// 跳过隐藏文件/目录（. 开头）——注意根目录自身 name 不以 . 开头
+		if strings.HasPrefix(name, ".") {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.IsDir() {
+			if path != absPath && ignoreDirs[name] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		// 仅收集 .md 文件
+		if !strings.HasSuffix(strings.ToLower(name), ".md") {
+			return nil
+		}
+		if len(files) >= maxFiles {
+			truncated = true
+			return filepath.SkipAll
+		}
+		rel, err := filepath.Rel(absPath, path)
+		if err != nil {
+			rel = name
+		}
+		files = append(files, docFileEntry{
+			Name:    name,
+			RelPath: filepath.ToSlash(rel),
+			AbsPath: path,
+		})
+		return nil
+	})
+
+	// 按相对路径排序，保证展示稳定
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].RelPath < files[j].RelPath
+	})
+
+	Success(c, http.StatusOK, gin.H{
+		"root":      absPath,
+		"files":     files,
+		"truncated": truncated,
 	})
 }
 

@@ -94,7 +94,7 @@ function DrawioViewer({ xml }: DrawioViewerProps) {
       <div className={styles.wrap}>
         <div className={styles.placeholder}>
           <Loader2 size={14} className={styles.spinner} />
-          <span>{t('drawio.waitingGenerate')}</span>
+          <span>{t('docAI.waitingGenerate')}</span>
         </div>
       </div>
     )
@@ -104,14 +104,14 @@ function DrawioViewer({ xml }: DrawioViewerProps) {
     return (
       <div className={`${styles.wrap} ${styles.errorBox}`}>
         <AlertCircle size={14} />
-        <span>{t('drawio.renderFailed')}</span>
+        <span>{t('docAI.renderFailed')}</span>
         <button
           type="button"
           className={styles.toggleBtn}
           onClick={() => setShowSource((v) => !v)}
         >
           {showSource ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          {t('drawio.viewSource')}
+          {t('docAI.viewSource')}
         </button>
         {showSource && (
           <pre className={styles.source}>
@@ -129,10 +129,10 @@ function DrawioViewer({ xml }: DrawioViewerProps) {
           type="button"
           className={styles.toggleBtn}
           onClick={() => setShowSource((v) => !v)}
-          title={t('drawio.viewSource')}
+          title={t('docAI.viewSource')}
         >
           {showSource ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          {t('drawio.viewSource')}
+          {t('docAI.viewSource')}
         </button>
       </div>
 
@@ -146,7 +146,7 @@ function DrawioViewer({ xml }: DrawioViewerProps) {
         {failed ? (
           <div className={styles.errorOverlay}>
             <AlertCircle size={14} />
-            <span>{t('drawio.renderFailed')}</span>
+            <span>{t('docAI.renderFailed')}</span>
           </div>
         ) : (
           <iframe

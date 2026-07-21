@@ -3,11 +3,15 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { formatTimeAgo } from '../utils/time'
 import { sessionUrl, tasksUrl, newTaskUrl, isTasksPath } from '../utils/routes'
-import type { Session, ScheduledTask, AgentStatus } from '../types'
+import type { Session, ScheduledTask, AgentStatus, DocFolder, DocFileEntry } from '../types'
 import { listScheduledTasks } from '../api/scheduledTasks'
 import { listAgentStatus } from '../api/agents'
 import { listSessions, listRunningSessions } from '../api/sessions'
-import { PanelLeftClose, Star, Pencil, X, Check, SquarePlus, FileText, Calendar, ClipboardList, Timer, Settings, Zap, ScrollText, Loader2, CheckCircle2, XCircle, Clock3, CircleDashed } from 'lucide-react'
+import { listDirs, listDocs } from '../api/filesystem'
+import type { DirEntry } from '../api/filesystem'
+import { getWorkspace } from '../api/workspaces'
+import { loadDocFolders, saveDocFolders } from '../utils/docs'
+import { PanelLeftClose, Star, Pencil, X, Check, SquarePlus, FileText, Calendar, ClipboardList, Timer, Settings, Zap, ScrollText, Loader2, CheckCircle2, XCircle, Clock3, CircleDashed, BookOpenText, FolderUp, ChevronDown, ChevronRight, Folder } from 'lucide-react'
 import styles from './SessionSidebar.module.css'
 import LogPanel from './LogPanel'
 
@@ -24,12 +28,12 @@ interface SessionSidebarProps {
 const STORAGE_KEY = 'opennexus.sidebar.collapsed'
 const FAVS_KEY = 'opennexus.favorites'
 
-function loadCollapsed(): { favorites: boolean; manual: boolean; scheduled: boolean } {
+function loadCollapsed(): { favorites: boolean; manual: boolean; scheduled: boolean; documents: boolean } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) return JSON.parse(raw)
   } catch { /* ignore */ }
-  return { favorites: false, manual: false, scheduled: false }
+  return { favorites: false, manual: false, scheduled: false, documents: false }
 }
 
 function loadFavorites(): number[] {
@@ -76,6 +80,18 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
   const [collapsed, setCollapsed] = useState(loadCollapsed)
   const [favorites, setFavorites] = useState<number[]>(loadFavorites)
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
+  const [documents, setDocuments] = useState<DocFolder[]>(() => loadDocFolders())
+  // 当前工作区 cwd：文档文件夹选择器的根目录边界，用户只能在此目录内选择
+  const [workspaceCwd, setWorkspaceCwd] = useState('')
+  const [showDocPicker, setShowDocPicker] = useState(false)
+  const [pickerPath, setPickerPath] = useState('')
+  const [pickerParent, setPickerParent] = useState('')
+  const [pickerDirs, setPickerDirs] = useState<DirEntry[]>([])
+  const [pickerLoading, setPickerLoading] = useState(false)
+  // 已展开的文档文件夹 id 集合
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set())
+  // 各文件夹扫描结果缓存：folderId -> { files, loading, error }
+  const [folderDocs, setFolderDocs] = useState<Map<string, { files: DocFileEntry[]; loading: boolean; error: string }>>(() => new Map())
   const [agentStatuses, setAgentStatuses] = useState<AgentStatus[]>([])
   const [runningIds, setRunningIds] = useState<Set<number>>(() => new Set())
 
@@ -90,6 +106,16 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
       .catch(() => { if (alive) setTasks([]) })
     return () => { alive = false }
   }, [location.pathname, workspaceId])
+
+  // 获取当前工作区 cwd，作为文档文件夹选择器的根目录边界。
+  useEffect(() => {
+    if (!workspaceId) { setWorkspaceCwd(''); return }
+    let alive = true
+    getWorkspace(workspaceId)
+      .then((r) => { if (alive) setWorkspaceCwd(r.data.workspace.cwd || '') })
+      .catch(() => { if (alive) setWorkspaceCwd('') })
+    return () => { alive = false }
+  }, [workspaceId])
 
   useEffect(() => {
     let alive = true
@@ -131,7 +157,7 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
     .filter((t) => t.last_run_at)
     .sort((a, b) => (a.last_run_at! < b.last_run_at! ? 1 : -1))[0]
 
-  function toggleGroup(group: 'favorites' | 'manual' | 'scheduled') {
+  function toggleGroup(group: 'favorites' | 'manual' | 'scheduled' | 'documents') {
     setCollapsed((prev) => ({ ...prev, [group]: !prev[group] }))
   }
 
@@ -151,6 +177,110 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
       return
     }
     navigate('/scheduled-tasks', { state: { openCreate: true } })
+  }
+
+  // ===== 文档文件夹绑定相关 =====
+  // 当前工作区下的文档文件夹绑定（按 workspaceId 过滤）
+  const workspaceDocs = useMemo(
+    () => documents.filter((d) => d.workspaceId === workspaceId),
+    [documents, workspaceId],
+  )
+
+  // 判断 path 是否在当前工作区 cwd 内（含等于 cwd 自身）。cwd 为空时返回 false。
+  function isWithinCwd(path: string): boolean {
+    if (!workspaceCwd || !path) return false
+    const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/$/, '')
+    const c = norm(workspaceCwd)
+    const p = norm(path)
+    return p === c || p.startsWith(c + '/')
+  }
+
+  function handleDeleteFolder(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    if (!window.confirm(t('documents.deleteConfirm'))) return
+    const next = documents.filter((d) => d.id !== id)
+    setDocuments(next)
+    saveDocFolders(next)
+    // 清理该文件夹的展开态与扫描缓存
+    setExpandedFolders((prev) => { const s = new Set(prev); s.delete(id); return s })
+    setFolderDocs((prev) => { const m = new Map(prev); m.delete(id); return m })
+  }
+
+  // 打开文件夹选择器：以当前工作区 cwd 为根，只能在其内部浏览
+  function openFolderPicker(e: React.MouseEvent | React.KeyboardEvent) {
+    e.stopPropagation()
+    if (!workspaceCwd) return
+    setShowDocPicker(true)
+    loadPickerDirs(workspaceCwd)
+  }
+
+  function closeFolderPicker() {
+    setShowDocPicker(false)
+    setPickerPath('')
+    setPickerParent('')
+    setPickerDirs([])
+  }
+
+  async function loadPickerDirs(dir: string) {
+    setPickerLoading(true)
+    try {
+      const resp = await listDirs(dir)
+      setPickerPath(resp.data.current_path)
+      setPickerParent(resp.data.parent_path || '')
+      setPickerDirs(resp.data.dirs || [])
+    } catch {
+      setPickerDirs([])
+    } finally {
+      setPickerLoading(false)
+    }
+  }
+
+  // 进入子目录：仅允许在 cwd 内浏览
+  function handlePickerDir(dirPath: string) {
+    if (!isWithinCwd(dirPath)) return
+    loadPickerDirs(dirPath)
+  }
+
+  // 「上级」是否可用：父目录仍在 cwd 内才允许返回
+  const pickerParentEnabled = isWithinCwd(pickerParent) && pickerParent !== pickerPath
+
+  function confirmAddFolder() {
+    if (!pickerPath || !isWithinCwd(pickerPath) || !workspaceId) return
+    // 显示名：只取末级目录名（如 cwd/projects/charts → charts）
+    const name = pickerPath.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || pickerPath
+    const newFolder: DocFolder = {
+      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      name,
+      path: pickerPath,
+      workspaceId,
+    }
+    const next = [...documents, newFolder]
+    setDocuments(next)
+    saveDocFolders(next)
+    closeFolderPicker()
+  }
+
+  // 展开/收起文件夹，展开时扫描其下 .md 文档（每次展开都重新扫描）
+  function toggleFolder(folderId: string, folderPath: string) {
+    const isExpanded = expandedFolders.has(folderId)
+    if (isExpanded) {
+      // 收起
+      setExpandedFolders((prev) => { const s = new Set(prev); s.delete(folderId); return s })
+    } else {
+      // 展开：先加入展开集合，再触发扫描
+      setExpandedFolders((prev) => { const s = new Set(prev); s.add(folderId); return s })
+      scanFolderDocs(folderId, folderPath)
+    }
+  }
+
+  async function scanFolderDocs(folderId: string, folderPath: string) {
+    setFolderDocs((prev) => { const m = new Map(prev); m.set(folderId, { files: [], loading: true, error: '' }); return m })
+    try {
+      const resp = await listDocs(folderPath)
+      setFolderDocs((prev) => { const m = new Map(prev); m.set(folderId, { files: resp.data.files || [], loading: false, error: '' }); return m })
+    } catch {
+      setFolderDocs((prev) => { const m = new Map(prev); m.set(folderId, { files: [], loading: false, error: t('documents.loadFailed') }); return m })
+    }
   }
 
   return (
@@ -331,7 +461,147 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
             </div>
           )}
         </div>
+
+        {/* 文档分组：绑定工作区内的文件夹，展开自动列出其下 .md 文档 */}
+        <div className={styles.group}>
+          <button type="button" className={styles.groupHeader} onClick={() => toggleGroup('documents')}>
+            <span className={styles.groupTitle}><BookOpenText size={13} style={{ marginRight: 4, verticalAlign: '-2px' }} />{t('documents.title')}</span>
+
+            <span
+              className={styles.addBtn} role="button" tabIndex={0}
+              title={t('documents.addFolder')}
+              onClick={openFolderPicker}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') openFolderPicker(e) }}
+            ><SquarePlus size={14} /></span>
+          </button>
+          {!collapsed.documents && (
+            <div className={styles.groupList}>
+              {workspaceDocs.length === 0 ? (
+                <p className={styles.empty}>{t('documents.noDocs')}</p>
+              ) : (
+                workspaceDocs.map((folder) => {
+                  const expanded = expandedFolders.has(folder.id)
+                  const scan = folderDocs.get(folder.id)
+                  return (
+                    <div key={folder.id}>
+                      {/* 文件夹行：点击展开/收起，右侧删除绑定 */}
+                      <div className={styles.item}>
+                        <button
+                          type="button"
+                          className={styles.itemLink}
+                          style={{ textAlign: 'left', cursor: 'pointer', width: '100%' }}
+                          onClick={() => toggleFolder(folder.id, folder.path)}
+                          title={folder.path}
+                        >
+                          <div className={styles.itemRow}>
+                            <span className={styles.itemTitle}>
+                              {expanded ? <ChevronDown size={13} style={{ flexShrink: 0 }} /> : <ChevronRight size={13} style={{ flexShrink: 0 }} />}
+                              <Folder size={13} style={{ flexShrink: 0 }} />
+                              {folder.name}
+                            </span>
+                          </div>
+                        </button>
+                        <div className={styles.itemActions}>
+                          <button type="button" className={styles.deleteBtn}
+                            title={t('common.delete')} aria-label={t('common.delete')}
+                            onClick={(e) => handleDeleteFolder(folder.id, e)}
+                          ><X size={13} /></button>
+                        </div>
+                      </div>
+                      {/* 展开后：列出扫描到的 .md 文档 */}
+                      {expanded && (
+                        <>
+                          {scan?.loading && <div className={styles.pickerLoading}>{t('common.loading')}</div>}
+                          {scan?.error && <div className={styles.empty}>{scan.error}</div>}
+                          {scan && !scan.loading && !scan.error && scan.files.length === 0 && (
+                            <div className={styles.empty}>{t('documents.noMdFiles')}</div>
+                          )}
+                          {scan && !scan.loading && !scan.error && scan.files.map((f) => {
+                            // 点击文档：跳到任务页并切换到文档模式打开该文档（不再走独立的 /docs 路由）
+                            const isActive = location.pathname === tasksUrl(workspaceId)
+                              && (location.state as { doc?: { folderId: string; filePath: string } } | null)?.doc?.filePath === f.rel_path
+                            return (
+                              <div key={f.abs_path} className={`${styles.item} ${isActive ? styles.itemActive : ''}`}>
+                                <button
+                                  type="button"
+                                  className={styles.itemLink}
+                                  onClick={() => navigate(tasksUrl(workspaceId), {
+                                    state: { doc: { folderId: folder.id, filePath: f.rel_path } },
+                                  })}
+                                  title={f.rel_path}
+                                >
+                                  <div className={styles.itemRow}>
+                                    <span className={styles.itemTitle}>
+                                      <BookOpenText size={13} style={{ flexShrink: 0 }} />
+                                      {f.rel_path}
+                                    </span>
+                                  </div>
+                                </button>
+                              </div>
+                            )
+                          })}
+                        </>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* 文件夹选择弹窗：仅限当前工作区 cwd 内浏览，绑定选中的目录 */}
+      {showDocPicker && (
+        <div className={styles.pickerOverlay} onClick={closeFolderPicker}>
+          <div className={styles.pickerModal} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.pickerHeader}>
+              <span className={styles.pickerTitle}>{t('documents.selectFolder')}</span>
+              <button type="button" className={styles.pickerClose} onClick={closeFolderPicker}><X size={14} /></button>
+            </div>
+            <div className={styles.pickerPath} title={pickerPath}>{t('documents.currentDir')}: {pickerPath || '~'}</div>
+            <div className={styles.pickerList}>
+              {pickerLoading ? (
+                <div className={styles.pickerLoading}>{t('common.loading')}</div>
+              ) : (
+                <>
+                  {/* 「上级」按钮：仅当父目录仍在 cwd 内时可用，防越界 */}
+                  {pickerParent && (
+                    <button type="button" className={styles.pickerItem}
+                      onClick={() => pickerParentEnabled && handlePickerDir(pickerParent)}
+                      disabled={!pickerParentEnabled}
+                      style={!pickerParentEnabled ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                    >
+                      <FolderUp size={14} style={{ marginRight: 6, flexShrink: 0 }} />
+                      <span>{t('documents.parentDir')}</span>
+                    </button>
+                  )}
+                  {pickerDirs.length === 0 ? (
+                    <p className={styles.empty}>{t('documents.noMdFiles')}</p>
+                  ) : (
+                    pickerDirs.map((dir) => (
+                      <button key={dir.path} type="button" className={styles.pickerItem}
+                        onClick={() => handlePickerDir(dir.path)}
+                      >
+                        <span className={styles.pickerDirIcon}>
+                          <Folder size={14} style={{ marginRight: 6, flexShrink: 0 }} />
+                        </span>
+                        <span>{dir.name}/</span>
+                      </button>
+                    ))
+                  )}
+                </>
+              )}
+            </div>
+            <div className={styles.pickerFooter}>
+              <button type="button" className={styles.pickerCancel} onClick={closeFolderPicker}>{t('common.cancel')}</button>
+              <button type="button" className={styles.pickerConfirm} onClick={confirmAddFolder}
+                disabled={!pickerPath || !isWithinCwd(pickerPath)}
+              >{t('common.confirm')}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {agentStatuses.length > 0 && (
         <div className={styles.agentStatus}>
