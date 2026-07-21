@@ -55,7 +55,6 @@ export default function DebugPanel({ sessionId }: DebugPanelProps) {
   const [error, setError] = useState<string | null>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const eventSince = useRef(0)
-  const rawSince = useRef(0)
 
   const loadMeta = useCallback(async () => {
     try {
@@ -81,13 +80,9 @@ export default function DebugPanel({ sessionId }: DebugPanelProps) {
           setEvents((prev) => [...prev, ...list].slice(-500))
         }
       } else {
-        // limit=0：拉取全部增量，不截断
-        const res = await listDebugRaw(sessionId, rawSince.current, 0)
-        const list = res.data.raw || []
-        if (list.length > 0) {
-          rawSince.current += list.length
-          setRaw((prev) => [...prev, ...list])
-        }
+        // 后端最多保留 100 条，每次全量拉取覆盖
+        const res = await listDebugRaw(sessionId, 0, 0)
+        setRaw(res.data.raw || [])
       }
       setError(null)
     } catch (e) {
@@ -97,7 +92,6 @@ export default function DebugPanel({ sessionId }: DebugPanelProps) {
 
   useEffect(() => {
     eventSince.current = 0
-    rawSince.current = 0
     setEvents([])
     setRaw([])
     setRawTypeFilter('')

@@ -14,6 +14,9 @@ import (
 	"time"
 )
 
+// maxRawRecords 每个 raw 文件最多保留的原始报文条数（超出时丢弃最旧）。
+const maxRawRecords = 100
+
 // DebugConfig 是 ACPDebugger 的运行时配置（由 config.ACPDebugConfig 映射）。
 type DebugConfig struct {
 	Enabled bool
@@ -50,22 +53,24 @@ type DebugMeta struct {
 // ACPDebugger 按 session 路由并持久化 ACP 报文与高层事件。
 // 所有 I/O 错误仅 slog.Warn，绝不影响主流程。
 type ACPDebugger struct {
-	cfg      DebugConfig
-	mu       sync.Mutex
-	sessions map[string]string // acpSessionID → dbSessionID
-	pending  map[string]string // agentType → dbSessionID（session/new 发出前暂存）
-	writers  map[string]*bufio.Writer
-	files    map[string]*os.File
+	cfg        DebugConfig
+	mu         sync.Mutex
+	sessions   map[string]string // acpSessionID → dbSessionID
+	pending    map[string]string // agentType → dbSessionID（session/new 发出前暂存）
+	writers    map[string]*bufio.Writer
+	files      map[string]*os.File
+	lineCounts map[string]int // 各文件当前行数（用于 raw 截断）
 }
 
 // NewACPDebugger 创建调试器；Enabled=false 时也可创建，写入会 no-op。
 func NewACPDebugger(cfg DebugConfig) *ACPDebugger {
 	return &ACPDebugger{
-		cfg:      cfg,
-		sessions: make(map[string]string),
-		pending:  make(map[string]string),
-		writers:  make(map[string]*bufio.Writer),
-		files:    make(map[string]*os.File),
+		cfg:        cfg,
+		sessions:   make(map[string]string),
+		pending:    make(map[string]string),
+		writers:    make(map[string]*bufio.Writer),
+		files:      make(map[string]*os.File),
+		lineCounts: make(map[string]int),
 	}
 }
 
@@ -122,12 +127,14 @@ func (d *ACPDebugger) CleanupSession(dbSessionID string) {
 		if path == dir || strings.HasPrefix(path, prefix) {
 			_ = w.Flush()
 			delete(d.writers, path)
+			delete(d.lineCounts, path)
 		}
 	}
 	for path, f := range d.files {
 		if path == dir || strings.HasPrefix(path, prefix) {
 			_ = f.Close()
 			delete(d.files, path)
+			delete(d.lineCounts, path)
 		}
 	}
 	for k, v := range d.sessions {
@@ -323,6 +330,10 @@ func (d *ACPDebugger) appendLine(path string, data []byte) {
 	if err := w.Flush(); err != nil {
 		slog.Warn("acp-debug flush 失败", "path", path, "err", err)
 	}
+	d.lineCounts[path]++
+	if isRawDebugPath(path) && d.lineCounts[path] > maxRawRecords {
+		d.trimRawLocked(path)
+	}
 }
 
 func (d *ACPDebugger) writerLocked(path string) (*bufio.Writer, error) {
@@ -339,7 +350,63 @@ func (d *ACPDebugger) writerLocked(path string) (*bufio.Writer, error) {
 	w := bufio.NewWriterSize(f, 64*1024)
 	d.files[path] = f
 	d.writers[path] = w
+	if _, ok := d.lineCounts[path]; !ok {
+		d.lineCounts[path] = countNDJSONLines(path)
+	}
 	return w, nil
+}
+
+func isRawDebugPath(path string) bool {
+	base := filepath.Base(path)
+	return base == "raw.ndjson" || (strings.HasPrefix(base, "_") && strings.HasSuffix(base, "_.ndjson"))
+}
+
+// trimRawLocked 关闭句柄后重写文件，仅保留最近 maxRawRecords 行。调用方须已持锁。
+func (d *ACPDebugger) trimRawLocked(path string) {
+	if w := d.writers[path]; w != nil {
+		_ = w.Flush()
+		delete(d.writers, path)
+	}
+	if f := d.files[path]; f != nil {
+		_ = f.Close()
+		delete(d.files, path)
+	}
+	lines, err := readNDJSONLines(path, 0, 0)
+	if err != nil || len(lines) <= maxRawRecords {
+		d.lineCounts[path] = len(lines)
+		return
+	}
+	keep := lines[len(lines)-maxRawRecords:]
+	tmp := path + ".tmp"
+	out, err := os.Create(tmp)
+	if err != nil {
+		slog.Warn("acp-debug 截断创建临时文件失败", "path", path, "err", err)
+		return
+	}
+	for _, line := range keep {
+		if _, err := out.Write(line); err != nil {
+			_ = out.Close()
+			_ = os.Remove(tmp)
+			slog.Warn("acp-debug 截断写入失败", "path", path, "err", err)
+			return
+		}
+		if _, err := out.Write([]byte{'\n'}); err != nil {
+			_ = out.Close()
+			_ = os.Remove(tmp)
+			slog.Warn("acp-debug 截断写换行失败", "path", path, "err", err)
+			return
+		}
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		slog.Warn("acp-debug 截断替换失败", "path", path, "err", err)
+		return
+	}
+	d.lineCounts[path] = maxRawRecords
 }
 
 func extractSessionID(rawLine string) string {

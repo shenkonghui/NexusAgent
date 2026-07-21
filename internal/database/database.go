@@ -27,7 +27,49 @@ func Connect(dsn string) (*gorm.DB, error) {
 	if err := migrateAgentSessionID(db); err != nil {
 		return nil, fmt.Errorf("迁移 agent_session_id: %w", err)
 	}
+	// 数据迁移：项目改名（.nextAgent → .openNexus）后，修正 workspaces/sessions 中残留的旧路径。
+	// 文件系统已由 config.MigrateLegacyDataDir 整体迁走，但 DB 里的 cwd/temp_dir 仍是旧路径，
+	// 导致 persistent 工作区报"工作目录不存在"。此步幂等：无匹配行时无操作。
+	if err := migrateLegacyWorkspacePaths(db); err != nil {
+		return nil, fmt.Errorf("迁移历史工作区路径: %w", err)
+	}
 	return db, nil
+}
+
+// migrateLegacyWorkspacePaths 把 workspaces/sessions 表里残留的 .nextAgent / .nexusagent
+// 路径前缀改写为 .openNexus。配合 config.MigrateLegacyDataDir 的文件系统迁移，
+// 保证改名前的旧会话/工作区在新路径下仍可用。多次执行结果一致。
+func migrateLegacyWorkspacePaths(db *gorm.DB) error {
+	type colRewrite struct {
+		model interface{}
+		col   string
+	}
+	rewrites := []colRewrite{
+		{&models.Workspace{}, "cwd"},
+		{&models.Workspace{}, "temp_dir"},
+		{&models.Session{}, "cwd"},
+		{&models.Session{}, "temp_dir"},
+	}
+	for _, r := range rewrites {
+		// SQL: UPDATE <table> SET <col> = REPLACE(REPLACE(<col>, '/.nextAgent/', '/.openNexus/'), '/.nexusagent/', '/.openNexus/')
+		//      WHERE <col> LIKE '%/.nextAgent/%' OR <col> LIKE '%/.nexusagent/%'
+		if err := db.Model(r.model).
+			Where(r.col+" LIKE ? OR "+r.col+" LIKE ?", "%/.nextAgent/%", "%/.nexusagent/%").
+			Update(r.col, gorm.Expr(
+				"REPLACE(REPLACE("+r.col+", '/.nextAgent/', '/.openNexus/'), '/.nexusagent/', '/.openNexus/')",
+			)).Error; err != nil {
+			return fmt.Errorf("改写 %s.%s 旧路径: %w", tableNameOf(r.model), r.col, err)
+		}
+	}
+	return nil
+}
+
+// tableNameOf 返回 gorm model 指针对应的表名，用于日志。
+func tableNameOf(model interface{}) string {
+	if s, ok := model.(interface{ TableName() string }); ok {
+		return s.TableName()
+	}
+	return fmt.Sprintf("%T", model)
 }
 
 // migrateAgentSessionID 对非 pending 且 agent_session_id 为空的行，用 session_id 回填。

@@ -8,6 +8,7 @@ import ChatPage from './pages/ChatPage'
 import SettingsPage from './pages/SettingsPage'
 import ScheduledTasksPage from './pages/ScheduledTasksPage'
 import NotesPage from './pages/NotesPage'
+import DocViewerPage from './pages/DocViewerPage'
 import ProfilePage from './pages/ProfilePage'
 import SessionRedirect from './components/SessionRedirect'
 
@@ -36,6 +37,7 @@ export default function App() {
           <Route path="/sessions/:id" element={<SessionRedirect />} />
           <Route path="/scheduled-tasks" element={<ScheduledTasksPage />} />
           <Route path="/notes" element={<NotesPage />} />
+          <Route path="/docs/:folderId/*" element={<DocViewerPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

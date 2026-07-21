@@ -30,6 +30,7 @@ import (
 	"opennexus/internal/repository"
 	"opennexus/internal/router"
 	"opennexus/internal/services"
+	"opennexus/internal/sysutil"
 )
 
 // ldflags 注入
@@ -49,6 +50,11 @@ func stopWithTimeout(name string, timeout time.Duration, stop func()) {
 }
 
 func main() {
+	// 启动早期扩充 PATH：GUI/launchd 启动的进程 PATH 不含 nvm、Homebrew 等目录，
+	// 会导致通过 npm exec 启动的 agent 子进程找不到 npm/node。
+	// 必须早于任何 agent 进程拉起（含下方的 PreconnectAllAsync）。
+	sysutil.EnrichPath()
+
 	// 命令行参数（桌面客户端模式）
 	openBrowser := flag.Bool("open", false, "启动后自动打开浏览器")
 	dataDir := flag.String("data-dir", "", "数据目录（覆盖 config.yaml 中的 database.path 和 workspace）")

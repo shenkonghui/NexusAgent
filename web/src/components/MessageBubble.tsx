@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { Message } from '../types'
 import { parseDiffsFromMessage } from '../utils/diff'
@@ -36,7 +36,10 @@ export function toolSummary(content: string): string {
   return 'chat.toolCall'
 }
 
-export default function MessageBubble({ message, defaultOpen = false, forceCollapsed = false, streaming = false, sessionId, cwd, canRestore, onRestored }: MessageBubbleProps) {
+// 用 memo 包裹：虚拟化后仅可视区几个气泡参与比较，配合 ChatPage 稳定的 onRestored 回调，
+// 历史气泡（其 message 引用在 groupMessages 后仍可能变化，但虚拟化路径下它们多不在可视区）
+// 与未变化的可视区气泡可被跳过，减少 reconcile。
+function MessageBubble({ message, defaultOpen = false, forceCollapsed = false, streaming = false, sessionId, cwd, canRestore, onRestored }: MessageBubbleProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(defaultOpen && !forceCollapsed)
   const [restoring, setRestoring] = useState(false)
@@ -197,3 +200,5 @@ export default function MessageBubble({ message, defaultOpen = false, forceColla
     </div>
   )
 }
+
+export default memo(MessageBubble)

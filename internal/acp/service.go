@@ -959,17 +959,22 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 
 	conn, ok := s.connForSession(sessionID)
 	if !ok {
-		// 共享连接已断开但会话 DB 状态仍为 active：尝试自动恢复连接
-		cwd := sessionCwd(session, s.workspaces)
-		slog.Warn("会话连接丢失，尝试自动恢复", "session", sessionID, "agent", session.AgentType, "cwd", cwd)
-		if recConn, recErr := s.ensureConnection(ctx, session.AgentType, cwd); recErr == nil {
-			// 恢复会话路由
-			s.mu.Lock()
-			s.sessionPoolKey[sessionID] = connectionKey(session.AgentType, cwd)
-			s.mu.Unlock()
-			conn = recConn
-		} else {
-			slog.Error("自动恢复会话连接失败", "session", sessionID, "err", recErr)
+		// 内存路由丢失（服务重启 / 连接断开），但 DB 状态仍为 active：
+		// 必须走完整 ResumeSession 重建 ACP 会话并刷新 agent_session_id，
+		// 否则会用旧进程遗留的 acpSID 向新连接发 prompt，导致失败。
+		slog.Warn("会话连接丢失，走完整 ResumeSession 恢复", "session", sessionID, "agent", session.AgentType)
+		if _, recErr := s.ResumeSession(ctx, sessionID); recErr != nil {
+			slog.Error("自动恢复会话失败", "session", sessionID, "err", recErr)
+			return nil, ErrSessionNotActive
+		}
+		// ResumeSession 已更新 agent_session_id 与 sessionPoolKey，重新读取
+		session, err = s.GetSession(sessionID)
+		if err != nil {
+			return nil, err
+		}
+		conn, ok = s.connForSession(sessionID)
+		if !ok {
+			slog.Error("ResumeSession 后仍无法找到连接", "session", sessionID)
 			return nil, ErrSessionNotActive
 		}
 	}

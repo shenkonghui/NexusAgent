@@ -493,6 +493,19 @@
     "exportFailed": "Export failed",
     "importNoFiles": "No .md files found"
   },
+  "documents": {
+    "title": "Documents",
+    "addFolder": "Add Folder",
+    "noDocs": "No folders",
+    "selectFolder": "Select Folder",
+    "currentDir": "Current directory",
+    "parentDir": "Parent directory",
+    "deleteConfirm": "Remove this folder binding? (Disk files will not be deleted)",
+    "fileNotFound": "File not found or has been deleted",
+    "readFailed": "Failed to read file",
+    "noMdFiles": "No .md files in this folder",
+    "loadFailed": "Failed to scan documents"
+  },
   "log": {
     "title": "Logs",
     "openLogs": "Logs",

@@ -77,3 +77,68 @@ func TestConnect_MigrateAgentSessionID(t *testing.T) {
 		t.Errorf("pending 不应回填 AgentSessionID, got %q", pend.AgentSessionID)
 	}
 }
+
+func TestMigrateLegacyWorkspacePaths(t *testing.T) {
+	db, err := Connect("file:migrate-legacy-paths?mode=memory&cache=shared")
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	// 旧路径数据：workspaces + sessions 各一条含 .nextAgent / .nexusagent
+	ws := &models.Workspace{
+		UserID: 1, Name: "old",
+		Cwd:     "/home/u/.nextAgent/session/nexus-123",
+		TempDir: "/home/u/.nextAgent/session/nexus-123",
+		Mode:    models.WorkspaceModePersistent,
+	}
+	if err := db.Create(ws).Error; err != nil {
+		t.Fatalf("Create workspace: %v", err)
+	}
+	se := &models.Session{
+		SessionID: "s1", AgentType: "claude-code",
+		Cwd:          "/home/u/.nexusagent/session/abc",
+		TempDir:      "/home/u/.nexusagent/session/abc",
+		Status:       models.SessionStatusActive,
+		WorkspaceMode: models.WorkspaceModeTemporary,
+		WorkspaceID:  &ws.ID,
+	}
+	if err := db.Create(se).Error; err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+
+	if err := migrateLegacyWorkspacePaths(db); err != nil {
+		t.Fatalf("migrateLegacyWorkspacePaths: %v", err)
+	}
+
+	var gotWS models.Workspace
+	if err := db.First(&gotWS, ws.ID).Error; err != nil {
+		t.Fatalf("First ws: %v", err)
+	}
+	if gotWS.Cwd != "/home/u/.openNexus/session/nexus-123" {
+		t.Errorf("workspace.cwd = %q, 期望 .openNexus", gotWS.Cwd)
+	}
+	if gotWS.TempDir != "/home/u/.openNexus/session/nexus-123" {
+		t.Errorf("workspace.temp_dir = %q, 期望 .openNexus", gotWS.TempDir)
+	}
+
+	var gotSE models.Session
+	if err := db.First(&gotSE, se.ID).Error; err != nil {
+		t.Fatalf("First session: %v", err)
+	}
+	if gotSE.Cwd != "/home/u/.openNexus/session/abc" {
+		t.Errorf("session.cwd = %q, 期望 .openNexus", gotSE.Cwd)
+	}
+	if gotSE.TempDir != "/home/u/.openNexus/session/abc" {
+		t.Errorf("session.temp_dir = %q, 期望 .openNexus", gotSE.TempDir)
+	}
+
+	// 幂等：再跑一次不应改动
+	if err := migrateLegacyWorkspacePaths(db); err != nil {
+		t.Fatalf("二次 migrateLegacyWorkspacePaths: %v", err)
+	}
+	var gotWS2 models.Workspace
+	_ = db.First(&gotWS2, ws.ID).Error
+	if gotWS2.Cwd != "/home/u/.openNexus/session/nexus-123" {
+		t.Errorf("二次执行后 workspace.cwd = %q, 期望不变", gotWS2.Cwd)
+	}
+}

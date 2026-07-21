@@ -1,7 +1,8 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import type { Message, Execution } from '../types'
-import { aggregateChanges } from '../utils/diff'
+import { aggregateChanges, type FileChangeItem } from '../utils/diff'
 import MessageBubble, { toolSummary } from './MessageBubble'
 import ChangesSummary from './ChangesSummary'
 import { ChevronDown, ChevronRight } from 'lucide-react'
@@ -200,14 +201,16 @@ function mapSegmentsToTurns(
 
 export default function MessageList({ messages, loading, scheduled, executions, sessionId, cwd, onRestored }: MessageListProps) {
   const { t } = useTranslation()
+  // scheduled 模式仍用 endRef + scrollIntoView 的传统渲染；主聊天路径已改用 Virtuoso，
+  // 其自动滚动由 followOutput（流式跟随）与 scrollToIndex（切会话滚底）接管。
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    if (scheduled) endRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, scheduled])
 
   if (!scheduled) {
-    return <PlainList messages={messages} loading={loading} endRef={endRef} sessionId={sessionId} cwd={cwd} onRestored={onRestored} />
+    return <PlainList messages={messages} loading={loading} sessionId={sessionId} cwd={cwd} onRestored={onRestored} />
   }
 
   const blocks = groupByExecution(messages)
@@ -228,7 +231,7 @@ export default function MessageList({ messages, loading, scheduled, executions, 
         </div>
       )}
       {unblocked.length > 0 && (
-        <PlainList messages={unblocked} loading={scheduledLoading} endRef={undefined} sessionId={sessionId} cwd={cwd} onRestored={onRestored} />
+        <PlainList messages={unblocked} loading={scheduledLoading} sessionId={sessionId} cwd={cwd} onRestored={onRestored} />
       )}
       {blocks.map((block, idx) => (
         <ExecutionBlockView
@@ -328,23 +331,27 @@ function ExecutionBlockView({
 function PlainList({
   messages,
   loading,
-  endRef,
   sessionId,
   cwd,
   onRestored,
 }: {
   messages: Message[]
   loading?: boolean
-  endRef?: React.RefObject<HTMLDivElement | null>
   sessionId?: number
   cwd?: string
   onRestored?: (promptText: string) => void
 }) {
   const { t } = useTranslation()
-  const endRefObj = endRef as React.RefObject<HTMLDivElement> | undefined
-  const displayMessages = filterDisplay(messages)
-  const lastUserIdx = findLastUserIndex(displayMessages)
-  const lastThoughtKey = findLastThoughtKey(displayMessages)
+  const displayMessages = useMemo(() => filterDisplay(messages), [messages])
+  const lastUserIdx = useMemo(() => findLastUserIndex(displayMessages), [displayMessages])
+  const lastThoughtKey = useMemo(() => findLastThoughtKey(displayMessages), [displayMessages])
+
+  // Virtuoso 滚动控制：流式时由 followOutput 自动跟随底部；
+  // 切换会话（sessionId 变化）时滚到最后一条。
+  const virtuosoRef = useRef<VirtuosoHandle>(null)
+  useEffect(() => {
+    virtuosoRef.current?.scrollToIndex({ index: 'LAST', behavior: 'auto' })
+  }, [sessionId])
 
   return (
     <div className={styles.container}>
@@ -353,26 +360,216 @@ function PlainList({
           <p>{t('chat.noMessages')}</p>
         </div>
       )}
-      <SegmentList
-        messages={displayMessages}
-        lastUserIdx={lastUserIdx}
-        loading={!!loading}
-        lastThoughtKey={lastThoughtKey}
-        sessionId={sessionId}
-        cwd={cwd}
-        onRestored={onRestored}
-      />
-      {loading && (
+      {displayMessages.length > 0 && (
+        <VirtuosoSegmentList
+          ref={virtuosoRef}
+          messages={displayMessages}
+          lastUserIdx={lastUserIdx}
+          loading={!!loading}
+          lastThoughtKey={lastThoughtKey}
+          sessionId={sessionId}
+          cwd={cwd}
+          onRestored={onRestored}
+          loadingFooter={!!loading}
+        />
+      )}
+      {/* Virtuoso 为空时 loading 点单独渲染（避免空列表 + Footer 的空白） */}
+      {displayMessages.length === 0 && loading && (
         <div className={styles.loading}>
           <span className={styles.dot} />
           <span className={styles.dot} />
           <span className={styles.dot} />
         </div>
       )}
-      {endRefObj && <div ref={endRefObj} />}
     </div>
   )
 }
+
+// Virtuoso 虚拟化的 segment 列表，仅用于主聊天路径（PlainList）。
+// 每个虚拟行 = 一个 segment 主体（MessageBubble 或 CollapsibleGroup）+ 可选的轮次末尾 ChangesSummary。
+// 高度完全动态（折叠头部 ~24px → 展开 diff 数千 px），由 react-virtuoso 内置 ResizeObserver 自动测量。
+type SegmentItem = {
+  seg: Segment
+  // 该 segment 若处于某轮的末尾，附带该轮的文件改动汇总（无改动则 undefined）
+  changes?: FileChangeItem[]
+  messageId?: number
+}
+
+// 虚拟列表渲染主体。把「segment 划分 + 轮次文件改动汇总」预计算成扁平 data 数组，
+// 并对 turnChanges 做跨渲染记忆化：历史轮次（已被后续用户消息封闭）的结果复用缓存，
+// 仅重算当前进行中的最后一轮，把流式时 O(总轮数 × 单轮diff) 降为 O(单轮diff)。
+const VirtuosoSegmentList = forwardRef<VirtuosoHandle, {
+  messages: Message[]
+  lastUserIdx: number
+  loading: boolean
+  lastThoughtKey: string | number | null
+  sessionId?: number
+  cwd?: string
+  onRestored?: (promptText: string) => void
+  loadingFooter: boolean
+}>(function VirtuosoSegmentList({
+  messages, lastUserIdx, loading, lastThoughtKey, sessionId, cwd, onRestored, loadingFooter,
+}, ref) {
+  const segments = useMemo(() => segmentMessages(messages), [messages])
+  const lastMsg = messages[messages.length - 1]
+  const lastKey = lastMsg ? (lastMsg.id || lastMsg.sequence) : null
+
+  const { turnOfSeg, turnEndSeg } = useMemo(
+    () => mapSegmentsToTurns(segments, computeTurnOfMsg(messages)),
+    [segments, messages],
+  )
+
+  // turnChanges 记忆化：以「每轮首条用户消息的 sequence」作为该轮的稳定缓存 key。
+  // sequence 单调且不变，历史轮次一旦封闭就不再变化，可安全复用。
+  // 缓存结构：{ cwd, entries: Map<turnKey, {changes, msgId}>, turnToKey: Map<turn, turnKey> }
+  const cacheRef = useRef<{ cwd: string; entries: Map<number, { changes?: FileChangeItem[]; msgId?: number }>; turnToKey: Map<number, number> }>(
+    { cwd: '', entries: new Map(), turnToKey: new Map() },
+  )
+
+  const turnChanges = useMemo(() => {
+    const cache = cacheRef.current
+    // cwd 变化导致相对路径改变，整体失效重来
+    if (cache.cwd !== (cwd || '')) {
+      cache.cwd = cwd || ''
+      cache.entries.clear()
+      cache.turnToKey.clear()
+    }
+    if (!cwd) return { changesMap: new Map<number, FileChangeItem[]>(), msgIdMap: new Map<number, number>() }
+
+    const turnOfMsg = computeTurnOfMsg(messages)
+    const byTurn = new Map<number, Message[]>()
+    messages.forEach((msg, i) => {
+      const turn = turnOfMsg[i]
+      const arr = byTurn.get(turn)
+      if (arr) arr.push(msg)
+      else byTurn.set(turn, [msg])
+    })
+
+    const changesMap = new Map<number, FileChangeItem[]>()
+    const msgIdMap = new Map<number, number>()
+    for (const [turn, msgs] of byTurn) {
+      // 该轮首条用户消息的 sequence 作为稳定 key
+      const firstUser = msgs.find((m) => m.role === 'user')
+      const turnKey = firstUser ? firstUser.sequence : -1 - turn // 无用户消息的兜底 key
+
+      // 缓存命中（历史封闭轮次）：直接复用，跳过昂贵的 aggregateChanges（含 LCS diff）
+      const prevKey = cache.turnToKey.get(turn)
+      if (prevKey === turnKey && cache.entries.has(turnKey)) {
+        const cached = cache.entries.get(turnKey)!
+        if (cached.changes && cached.changes.length > 0) {
+          changesMap.set(turn, cached.changes)
+          if (cached.msgId != null) msgIdMap.set(turn, cached.msgId)
+        }
+        continue
+      }
+
+      // 未命中（当前进行中的轮次或首次计算）：执行重算并写入缓存
+      cache.turnToKey.set(turn, turnKey)
+      const changes = aggregateChanges(msgs, cwd)
+      let msgId: number | undefined
+      if (changes.length > 0) {
+        changesMap.set(turn, changes)
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i].kind === 'tool_call_update' && msgs[i].id) { msgId = msgs[i].id; break }
+        }
+        if (msgId != null) msgIdMap.set(turn, msgId)
+      }
+      cache.entries.set(turnKey, { changes, msgId })
+    }
+    return { changesMap, msgIdMap }
+  }, [messages, cwd])
+
+  // 把 segments + turnChanges 合成 Virtuoso 的扁平 data 数组
+  const items: SegmentItem[] = useMemo(() => {
+    return segments.map((seg, segIdx) => {
+      const turn = turnOfSeg[segIdx]
+      const isTurnEnd = turnEndSeg.get(turn) === segIdx
+      const changes = isTurnEnd ? turnChanges.changesMap.get(turn) : undefined
+      const messageId = isTurnEnd ? turnChanges.msgIdMap.get(turn) : undefined
+      return { seg, changes, messageId }
+    })
+  }, [segments, turnOfSeg, turnEndSeg, turnChanges])
+
+  return (
+    <Virtuoso
+      ref={ref}
+      data={items}
+      computeItemKey={(_, item) => {
+        const seg = item.seg
+        return seg.type === 'single'
+          ? `s-${seg.message.id || seg.message.sequence}`
+          : `g-${seg.firstIdx}`
+      }}
+      // 流式追加 data 时：用户在底部附近才自动跟随，向上看历史时不打断
+      followOutput={(isAtBottom) => (isAtBottom ? 'auto' : false)}
+      // 列表初始即滚到底部（首次进入会话）
+      initialTopMostItemIndex={items.length - 1}
+      style={{ height: '100%' }}
+      itemContent={(index, item) => {
+        const seg = item.seg
+        let body: React.ReactNode
+        if (seg.type === 'single') {
+          const msg = seg.message
+          const key = msg.id || msg.sequence
+          const { defaultOpen, forceCollapsed } = bubbleCollapseState(
+            msg, seg.idx, lastUserIdx, loading, lastThoughtKey, key,
+          )
+          const isStreamingAssistant =
+            !!loading &&
+            msg.kind === 'agent_message_chunk' &&
+            key === lastKey
+          body = (
+            <MessageBubble
+              message={msg}
+              defaultOpen={defaultOpen}
+              forceCollapsed={forceCollapsed}
+              streaming={isStreamingAssistant}
+              sessionId={sessionId}
+              cwd={cwd}
+              canRestore={msg.role === 'user' && !!sessionId}
+              onRestored={onRestored}
+            />
+          )
+        } else {
+          const isLastSegment = index === segments.length - 1
+          const inCurrentTurn = seg.firstIdx > lastUserIdx
+          body = (
+            <CollapsibleGroup
+              messages={seg.messages}
+              inCurrentTurn={inCurrentTurn}
+              isLastSegment={isLastSegment}
+              loading={loading}
+              sessionId={sessionId}
+              cwd={cwd}
+            />
+          )
+        }
+        return (
+          <>
+            {body}
+            {item.changes && item.changes.length > 0 && (
+              <ChangesSummary
+                changes={item.changes}
+                sessionId={sessionId}
+                cwd={cwd}
+                messageId={item.messageId}
+              />
+            )}
+          </>
+        )
+      }}
+      components={loadingFooter ? {
+        Footer: () => (
+          <div className={styles.loading}>
+            <span className={styles.dot} />
+            <span className={styles.dot} />
+            <span className={styles.dot} />
+          </div>
+        ),
+      } : undefined}
+    />
+  )
+})
 
 // 根据 segment 列表渲染：单条消息走 MessageBubble，连续可折叠消息走 CollapsibleGroup
 function SegmentList({

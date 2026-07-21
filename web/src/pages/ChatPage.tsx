@@ -146,44 +146,65 @@ export default function ChatPage() {
     }
   }, [messages])
 
-  // 加载会话数据（有会话时）；quiet 模式下不阻塞 UI（用于新建会话后的后台刷新）
-  const loadData = useCallback(async (opts?: { quiet?: boolean }) => {
+  // 加载会话数据（有会话时）；quiet 模式下不阻塞 UI（用于新建会话后的后台刷新）。
+  // skipMessages=true 时跳过消息拉取与 setMessages（流式进行时，避免 DB 数据覆盖实时 SSE 流，
+  // 同时避免每 5 秒轮询整体替换数组触发全量重渲染）。
+  const loadData = useCallback(async (opts?: { quiet?: boolean; skipMessages?: boolean }) => {
     if (!hasSession) return
     if (!opts?.quiet) { setLoading(true); setError('') }
     try {
-      const [sessionResp, msgResp] = await Promise.all([
-        getSession(sessionId), listMessages(sessionId),
-      ])
-      setSession(sessionResp.data)
-      const msgs = msgResp.data.messages || []
-      setMessages(msgs)
-      // 同步 lastSeqRef 为当前最大 sequence（用于断点续传重连）
-      if (msgs.length > 0) {
-        lastSeqRef.current = msgs[msgs.length - 1].sequence
-      }
-      // 查询中断任务（服务重启后未完成的 prompt）
-      getInterruptedTasks(sessionId).then((r) => setInterruptedTasks(r.data.tasks || [])).catch(() => setInterruptedTasks([]))
-      // 会话列表由 useCurrentWorkspace 统一加载，会话详情模式下通过 URL workspace 同步 effect 保持一致
-      if (sessionResp.data.source === 'scheduled' || sessionResp.data.source === 'classify') {
-        loadExecutions(sessionId, sessionResp.data.source)
-      } else { setExecutions([]) }
-      listCommands(sessionId).then((r) => setCommands(r.data.commands || [])).catch(() => setCommands([]))
-      listModes(sessionId).then((r) => {
-        const modeList = r.data.modes || []
-        setModes(modeList)
-        if (modeList.length > 0) {
-          setCurrentModeId((prev) => prev || modeList[0].id)
+      if (opts?.skipMessages) {
+        const sessionResp = await getSession(sessionId)
+        setSession(sessionResp.data)
+        applySessionSideData(sessionResp.data)
+      } else {
+        const [sessionResp, msgResp] = await Promise.all([
+          getSession(sessionId), listMessages(sessionId),
+        ])
+        setSession(sessionResp.data)
+        const msgs = msgResp.data.messages || []
+        setMessages(msgs)
+        // 同步 lastSeqRef 为当前最大 sequence（用于断点续传重连）
+        if (msgs.length > 0) {
+          lastSeqRef.current = msgs[msgs.length - 1].sequence
         }
-      }).catch(() => setModes([]))
-      listSkills(sessionId).then((r) => setSkills(r.data.skills || [])).catch(() => setSkills([]))
-      listConfigOptions(sessionId).then((r) => {
-        const opts = r.data.config_options || []
-        setConfigOptions(opts)
-      }).catch(() => setConfigOptions([]))
+        applySessionSideData(sessionResp.data)
+      }
     } catch (err) {
       if (!opts?.quiet) setError(err instanceof Error ? err.message : t('common.failed'))
     } finally { if (!opts?.quiet) setLoading(false) }
   }, [sessionId, hasSession, workspaceId])
+
+  // 会话相关的辅助数据加载（executions/commands/modes/skills/configOptions/中断任务）。
+  // 抽取出来供 loadData 的两条分支（全量 / skipMessages）共用，避免重复。
+  const applySessionSideData = useCallback((sessionData: Session) => {
+    // 查询中断任务（服务重启后未完成的 prompt）
+    getInterruptedTasks(sessionData.id).then((r) => setInterruptedTasks(r.data.tasks || [])).catch(() => setInterruptedTasks([]))
+    // 会话列表由 useCurrentWorkspace 统一加载，会话详情模式下通过 URL workspace 同步 effect 保持一致
+    if (sessionData.source === 'scheduled' || sessionData.source === 'classify') {
+      loadExecutions(sessionData.id, sessionData.source)
+    } else { setExecutions([]) }
+    listCommands(sessionData.id).then((r) => setCommands(r.data.commands || [])).catch(() => setCommands([]))
+    listModes(sessionData.id).then((r) => {
+      const modeList = r.data.modes || []
+      setModes(modeList)
+      if (modeList.length > 0) {
+        setCurrentModeId((prev) => prev || modeList[0].id)
+      }
+    }).catch(() => setModes([]))
+    listSkills(sessionData.id).then((r) => setSkills(r.data.skills || [])).catch(() => setSkills([]))
+    listConfigOptions(sessionData.id).then((r) => {
+      const opts = r.data.config_options || []
+      setConfigOptions(opts)
+    }).catch(() => setConfigOptions([]))
+  }, [])
+
+  // 恢复检查点后的回调：稳定化引用，避免 MessageList / MessageBubble 因回调每次新建而无谓重渲染。
+  const handleRestored = useCallback((promptText: string) => {
+    loadData()
+    setRestoreRefreshKey((k) => k + 1)
+    if (promptText) setRestoreInput(promptText)
+  }, [loadData])
 
   // 加载 agent 列表和会话列表（无会话时）
   const loadHomeData = useCallback(async () => {
@@ -390,7 +411,9 @@ export default function ChatPage() {
           s === 'streaming' || s === 'reconnecting' || s === 'connecting' ? 'idle' : s
         ))
       }
-      loadData({ quiet: true })
+      // 流式进行时（abortRef 非空）跳过消息拉取，避免 DB 数据覆盖实时 SSE 流，
+      // 也避免每 5 秒整体替换 messages 数组触发全量重渲染。
+      loadData({ quiet: true, skipMessages: !!abortRef.current })
     }, 5000)
 
     return () => clearInterval(interval)
@@ -1085,7 +1108,7 @@ export default function ChatPage() {
         <MessageList messages={messages} loading={sending}
           scheduled={activeSession?.source === 'scheduled' || activeSession?.source === 'classify'} executions={executions}
           sessionId={sessionId} cwd={activeSession?.workspace?.cwd || ''}
-          onRestored={(promptText) => { loadData(); setRestoreRefreshKey((k) => k + 1); if (promptText) setRestoreInput(promptText) }}
+          onRestored={handleRestored}
         />
 
         {activeSession?.source === 'classify' ? (

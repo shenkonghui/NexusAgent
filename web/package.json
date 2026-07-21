@@ -29,6 +29,7 @@
     "react-i18next": "^17.0.8",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.26.0",
+    "react-virtuoso": "^4.18.11",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {

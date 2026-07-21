@@ -493,6 +493,19 @@
     "exportFailed": "导出失败",
     "importNoFiles": "未找到 .md 文件"
   },
+  "documents": {
+    "title": "文档",
+    "addFolder": "添加文件夹",
+    "noDocs": "暂无文件夹",
+    "selectFolder": "选择文件夹",
+    "currentDir": "当前目录",
+    "parentDir": "上级目录",
+    "deleteConfirm": "确定移除该文件夹绑定吗？（不会删除磁盘文件）",
+    "fileNotFound": "文件不存在或已被删除",
+    "readFailed": "读取文件失败",
+    "noMdFiles": "该文件夹下没有 .md 文档",
+    "loadFailed": "扫描文档失败"
+  },
   "log": {
     "title": "日志",
     "openLogs": "查看日志",

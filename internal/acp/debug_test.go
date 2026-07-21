@@ -2,6 +2,7 @@ package acp
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -74,6 +75,37 @@ func TestACPDebugger_CleanupSession_RemovesDir(t *testing.T) {
 	dbg.CleanupSession("9")
 	if _, err := os.Stat(filepath.Join(dir, "9")); !os.IsNotExist(err) {
 		t.Fatal("期望 CleanupSession 删除 9/ 目录")
+	}
+}
+
+func TestACPDebugger_RawRetentionMax100(t *testing.T) {
+	dir := t.TempDir()
+	dbg := NewACPDebugger(DebugConfig{Enabled: true, Dir: dir})
+	dbg.RegisterSession("acp-x", "1")
+	for i := 0; i < maxRawRecords+20; i++ {
+		line := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"session/prompt","params":{"sessionId":"acp-x","prompt":[]}}`, i)
+		dbg.RouteLine("send", "cursor", line)
+	}
+	meta := dbg.Meta("1")
+	if meta.RawCount != maxRawRecords {
+		t.Fatalf("RawCount = %d, 期望 %d", meta.RawCount, maxRawRecords)
+	}
+	recs, err := dbg.ReadRaw("1", 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != maxRawRecords {
+		t.Fatalf("ReadRaw len = %d, 期望 %d", len(recs), maxRawRecords)
+	}
+	// 应保留最新：最后一条 id 为 maxRawRecords+19
+	var last struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(recs[len(recs)-1].Line, &last); err != nil {
+		t.Fatal(err)
+	}
+	if last.ID != maxRawRecords+19 {
+		t.Errorf("最后一条 id = %d, 期望 %d", last.ID, maxRawRecords+19)
 	}
 }
 

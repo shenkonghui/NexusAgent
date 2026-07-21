@@ -1,5 +1,5 @@
 import { apiFetch, apiFetchRaw } from './client'
-import type { AgentCommand, AgentSkill } from '../types'
+import type { AgentCommand, AgentSkill, DocFileEntry } from '../types'
 
 // 目录项
 export interface DirEntry {
@@ -159,4 +159,30 @@ export function listFileChanges(
   sessionId: number,
 ): Promise<{ data: { changes: FileChangeEntry[]; count: number } }> {
   return apiFetch(`/sessions/${sessionId}/files/changes`)
+}
+
+// ===== 工作区文件读取 API（文档查看器用） =====
+
+// 工作区文件内容响应
+export interface WorkspaceFileContentResponse {
+  path: string
+  content: string
+  size: number
+}
+
+// 读取工作区中的文件（通过绝对路径）
+export function readWorkspaceFile(path: string): Promise<{ data: WorkspaceFileContentResponse }> {
+  return apiFetch(`/filesystem/file?path=${encodeURIComponent(path)}`)
+}
+
+// 文档扫描响应：递归列出目录下所有 .md 文件
+export interface DocScanResponse {
+  root: string
+  files: DocFileEntry[]
+  truncated: boolean
+}
+
+// 递归扫描指定目录下所有 .md 文件（含子目录），用于侧边栏文档文件夹绑定后展开列出文档。
+export function listDocs(path: string): Promise<{ data: DocScanResponse }> {
+  return apiFetch(`/filesystem/docs?path=${encodeURIComponent(path)}`)
 }
