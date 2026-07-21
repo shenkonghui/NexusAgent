@@ -25,7 +25,7 @@ import { type ConvState as ConvStatusState } from '../components/ConvStatusBar'
 import TaskModeSwitch, { type TaskMode } from '../components/TaskModeSwitch'
 import { Plus } from 'lucide-react'
 import { useFileViewer } from '../context/FileViewerContext'
-import { saveLastDoc, loadDocFolders, TASK_MODE_KEY, LAST_DOC_KEY_PREFIX, type DocTarget } from '../utils/docs'
+import { saveLastDoc, loadDocFolders, loadDocSession, saveDocSession, clearDocSession, TASK_MODE_KEY, LAST_DOC_KEY_PREFIX, type DocTarget } from '../utils/docs'
 import { docEditSystemPrompt, docSessionTitle } from '../utils/docPrompt'
 import LayoutRenderer from '../modes/LayoutRenderer'
 import { getMode } from '../modes/registry'
@@ -81,17 +81,9 @@ export default function ChatPage() {
   // 侧边栏点击文档会 navigate 到 tasks 页并带 doc state，这里响应 state 变化
   useEffect(() => {
     if (navState?.doc) {
-      // 切换文档时重置文档模式的对话状态（不同文档用不同 session）
-      const changed = docTarget?.folderId !== navState.doc.folderId || docTarget?.filePath !== navState.doc.filePath
+      // 同一工作区的所有文档共用同一个会话，切换文档不再重置对话；
+      // 仅更新预览目标与记忆。会话的加载/重置由「工作区共享会话恢复」effect 负责。
       setDocTarget(navState.doc)
-      if (changed) {
-        setDocMessages([])
-        setDocSession(null)
-        setDocModes([])
-        setDocConfigOptions([])
-        setDocCurrentModeId('')
-        clearDocPermissions()
-      }
       // 自动切到文档模式
       if (taskMode !== 'docs') {
         setTaskMode('docs')
@@ -122,6 +114,10 @@ export default function ChatPage() {
   const docAbortRef = useRef<AbortController | null>(null)
   const docMountedRef = useRef(true)
   useEffect(() => { docMountedRef.current = true; return () => { docMountedRef.current = false } }, [])
+  // 上一次发送时的文档路径：共享会话跨文档时，文档变化需向 AI 重新图的当前目标。
+  const lastDocPathRef = useRef('')
+  // 已为哪个工作区恢复过文档共享会话，避免重复拉取与覆盖流式中的消息。
+  const docRestoredWorkspaceRef = useRef<number | null>(null)
 
   // 会话相关状态
   const [session, setSession] = useState<Session | null>(null)
@@ -442,6 +438,31 @@ export default function ChatPage() {
     listConfigOptions(id).then((r) => setDocConfigOptions(r.data.config_options || [])).catch(() => setDocConfigOptions([]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docSession?.id])
+
+  // 工作区共享会话恢复：进入文档模式 / 切换工作区时，加载该工作区持久化的
+  // 文档会话及其历史，使同一工作区的文档对话可跨文档 / 跨刷新恢复。
+  useEffect(() => {
+    if (!user || !isDocMode || !workspaceId) return
+    if (docRestoredWorkspaceRef.current === workspaceId) return
+    docRestoredWorkspaceRef.current = workspaceId
+    const persisted = loadDocSession(workspaceId)
+    if (!persisted) { setDocSession(null); setDocMessages([]); lastDocPathRef.current = ''; return }
+    Promise.all([getSession(persisted), listMessages(persisted)])
+      .then(([s, m]) => {
+        if (!docMountedRef.current) return
+        setDocSession(s.data)
+        setDocMessages(m.data.messages || [])
+      })
+      .catch(() => {
+        // 会话已被删除 / 失效：清除记忆，回到空对话（首次发送时重建）
+        clearDocSession(workspaceId)
+        if (!docMountedRef.current) return
+        setDocSession(null)
+        setDocMessages([])
+        lastDocPathRef.current = ''
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, isDocMode, workspaceId])
 
   // 将 URL 中的 workspace 同步到 hook，使 sidebar 展示该 workspace 的会话列表。
   // 任务列表页（无会话）与 会话详情页 都需要同步，否则切换工作区时侧边栏会显示其它工作区的会话。
@@ -821,7 +842,7 @@ export default function ChatPage() {
     setDocConvState('connecting')
     setError('')
 
-    // 首次发送：创建 session，并前置注入文档编辑 system prompt
+    // 首次发送：创建工作区共享 session，并前置注入文档编辑 system prompt
     let sid = docSession?.id
     let promptToSend = text
     if (!sid) {
@@ -836,14 +857,22 @@ export default function ChatPage() {
         const resp = await createSession(agentType, workspaceId, selectedModel || undefined)
         sid = resp.data.id
         setDocSession(resp.data)
+        // 持久化为该工作区的文档共享会话，后续打开任意文档都复用它
+        saveDocSession(workspaceId, sid)
+        docRestoredWorkspaceRef.current = workspaceId
         const docName = docPath.split('/').pop() || docPath
         try { await updateSessionTitle(sid, docSessionTitle(docName)) } catch { /* 忽略 */ }
         promptToSend = `${docEditSystemPrompt(docPath)}\n\n===\n\n用户请求：${text}`
+        lastDocPathRef.current = docPath
       } catch (err) {
         setError(t('docAI.initError', { message: err instanceof Error ? err.message : String(err) }))
         setDocConvState('idle')
         return
       }
+    } else if (docPath !== lastDocPathRef.current) {
+      // 共享会话内切换到另一篇文档：提示 AI 当前操作目标已变（携带完整编辑约定）
+      promptToSend = `${docEditSystemPrompt(docPath)}\n\n===\n\n用户请求：${text}`
+      lastDocPathRef.current = docPath
     }
 
     // 乐观追加用户消息（sequence=0，实时流到达后按 sequence 去重替换）
