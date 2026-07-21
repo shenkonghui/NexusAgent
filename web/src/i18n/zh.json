@@ -380,6 +380,9 @@
     "availableCommands": "可用命令",
     "contextWindow": "上下文窗口",
     "tokenUsage": "Token 用量",
+    "clearContext": "清理上下文",
+    "clearingContext": "清理中…",
+    "clearContextConfirm": "确定清理上下文吗？将重置会话上下文，后续对话将不再包含之前的历史（历史消息仍会保留展示）。",
     "moreOptions": "更多",
     "elapsed": "耗时",
     "cost": "费用",
@@ -412,7 +415,19 @@
     "restoreHere": "恢复到此处",
     "restoreConfirm": "确定恢复到此处吗？该消息之后的文件改动将被撤销，后续对话消息也将被删除。",
     "restoreFailed": "恢复失败",
-    "restoring": "恢复中..."
+    "restoring": "恢复中...",
+    "contextDetail": "查看详情",
+    "contextByCategory": "上下文占用明细",
+    "catSystemPrompt": "系统提示",
+    "catTools": "工具",
+    "catMcp": "MCP",
+    "catSkills": "技能",
+    "catConversation": "对话",
+    "toolCalls": "工具调用记录",
+    "toolShell": "Shell 命令",
+    "toolMcp": "MCP 调用",
+    "toolSkill": "技能调用",
+    "toolGeneric": "工具"
   },
   "theme": {
     "light": "浅色模式",
@@ -493,19 +508,6 @@
     "exportFailed": "导出失败",
     "importNoFiles": "未找到 .md 文件"
   },
-  "documents": {
-    "title": "文档",
-    "addFolder": "添加文件夹",
-    "noDocs": "暂无文件夹",
-    "selectFolder": "选择文件夹",
-    "currentDir": "当前目录",
-    "parentDir": "上级目录",
-    "deleteConfirm": "确定移除该文件夹绑定吗？（不会删除磁盘文件）",
-    "fileNotFound": "文件不存在或已被删除",
-    "readFailed": "读取文件失败",
-    "noMdFiles": "该文件夹下没有 .md 文档",
-    "loadFailed": "扫描文档失败"
-  },
   "log": {
     "title": "日志",
     "openLogs": "查看日志",
@@ -535,44 +537,8 @@
     "filterType": "按事件类型过滤",
     "disabledHint": "ACP 调试未启用。请在 config.yaml 中设置 debug.acp.enabled: true 后重启服务。"
   },
-  "docEditor": {
-    "edit": "编辑",
-    "preview": "预览",
-    "save": "保存",
-    "saving": "保存中...",
-    "saved": "已保存",
-    "saveFailed": "保存失败",
-    "unsavedConfirm": "有未保存的改动，确定离开吗？",
-    "openAIPanel": "AI 助手",
-    "closeAIPanel": "关闭 AI 面板"
-  },
-  "docAI": {
-    "title": "AI 助手",
-    "subtitle": "对话生成 draw.io 图",
-    "placeholder": "描述你想生成的图，例如「画一个用户登录流程」",
-    "send": "生成",
-    "insertToDoc": "插入到文档",
-    "inserted": "已插入到文档末尾",
-    "viewSource": "查看源码",
-    "renderFailed": "渲染失败，请重试或让 AI 重新生成",
-    "generating": "生成中…",
-    "waitingGenerate": "等待 AI 生成图表…",
-    "initError": "初始化 AI 失败：{{message}}",
-    "sendFailed": "发送失败：{{message}}",
-    "welcome": "👋 我是文档图表助手。告诉我你想画什么图，我会用 draw.io 格式生成并可直接插入到文档。"
-  },
   "taskMode": {
-    "coding": "编码",
-    "docs": "文档"
-  },
-  "docMode": {
-    "emptyTitle": "文档工作区",
-    "emptyHint": "从左侧侧边栏的「文档」分组中选择一个 .md 文件开始编辑，或在对话中让 AI 生成 draw.io 图。",
-    "chatEmptyTitle": "文档 AI 助手",
-    "chatEmptyHint": "在下方输入框描述你想生成的图（例如「画一个用户登录流程」），AI 生成的 draw.io 图会自动出现在右侧文档中。",
-    "selectDocFirst": "请先从侧边栏选择一个文档",
-    "noAgent": "无可用 Agent",
-    "model": "模型"
+    "coding": "编码"
   },
   "panel": {
     "chat": "对话",
@@ -580,8 +546,12 @@
     "terminal": "终端",
     "changes": "改动",
     "debug": "调试",
-    "docPreview": "文档",
     "requireSession": "请先创建或选择一个任务会话"
+  },
+  "drawio": {
+    "waitingGenerate": "等待 AI 生成图表…",
+    "renderFailed": "渲染失败，请重试或让 AI 重新生成",
+    "viewSource": "查看源码"
   },
   "sidebar": {
     "menuTab": "菜单",

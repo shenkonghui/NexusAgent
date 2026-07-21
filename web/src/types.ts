@@ -206,22 +206,6 @@ export interface ApiError {
   };
 }
 
-// 文档文件夹绑定（侧边栏文档分组用）：绑定一个目录，自动列出其下 .md 文档。
-// 绑定信息存 localStorage，文档正文仍实时从磁盘读取。
-export interface DocFolder {
-  id: string          // 前端 UUID，用于路由定位
-  name: string        // 文件夹显示名（取自目录名，或相对 cwd 的路径）
-  path: string        // 绝对路径（扫描根）
-  workspaceId: number // 所属工作区（按工作区隔离绑定）
-}
-
-// 文档文件夹扫描出的单个 .md 文件（后端 GET /filesystem/docs 返回）
-export interface DocFileEntry {
-  name: string     // 文件名（如 foo.md）
-  rel_path: string // 相对扫描根目录的路径（如 sub/foo.md），用于侧边栏展示与路由
-  abs_path: string // 绝对路径，用于读取内容
-}
-
 // 全局笔记
 export interface Note {
   id: number;

@@ -380,6 +380,9 @@
     "availableCommands": "Available Commands",
     "contextWindow": "Context Window",
     "tokenUsage": "Token Usage",
+    "clearContext": "Clear Context",
+    "clearingContext": "Clearing…",
+    "clearContextConfirm": "Clear the context? This resets the conversation context so future messages won't include prior history (past messages stay visible).",
     "moreOptions": "More",
     "elapsed": "Elapsed",
     "cost": "Cost",
@@ -412,7 +415,19 @@
     "restoreHere": "Restore here",
     "restoreConfirm": "Restore to this point? File changes after this message will be reverted and subsequent messages will be deleted.",
     "restoreFailed": "Restore failed",
-    "restoring": "Restoring..."
+    "restoring": "Restoring...",
+    "contextDetail": "View details",
+    "contextByCategory": "Context breakdown",
+    "catSystemPrompt": "System prompt",
+    "catTools": "Tools",
+    "catMcp": "MCP",
+    "catSkills": "Skills",
+    "catConversation": "Conversation",
+    "toolCalls": "Tool calls",
+    "toolShell": "Shell command",
+    "toolMcp": "MCP call",
+    "toolSkill": "Skill call",
+    "toolGeneric": "Tool"
   },
   "theme": {
     "light": "Light",
@@ -493,19 +508,6 @@
     "exportFailed": "Export failed",
     "importNoFiles": "No .md files found"
   },
-  "documents": {
-    "title": "Documents",
-    "addFolder": "Add Folder",
-    "noDocs": "No folders",
-    "selectFolder": "Select Folder",
-    "currentDir": "Current directory",
-    "parentDir": "Parent directory",
-    "deleteConfirm": "Remove this folder binding? (Disk files will not be deleted)",
-    "fileNotFound": "File not found or has been deleted",
-    "readFailed": "Failed to read file",
-    "noMdFiles": "No .md files in this folder",
-    "loadFailed": "Failed to scan documents"
-  },
   "log": {
     "title": "Logs",
     "openLogs": "Logs",
@@ -535,44 +537,8 @@
     "filterType": "Filter by event type",
     "disabledHint": "ACP debug is disabled. Set debug.acp.enabled: true in config.yaml and restart."
   },
-  "docEditor": {
-    "edit": "Edit",
-    "preview": "Preview",
-    "save": "Save",
-    "saving": "Saving...",
-    "saved": "Saved",
-    "saveFailed": "Save failed",
-    "unsavedConfirm": "You have unsaved changes. Leave anyway?",
-    "openAIPanel": "AI Assistant",
-    "closeAIPanel": "Close AI panel"
-  },
-  "docAI": {
-    "title": "AI Assistant",
-    "subtitle": "Generate draw.io diagrams via chat",
-    "placeholder": "Describe the diagram you want, e.g. \"draw a user login flow\"",
-    "send": "Generate",
-    "insertToDoc": "Insert to doc",
-    "inserted": "Inserted at end of doc",
-    "viewSource": "View source",
-    "renderFailed": "Render failed. Retry or ask AI to regenerate.",
-    "generating": "Generating…",
-    "waitingGenerate": "Waiting for AI to generate the diagram…",
-    "initError": "Failed to init AI: {{message}}",
-    "sendFailed": "Send failed: {{message}}",
-    "welcome": "👋 I'm your doc diagram assistant. Tell me what to draw and I'll produce draw.io XML that can be inserted into the doc."
-  },
   "taskMode": {
-    "coding": "Coding",
-    "docs": "Docs"
-  },
-  "docMode": {
-    "emptyTitle": "Docs Workspace",
-    "emptyHint": "Pick a .md file from the \"Documents\" group in the left sidebar, or let AI generate a draw.io diagram in the chat.",
-    "chatEmptyTitle": "Doc AI Assistant",
-    "chatEmptyHint": "Describe the diagram you want in the input below (e.g. \"draw a user login flow\"). The generated draw.io diagram will appear in the doc on the right.",
-    "selectDocFirst": "Please pick a document from the sidebar first",
-    "noAgent": "No agent available",
-    "model": "Model"
+    "coding": "Coding"
   },
   "panel": {
     "chat": "Chat",
@@ -580,8 +546,12 @@
     "terminal": "Terminal",
     "changes": "Changes",
     "debug": "Debug",
-    "docPreview": "Doc",
     "requireSession": "Create or select a task session first"
+  },
+  "drawio": {
+    "waitingGenerate": "Waiting for AI to generate the diagram…",
+    "renderFailed": "Render failed. Retry or ask AI to regenerate.",
+    "viewSource": "View source"
   },
   "sidebar": {
     "menuTab": "Menu",

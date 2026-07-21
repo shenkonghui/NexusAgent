@@ -2,6 +2,7 @@ package acp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -1996,6 +1997,120 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 
 	// 返回更新后的 session
 	return s.sessions.FindByID(session.ID)
+}
+
+// ClearContext 清理会话上下文：新建一条全新的 ACP 会话替换旧会话，
+// 但不注入历史消息，使模型上下文（token 占用）归零。数据库会话与历史消息展示保留。
+// 与 ResumeSession 的区别：始终重建 ACP 会话、不注入历史，并追加一条 used=0 的 usage_update。
+func (s *Service) ClearContext(ctx context.Context, sessionID string) (*models.Session, error) {
+	session, err := s.GetSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 进行中的 prompt 不允许清理上下文，避免与实时流状态竞态。
+	if s.HasActivePrompt(sessionID) {
+		return nil, errors.New("会话有进行中的任务，无法清理上下文")
+	}
+
+	// 从 workspace 获取 cwd
+	cwd := session.Cwd
+	wsMode := ""
+	if session.WorkspaceID != nil {
+		if ws, wsErr := s.workspaces.FindByID(*session.WorkspaceID); wsErr == nil {
+			cwd = ws.Cwd
+			wsMode = ws.Mode
+		}
+	}
+	if cwd == "" {
+		return nil, errors.New("清理上下文需要工作目录，请提供有效的 workspace")
+	}
+	if err := EnsureWorkspaceDir(wsMode, cwd); err != nil {
+		return nil, err
+	}
+
+	// 复用共享连接（不存在则自动建立）
+	conn, err := s.ensureConnection(ctx, session.AgentType, cwd)
+	if err != nil {
+		return nil, fmt.Errorf("清理上下文-建立连接: %w", err)
+	}
+
+	oldAgentSID := session.AgentSessionID
+	s.debugBindPending(session.AgentType, session.ID)
+	newAgentSID, configOptions, modes, err := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd), s.sessionMCPServers(session.UserID), s.rulesSystemPrompt(cwd))
+	s.debugClearPending(session.AgentType)
+	if err != nil {
+		return nil, fmt.Errorf("清理上下文-创建 ACP 会话: %w", err)
+	}
+
+	// 关闭旧 ACP 会话，释放其上下文（best-effort）。
+	if oldAgentSID != "" && oldAgentSID != newAgentSID {
+		_ = conn.CloseSessionByID(ctx, oldAgentSID)
+	}
+
+	// 更新 agent_session_id 和状态（closed_at 置空）；稳定 session_id 不变
+	if err := s.sessions.UpdateAgentSessionID(session.ID, newAgentSID); err != nil {
+		_ = conn.CloseSessionByID(ctx, newAgentSID)
+		return nil, fmt.Errorf("清理上下文-更新 agent_session_id: %w", err)
+	}
+	if err := s.sessions.UpdateStatus(session.ID, models.SessionStatusActive, nil); err != nil {
+		_ = conn.CloseSessionByID(ctx, newAgentSID)
+		return nil, fmt.Errorf("清理上下文-更新状态: %w", err)
+	}
+
+	// 稳定 session_id 为键，更新路由与缓存
+	poolKey := connectionKey(session.AgentType, cwd)
+	s.mu.Lock()
+	s.sessionPoolKey[sessionID] = poolKey
+	if len(configOptions) > 0 {
+		s.configs[sessionID] = configOptions
+	}
+	if len(modes) > 0 {
+		s.modes[sessionID] = modes
+	}
+	s.mu.Unlock()
+	if oldAgentSID != "" {
+		s.debugUnregister(oldAgentSID)
+	}
+	s.debugRegister(newAgentSID, session.ID)
+	s.debugLog(session.ID, "clear_context", newAgentSID, map[string]any{
+		"agent": session.AgentType, "cwd": cwd,
+	})
+
+	// 追加一条 used=0 的 usage_update，使前端上下文占用立即归零（保留原窗口大小以维持展示）。
+	history, _ := s.messages.FindByDBSessionID(session.ID)
+	seq := s.getNextSequence(session.ID) + 1
+	resetUpdate := acp.SessionUpdate{
+		UsageUpdate: &acp.SessionUsageUpdate{
+			SessionUpdate: "usage_update",
+			Size:          lastContextSize(history),
+			Used:          0,
+		},
+	}
+	resetMsg := MapUpdate(sessionID, session.ID, seq, resetUpdate)
+	if err := s.messages.Create(&resetMsg); err != nil {
+		slog.Warn("清理上下文-写入 usage_update 失败", "session", sessionID, "err", err)
+	}
+
+	// 返回更新后的 session
+	return s.sessions.FindByID(session.ID)
+}
+
+// lastContextSize 从历史消息中提取最近一次 usage_update 的上下文窗口大小（size），无则返回 0。
+func lastContextSize(messages []models.Message) int {
+	size := 0
+	for _, m := range messages {
+		if m.Kind != models.MessageKindUsageUpdate || m.RawJSON == "" {
+			continue
+		}
+		var u struct {
+			Size int `json:"size"`
+		}
+		if err := json.Unmarshal([]byte(m.RawJSON), &u); err == nil && u.Size > 0 {
+			size = u.Size
+		}
+	}
+	return size
 }
 
 // formatHistory 将历史消息格式化为对话上下文文本，最多取最近 50 条。

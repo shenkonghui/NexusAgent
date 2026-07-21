@@ -81,6 +81,7 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			protected.POST("/sessions/:id/prompt", sessionH.Prompt)
 			protected.POST("/sessions/:id/cancel", sessionH.Cancel)
 			protected.POST("/sessions/:id/resume", sessionH.Resume)
+			protected.POST("/sessions/:id/clear-context", sessionH.ClearContext)
 			protected.GET("/sessions/:id/messages", sessionH.Messages)
 			protected.GET("/sessions/:id/executions", sessionH.Executions)
 			protected.GET("/sessions/:id/commands", sessionH.Commands)
@@ -139,7 +140,6 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			// 文件系统目录浏览（用于前端目录选择器）
 			protected.GET("/filesystem/dirs", fsHandler.ListDirs)
 			protected.GET("/filesystem/list", fsHandler.ListFiles)
-			protected.GET("/filesystem/docs", fsHandler.ListDocs)
 			protected.GET("/filesystem/skills", fsHandler.Skills)
 			protected.GET("/filesystem/commands", fsHandler.Commands)
 			protected.GET("/filesystem/rules", fsHandler.Rules)

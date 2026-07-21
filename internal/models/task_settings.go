@@ -16,6 +16,9 @@ type TaskSettings struct {
 	// TagPrompt / TitlePrompt 是自定义提示词模板（空则用默认）。
 	TagPrompt   string `gorm:"type:text" json:"tag_prompt"`
 	TitlePrompt string `gorm:"type:text" json:"title_prompt"`
+	// DocEditPrompt 是文档编辑助手的 system prompt 模板（空则用 services.DefaultDocEditPrompt）。
+	// 支持占位符 {{docPath}}（当前文档绝对路径）。
+	DocEditPrompt string `gorm:"type:text" json:"doc_edit_prompt"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }

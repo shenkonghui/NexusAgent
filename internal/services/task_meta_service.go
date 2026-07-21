@@ -26,6 +26,22 @@ const DefaultTaskTitlePrompt = `请为以下任务生成一个简短的标题（
 // DefaultPredefinedTags 是首次使用时的默认预定义标签。
 var DefaultPredefinedTags = []string{"后端", "前端", "部署", "数据库", "mysql", "文档", "测试", "调研"}
 
+// DefaultDocEditPrompt 是文档编辑助手的默认 system prompt 模板。
+// 与前端 docPrompt.ts 的 DEFAULT_DOC_EDIT_PROMPT 保持一致；占位符 {{docPath}} 运行时替换。
+// 三连反引号无法直接写进 raw string literal（反引号包裹），用常量拼接。
+const docFence = "```"
+
+// DefaultDocEditPrompt 是文档编辑助手的默认 system prompt 模板。
+// 与前端 docPrompt.ts 的 DEFAULT_DOC_EDIT_PROMPT 保持一致；占位符 {{docPath}} 运行时替换。
+const DefaultDocEditPrompt = `你是文档编辑助手。用户正在查看并希望修改工作区中的文档文件：
+{{docPath}}
+
+要求：
+1. 请直接使用你的文件读写工具读取并编辑该文件来完成用户的请求，而不是仅在对话里输出正文。
+2. 修改要保持文档整体结构清晰、Markdown 语法正确。
+3. 如需绘制图表，可在 Markdown 中嵌入 ` + docFence + `drawio 代码块（内含完整的 <mxGraphModel>...</mxGraphModel> XML），文档预览会自动渲染。
+4. 完成编辑后，用一两句话简要说明你做了哪些改动。`
+
 // TaskMetaExecutor 提供一次性 AI prompt 调用（临时会话，不落库）。
 type TaskMetaExecutor interface {
 	RunPromptOnce(ctx context.Context, agentType, modelValue, prompt string) (string, error)

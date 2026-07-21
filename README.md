@@ -12,44 +12,65 @@ A multi-Agent orchestration and conversation platform based on the [Agent Client
 - **File Browsing & Editing**: Browse directories, view and edit files within the session workspace (CodeMirror with multi-language syntax highlighting).
 - **Terminal**: WebSocket-based xterm terminal for direct session workspace interaction.
 - **Scheduled Tasks**: Cron-driven task scheduling with automatic session creation and prompt execution. View execution history.
+- **Sub-Agents**: Define reusable sub-agents as markdown files (frontmatter with name/description/model/tools); invoke them from any agent session via the built-in MCP server.
 - **Notes**: Quick capture with `#tag` parsing, tag filtering, Markdown rendering, and optional Agent-based auto-classification.
 - **Prompt Input Enhancements**: `/` completes commands, skills, and modes; `@` provides hierarchical references to commands, skills, workspace files, and notes (browse by tag).
 - **Skills & Commands Discovery**: Scans `SKILL.md` and slash command files under workspace and user directories for autocomplete.
+- **MCP Integration**: Global MCP server configuration (`mcpServers` JSON) shared across all agent sessions. Built-in MCP servers for Notes and Sub-Agents. Editable in the Settings page.
+- **Rule Scanning**: Automatically discovers and injects rules (`.mdc` / `.md`) from user and project directories into agent sessions.
 - **Health Check & Auto-Reconnect**: Background agent connection health monitoring with automatic reconnection on failure. Real-time status badges in the sidebar.
+- **Permission System**: User approval dialog for agent tool calls — inspect parameters before allowing execution.
+- **Debug Panel**: Inspect raw ACP JSON-RPC messages and high-level events for each session.
+- **Log Panel**: Real-time streaming of backend logs via SSE.
+- **Change Diff**: Side-by-side diff view for file changes made during a session.
+- **Drawio Rendering**: Render drawio diagrams (embed ` ```drawio ` code blocks) in conversations.
 - **User Authentication**: JWT-based auth with registration, login, password change, and profile management.
 - **Theme Toggle**: Light and dark theme support.
 - **Internationalization**: Chinese and English UI. Switch language in the Settings page.
 - **Single-Port Deployment**: Production mode serves the frontend build directly from the backend. Docker support included.
+- **Desktop Clients**: Two options — [Pake](https://github.com/tw93/Pake) (lightweight Tauri wrapper) and Electron (full-featured, with auto-update support).
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Go 1.25 · Gin · GORM · SQLite · JWT |
-| Frontend | React 18 · TypeScript · Vite · CodeMirror · xterm.js · react-markdown |
-| Protocol | Agent Client Protocol (ACP) |
+| Backend | Go 1.25 · Gin · GORM · SQLite · JWT · gorilla/websocket · robfig/cron |
+| Frontend | React 18 · TypeScript · Vite · CodeMirror · xterm.js · react-markdown · react-router-dom · i18next |
+| Protocol | Agent Client Protocol (ACP) · Model Context Protocol (MCP) |
 
 ## Project Structure
 
 ```
 openNexus/
-├── cmd/server/          # Entry point
+├── cmd/
+│   ├── server/            # Entry point (main server)
+│   └── import-fleeting/   # Fleeting notes import tool
 ├── internal/
-│   ├── acp/             # ACP protocol: connection, client, session, health check
-│   ├── agent/           # Agent registry and router
-│   ├── config/          # Config loading and validation
-│   ├── database/        # DB connection
-│   ├── handlers/        # HTTP handlers (sessions, agents, files, terminal, tasks)
-│   ├── middleware/      # JWT auth middleware
-│   ├── models/          # Data models
-│   ├── repository/      # Data access layer
-│   ├── router/          # Route registration and static file serving
-│   └── services/        # Business services (auth, JWT, scheduler)
-├── web/                 # Frontend (React + Vite)
-├── config.yaml          # Default configuration
-├── Dockerfile           # Multi-stage build (frontend + backend)
-├── docker-compose.yml   # Container orchestration
-└── Makefile             # Common command shortcuts
+│   ├── acp/               # ACP protocol: connection, client, session, health check, binary install, registry, sub-agent runner
+│   ├── agent/             # Agent registry and router
+│   ├── config/            # Config loading, validation, and legacy data migration
+│   ├── database/          # DB connection
+│   ├── handlers/          # HTTP handlers (sessions, agents, files, terminal, tasks, notes, MCP, logs, debug, workspace)
+│   ├── logging/           # Logging hub, handler, and setup (real-time log streaming via SSE)
+│   ├── mcp/
+│   │   ├── notes/         # MCP server for Notes (expose notes as tools/resources)
+│   │   └── subagent/      # MCP server for Sub-Agents (invoke sub-agent sessions)
+│   ├── middleware/        # JWT auth middleware
+│   ├── models/            # Data models
+│   ├── repository/        # Data access layer
+│   ├── router/            # Route registration and static file serving
+│   ├── services/          # Business services (auth, JWT, scheduler, note classifier, task meta)
+│   └── sysutil/           # System utilities (PATH enrichment, file paths)
+├── web/                   # Frontend (React + Vite)
+├── electron/              # Electron desktop client (alternative to Pake)
+├── scripts/               # Build and packaging scripts (Pake, desktop, release)
+├── assets/                # Application icons (PNG, SVG)
+├── docs/                  # Additional documentation
+├── vendor/                # Vendored Go dependencies
+├── config.yaml            # Default configuration
+├── Dockerfile             # Multi-stage build (frontend + backend)
+├── docker-compose.yml     # Container orchestration
+└── Makefile               # Common command shortcuts
 ```
 
 ## Quick Start
@@ -63,11 +84,18 @@ openNexus/
 ### Local Development
 
 ```bash
-# Start both frontend and backend dev servers
+# Start both frontend and backend dev servers (backend :8080, frontend :3000)
 make dev
 ```
 
 Visit http://localhost:3000. Register an account to get started.
+
+To start individually:
+
+```bash
+make backend    # Start backend only on http://localhost:8080
+make frontend   # Start frontend only on http://localhost:3000
+```
 
 ### Production Mode (Single Port)
 
@@ -94,6 +122,22 @@ Set environment variables like `ANTHROPIC_API_KEY` before starting:
 ANTHROPIC_API_KEY=sk-xxx make docker-up-d
 ```
 
+### Desktop Clients
+
+```bash
+# Pake desktop (lightweight Tauri wrapper)
+make pake              # Build Pake wrapper only
+make desktop           # macOS desktop app (Apple Silicon)
+make desktop-linux     # Linux amd64 desktop app
+make desktop-windows   # Windows amd64 desktop app
+
+# Electron desktop (full-featured, with auto-update)
+make electron-dev     # Run in dev mode
+make electron-dist    # Package for current platform
+make electron-install # Install to /Applications (macOS)
+make electron-run     # Launch installed app
+```
+
 ## Configuration
 
 The configuration file is `config.yaml`. Environment variable overrides:
@@ -103,13 +147,22 @@ The configuration file is `config.yaml`. Environment variable overrides:
 | `server.port` | `SERVER_PORT` | Server port (default: `8080`) |
 | `server.mode` | `SERVER_MODE` | `debug` / `release` |
 | `server.web_dist` | `WEB_DIST` | Frontend build directory (default: `./web/dist`) |
+| `server.public_base_url` | `PUBLIC_BASE_URL` | Public base URL for MCP endpoints |
+| `logging.level` | `LOGGING_LEVEL` | Log level: `debug` / `info` / `warn` / `error` (default: `info`) |
 | `database.path` | `DATABASE_PATH` | SQLite database path (default: `~/.openNexus/opennexus.db`) |
 | `jwt.secret` | `JWT_SECRET` | JWT signing secret (change in production!) |
+| `jwt.access_ttl` | `JWT_ACCESS_TTL` | Access token TTL (default: `15m`) |
+| `jwt.refresh_ttl` | `JWT_REFRESH_TTL` | Refresh token TTL (default: `168h`) |
+| `auth.auto_login` | `AUTH_AUTO_LOGIN` | Auto-login as admin (default: `true`) |
+| `debug.acp.enabled` | `DEBUG_ACP_ENABLED` | Enable ACP debug logging (default: `true`) |
+| `debug.acp.dir` | `DEBUG_ACP_DIR` | ACP debug log directory |
 | `agents.workspace.session_dir` | `AGENTS_WORKSPACE_SESSION_DIR` | Session workspace root (default: `~/.openNexus/session`) |
+| `agents.workspace.default_mode` | - | Default workspace mode: `temporary` / `persistent` |
+| `agents.mcp.config_path` | `AGENTS_MCP_CONFIG_PATH` | Global MCP servers config path (default: `~/.agents/mcp.json`) |
 
 Config file lookup: `CONFIG_PATH` → `~/.openNexus/config.yaml` → `./config.yaml`. Database and session data default to `~/.openNexus/`.
 
-Agent commands, arguments, and API keys can be managed dynamically in the Settings page — changes take effect immediately.
+Agent commands, arguments, and API keys can be managed dynamically in the Settings page — changes take effect immediately. Skills, commands, rules, sub-agents, and MCP servers are also configurable via user and project directories in `config.yaml`.
 
 ## Data Migration (Automatic)
 
@@ -182,13 +235,65 @@ Workspace directory policy:
 - **temporary**: Cleaned up only when the entire workspace is deleted; deleting a single session does not remove the shared directory; missing dirs are recreated on session resume
 - **persistent**: Directory must exist beforehand; cleanup happens when the workspace is deleted
 
+## Sub-Agents
+
+Sub-agents are reusable agent definitions that can be invoked from any agent session via the built-in MCP server at `/mcp/subagent`.
+
+### Defining a Sub-Agent
+
+Create a markdown file in `~/.agents/agents/` (or your configured sub-agent directory) with frontmatter:
+
+```markdown
+---
+name: my-reviewer
+description: Code review specialist
+model: claude-sonnet-4-20250514
+tools:
+  - read
+  - edit
+  - bash
+---
+
+You are a code review specialist. Analyze pull requests for bugs, style issues, and security vulnerabilities.
+```
+
+The backend scans these files on startup and registers them as MCP tools accessible to all agent sessions.
+
+### Usage
+
+- **From agent prompt**: Invoke using `RunSubAgent` (`/subagent`) tool call
+- **Auto-discovery**: The `opennexus-subagent` MCP server automatically syncs entries to the global MCP config
+- **Inheritance**: Sub-agents can inherit the parent session's agent preference (model, settings) via `UserAgentPrefs`
+
+## Notes MCP Server
+
+openNexus provides a built-in MCP server at `/mcp/notes` that exposes notes as MCP tools and resources. This allows agents to:
+
+- Read notes by ID or tag
+- Search notes by content
+- Create new notes with auto-classification
+
+The MCP server is automatically configured and synchronized — notes with generated tokens are automatically written to the global `mcp.json` config.
+
+Note auto-classification can be enabled in **Settings → Notes**: a background worker periodically classifies untagged notes using the configured agent.
+
+## Permission System
+
+When an agent requests a potentially sensitive tool call (e.g., file write, command execution), openNexus can prompt the user for approval:
+
+- **Allow once**: Approve the specific tool call
+- **Allow always**: Auto-approve for the remainder of the session
+- **Deny**: Reject the tool call
+
+This is configured per-agent via the `PermissionDialog` component. The permission backend (`internal/acp/permission.go`) handles the approval flow.
+
 ## Prompt Input
 
 The chat input supports two completion modes (↑↓ select, Enter confirm, Esc go back or close):
 
 | Trigger | Description |
 |---------|-------------|
-| `/` | Flat list of commands, skills, and modes |
+| `/` | Flat list of commands, skills, modes, and sub-agents |
 | `@` | Hierarchical picker: choose type first (Command / Skill / File / Note), then pick an item |
 
 `@` navigation:
@@ -204,17 +309,36 @@ The Notes page (`/notes`) supports quick capture, tag filtering, Markdown previe
 | Command | Description |
 |---------|-------------|
 | `make dev` | Start frontend + backend dev servers |
-| `make run` | Single-port production mode |
+| `make backend` | Start backend only (http://localhost:8080) |
+| `make frontend` | Start frontend only (http://localhost:3000) |
+| `make run` | Single-port production mode (build + serve) |
+| `make run-desktop` | Build + launch with browser auto-open |
 | `make build` | Build frontend + backend |
+| `make release` | Cross-platform release build (darwin/linux/windows) |
+| `make test` | Run all backend tests |
+| `make clean` | Clean build artifacts |
+| **Pake Desktop** | |
 | `make pake` | Build Pake desktop client only |
 | `make desktop` | Build macOS desktop app (Apple Silicon) |
 | `make desktop-linux` | Build Linux amd64 desktop app |
 | `make desktop-windows` | Build Windows amd64 desktop app |
-| `make test` | Run all backend tests |
-| `make clean` | Clean build artifacts |
+| **Electron Desktop** | |
+| `make electron-dev` | Run Electron in development mode |
+| `make electron-dist` | Package Electron desktop app (dmg/AppImage/nsis) |
+| `make electron-install` | Install Electron app to /Applications (macOS) |
+| `make electron-uninstall` | Uninstall from /Applications (macOS) |
+| `make electron-run` | Launch installed Electron app |
+| **Docker** | |
+| `make docker-build` | Build Docker image only |
 | `make docker-up` | Build Docker image and start |
 | `make docker-down` | Stop and clean Docker containers |
 | `make docker-logs` | View Docker container logs |
+
+## Debugging & Logs
+
+- **Debug Panel**: Open the "Debug" tab in any session to inspect raw ACP JSON-RPC messages and high-level events
+- **Log Panel**: Real-time backend log streaming in the UI (SSE-based)
+- **ACP Debug Logs**: When `debug.acp.enabled` is `true`, raw ACP communication is recorded to `~/.openNexus/acp-debug/` for offline analysis
 
 ## Release Builds
 
@@ -223,7 +347,9 @@ Pushing a `v*` tag (e.g. `v1.0.0`) triggers GitHub Actions to build and publish 
 | Platform | Desktop artifact | CLI artifact |
 |----------|------------------|--------------|
 | macOS Apple Silicon | `opennexus-darwin-desktop.tar.gz` | `opennexus-darwin-arm64.tar.gz` |
+| macOS x86_64 | - | `opennexus-darwin-amd64.tar.gz` |
 | Linux x86_64 | `opennexus-linux-desktop.tar.gz` | `opennexus-linux-amd64.tar.gz` |
+| Linux arm64 | - | `opennexus-linux-arm64.tar.gz` |
 | Windows x86_64 | `opennexus-windows-desktop.zip` | `opennexus-windows-amd64.zip` |
 
 Local desktop builds require Rust, pnpm, and `pake-cli@3.13.0` — see `scripts/build-pake.sh`.

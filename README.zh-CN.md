@@ -12,45 +12,65 @@
 - **文件浏览与编辑**：在会话工作区内浏览目录、查看与编辑文件（集成 CodeMirror，支持多语言语法高亮）
 - **终端交互**：基于 WebSocket 的 xterm 终端，可直接操作会话工作区
 - **定时任务**：支持 cron 表达式调度，自动创建会话并发送 prompt，可查看历史执行记录
+- **子 Agent (Sub-Agent)**：通过 Markdown 文件定义可复用的子 Agent（frontmatter 含 name/description/model/tools），通过内置 MCP 服务从任意会话中调用
 - **笔记**：快速记录想法，支持 `#标签` 解析、按标签筛选、Markdown 渲染；可配置 Agent 自动分类任务
 - **Prompt 输入增强**：`/` 补全 command / skill / mode；`@` 分级引用 Command、Skill、工作区文件与笔记（按标签浏览）
 - **Skills & Commands 发现**：扫描工作区与用户目录下的 `SKILL.md` 与 slash command 文件，在输入框中补全
+- **MCP 集成**：全局 MCP server 配置（`mcpServers` JSON）自动注入所有 Agent 会话；内置笔记 MCP 和子 Agent MCP 服务
+- **规则扫描**：自动发现用户和项目目录下的规则文件（`.mdc` / `.md`）并注入 Agent 会话
 - **连接健康检查与自动重连**：后台定期检测各 Agent 连接状态，断线自动重连；侧边栏实时展示连接状态
+- **权限系统**：Agent 发起敏感操作时弹出用户审批对话框，审查参数后决定是否放行
+- **调试面板**：查看每次会话的原始 ACP JSON-RPC 报文与高层事件
+- **日志面板**：后端日志实时 SSE 推送到前端
+- **文件变更对比**：会话中文件变更的左右对比视图
+- **Drawio 渲染**：对话中嵌入 ` ```drawio ` 代码块自动渲染图表
 - **用户认证**：JWT 鉴权，支持注册 / 登录 / 密码修改 / 个人资料
 - **主题切换**：内置亮色 / 暗色主题
 - **国际化**：支持中文和英文界面，在设置页可切换语言
 - **单端口部署**：生产模式下前端构建产物由后端直接服务，前后端同一端口；同时支持 Docker 化部署
-- **桌面客户端**：使用 [Pake](https://github.com/tw93/Pake)（基于 Tauri）封装为原生桌面应用，轻量高效，启动时自动拉起后端服务
+- **桌面客户端**：提供两种方案 —— [Pake](https://github.com/tw93/Pake)（基于 Tauri 的轻量壳）和 Electron（功能完整，支持自动更新）
 
 ## 技术栈
 
 | 层 | 技术 |
 |------|------|
-| 后端 | Go 1.25 · Gin · GORM · SQLite · JWT |
-| 前端 | React 18 · TypeScript · Vite · CodeMirror · xterm.js · react-markdown |
-| 协议 | Agent Client Protocol (ACP) |
+| 后端 | Go 1.25 · Gin · GORM · SQLite · JWT · gorilla/websocket · robfig/cron |
+| 前端 | React 18 · TypeScript · Vite · CodeMirror · xterm.js · react-markdown · react-router-dom · i18next |
+| 协议 | Agent Client Protocol (ACP) · Model Context Protocol (MCP) |
 
 ## 项目结构
 
 ```
 openNexus/
-├── cmd/server/          # 程序入口
+├── cmd/
+│   ├── server/            # 程序入口（主服务）
+│   └── import-fleeting/   # Fleeting notes 导入工具
 ├── internal/
-│   ├── acp/             # ACP 协议封装：连接、客户端、会话管理、健康检查
-│   ├── agent/           # Agent 注册表与路由层
-│   ├── config/          # 配置加载与校验
-│   ├── database/        # 数据库连接
-│   ├── handlers/        # HTTP 处理器（会话、Agent、文件、终端、定时任务等）
-│   ├── middleware/      # 中间件（JWT 鉴权）
-│   ├── models/          # 数据模型
-│   ├── repository/      # 数据访问层
-│   ├── router/          # 路由注册与静态文件服务
-│   └── services/        # 业务服务（认证、JWT、调度器）
-├── web/                 # 前端源码（React + Vite）
-├── config.yaml          # 默认配置文件
-├── Dockerfile           # 多阶段构建（前端 + 后端）
-├── docker-compose.yml   # 容器编排
-└── Makefile             # 常用命令快捷方式
+│   ├── acp/               # ACP 协议封装：连接、客户端、会话、健康检查、二进制安装、注册表、子 Agent 运行
+│   ├── agent/             # Agent 注册表与路由
+│   ├── config/            # 配置加载、校验与历史数据迁移
+│   ├── database/          # 数据库连接
+│   ├── handlers/          # HTTP 处理器（会话、Agent、文件、终端、任务、笔记、MCP、日志、调试、工作区）
+│   ├── logging/           # 日志中心与处理（实时日志 SSE 推送）
+│   ├── mcp/
+│   │   ├── notes/         # 笔记 MCP 服务器（将笔记暴露为工具/资源）
+│   │   └── subagent/      # 子 Agent MCP 服务器（调用子 Agent 会话）
+│   ├── middleware/        # JWT 鉴权中间件
+│   ├── models/            # 数据模型
+│   ├── repository/        # 数据访问层
+│   ├── router/            # 路由注册与静态文件服务
+│   ├── services/          # 业务服务（认证、JWT、调度器、笔记分类、任务元数据）
+│   └── sysutil/           # 系统工具（PATH 扩充、文件路径）
+├── web/                   # 前端源码（React + Vite）
+├── electron/              # Electron 桌面客户端
+├── scripts/               # 构建与打包脚本（Pake、桌面应用、发布）
+├── assets/                # 应用图标（PNG、SVG）
+├── docs/                  # 附加文档
+├── vendor/                # 第三方 Go 依赖
+├── config.yaml            # 默认配置文件
+├── Dockerfile             # 多阶段构建（前端 + 后端）
+├── docker-compose.yml     # 容器编排
+└── Makefile               # 常用命令快捷方式
 ```
 
 ## 快速开始
@@ -102,6 +122,22 @@ make docker-up-d
 ANTHROPIC_API_KEY=sk-xxx make docker-up-d
 ```
 
+### 桌面客户端
+
+```bash
+# Pake 桌面客户端（轻量 Tauri 壳）
+make pake              # 仅打包 Pake 壳
+make desktop           # macOS 桌面应用（Apple Silicon）
+make desktop-linux     # Linux amd64 桌面应用
+make desktop-windows   # Windows amd64 桌面应用
+
+# Electron 桌面客户端（功能完整，支持自动更新）
+make electron-dev     # 开发模式运行
+make electron-dist    # 打包当前平台
+make electron-install # 安装到 /Applications（macOS）
+make electron-run     # 启动已安装的应用
+```
+
 ## 配置说明
 
 配置文件为 `config.yaml`，也可通过环境变量覆盖：
@@ -109,15 +145,24 @@ ANTHROPIC_API_KEY=sk-xxx make docker-up-d
 | 配置项 | 环境变量 | 说明 |
 |--------|---------|------|
 | `server.port` | `SERVER_PORT` | 服务端口，默认 `8080` |
-| `server.mode` | `SERVER_MODE` | `debug` / `release`，release 为单端口模式 |
+| `server.mode` | `SERVER_MODE` | `debug` / `release` |
 | `server.web_dist` | `WEB_DIST` | 前端构建产物目录，默认 `./web/dist` |
+| `server.public_base_url` | `PUBLIC_BASE_URL` | MCP 端点公网基础 URL |
+| `logging.level` | `LOGGING_LEVEL` | 日志等级：`debug` / `info` / `warn` / `error`，默认 `info` |
 | `database.path` | `DATABASE_PATH` | SQLite 数据库路径，默认 `~/.openNexus/opennexus.db` |
 | `jwt.secret` | `JWT_SECRET` | JWT 签名密钥（生产环境务必修改） |
+| `jwt.access_ttl` | `JWT_ACCESS_TTL` | 访问令牌有效期，默认 `15m` |
+| `jwt.refresh_ttl` | `JWT_REFRESH_TTL` | 刷新令牌有效期，默认 `168h` |
+| `auth.auto_login` | `AUTH_AUTO_LOGIN` | 自动以 admin 登录，默认 `true` |
+| `debug.acp.enabled` | `DEBUG_ACP_ENABLED` | 启用 ACP 调试日志，默认 `true` |
+| `debug.acp.dir` | `DEBUG_ACP_DIR` | ACP 调试日志存储目录 |
 | `agents.workspace.session_dir` | `AGENTS_WORKSPACE_SESSION_DIR` | 会话工作区根目录，默认 `~/.openNexus/session` |
+| `agents.workspace.default_mode` | - | 工作区模式：`temporary` / `persistent` |
+| `agents.mcp.config_path` | `AGENTS_MCP_CONFIG_PATH` | 全局 MCP 配置路径，默认 `~/.agents/mcp.json` |
 
 配置文件查找顺序：`CONFIG_PATH` → `~/.openNexus/config.yaml` → `./config.yaml`。数据库与会话数据默认均在 `~/.openNexus/`。
 
-Agent 的连接命令、参数、API Key 等可在前端「设置」页面动态管理，修改后实时生效。
+Agent 的连接命令、参数、API Key 等可在前端「设置」页面动态管理，修改后实时生效。Skills、Commands、Rules、Sub-Agents、MCP 等均可通过 `config.yaml` 中的用户/项目目录配置。
 
 ## 数据迁移（自动）
 
@@ -190,13 +235,65 @@ npm exec --include=optional --yes @agentclientprotocol/claude-agent-acp@latest -
 - **temporary**：临时工作区，仅在删除整个工作区时清理目录；删除单个会话不会删除共享目录；目录被误删时恢复会话会自动重建
 - **persistent**：持久工作区，目录需事先存在，删除工作区时才会清理关联记录
 
+## 子 Agent (Sub-Agent)
+
+子 Agent 是可复用的 Agent 定义，通过内置 MCP 服务（`/mcp/subagent`）从任意 Agent 会话中调用。
+
+### 定义子 Agent
+
+在 `~/.agents/agents/`（或配置的 sub-agent 目录）下创建 Markdown 文件，包含 frontmatter：
+
+```markdown
+---
+name: my-reviewer
+description: 代码审查专家
+model: claude-sonnet-4-20250514
+tools:
+  - read
+  - edit
+  - bash
+---
+
+你是一个代码审查专家。分析提交请求中的 Bug、风格问题和安全漏洞。
+```
+
+后端启动时自动扫描这些文件，注册为 MCP 工具，所有 Agent 会话均可使用。
+
+### 使用方法
+
+- **从 Agent 对话中调用**：使用 `RunSubAgent`（`/subagent`）工具调用
+- **自动发现**：`opennexus-subagent` MCP 服务自动将条目同步到全局 MCP 配置
+- **继承**：子 Agent 可以通过 `UserAgentPrefs` 继承父会话的 Agent 偏好（模型、设置等）
+
+## 笔记 MCP 服务
+
+openNexus 提供内置 MCP 服务（`/mcp/notes`），将笔记暴露为 MCP 工具和资源。Agent 可以通过该服务：
+
+- 按 ID 或标签读取笔记
+- 按内容搜索笔记
+- 创建新笔记并自动分类
+
+MCP 服务自动配置同步——已生成令牌的笔记自动写入全局 `mcp.json` 配置。
+
+笔记自动分类可在「设置 → 笔记」中启用：后台工作进程定期使用已配置的 Agent 对未分类笔记打标签。
+
+## 权限系统
+
+当 Agent 发起敏感工具调用（如文件写入、命令执行）时，openNexus 可弹窗请求用户审批：
+
+- **允许一次**：批准本次调用
+- **始终允许**：本次会话中自动批准
+- **拒绝**：拒绝本次调用
+
+权限按 Agent 分别配置，通过 `PermissionDialog` 组件交互，由 `internal/acp/permission.go` 处理后端审批流程。
+
 ## Prompt 输入
 
 对话输入框支持两种补全方式（↑↓ 选择，Enter 确认，Esc 返回上一级或关闭）：
 
 | 触发符 | 说明 |
 |--------|------|
-| `/` | 平铺列表，筛选 command、skill、mode |
+| `/` | 平铺列表，筛选 command、skill、mode、sub-agent |
 | `@` | 分级选择：先选类型（Command / Skill / File / Note），再进入具体项 |
 
 `@` 分级导航：
@@ -212,17 +309,36 @@ npm exec --include=optional --yes @agentclientprotocol/claude-agent-acp@latest -
 | 命令 | 说明 |
 |------|------|
 | `make dev` | 一键启动前后端开发服务器 |
-| `make run` | 单端口启动（release 模式） |
+| `make backend` | 仅启动后端（http://localhost:8080） |
+| `make frontend` | 仅启动前端（http://localhost:3000） |
+| `make run` | 单端口启动（构建 + release 模式） |
+| `make run-desktop` | 构建 + 启动并自动打开浏览器 |
 | `make build` | 构建前端 + 后端 |
+| `make release` | 跨平台发布构建（darwin/linux/windows） |
+| `make test` | 运行后端全部测试 |
+| `make clean` | 清理构建产物 |
+| **Pake 桌面客户端** | |
 | `make pake` | 仅打包 Pake 桌面客户端 |
 | `make desktop` | 构建 macOS 桌面应用（Apple Silicon） |
 | `make desktop-linux` | 构建 Linux amd64 桌面应用 |
 | `make desktop-windows` | 构建 Windows amd64 桌面应用 |
-| `make test` | 运行后端全部测试 |
-| `make clean` | 清理构建产物 |
+| **Electron 桌面客户端** | |
+| `make electron-dev` | Electron 开发模式运行 |
+| `make electron-dist` | 打包 Electron 桌面应用（dmg/AppImage/nsis） |
+| `make electron-install` | 安装到 /Applications（macOS） |
+| `make electron-uninstall` | 从 /Applications 卸载（macOS） |
+| `make electron-run` | 启动已安装的 Electron 应用 |
+| **Docker** | |
+| `make docker-build` | 仅构建 Docker 镜像 |
 | `make docker-up` | 构建 Docker 镜像并前台启动 |
 | `make docker-down` | 停止并清理 Docker 容器 |
 | `make docker-logs` | 查看 Docker 容器日志 |
+
+## 调试与日志
+
+- **调试面板**：在任意会话中打开「调试」Tab，查看原始 ACP JSON-RPC 报文与高层事件
+- **日志面板**：后端日志实时推送到前端（基于 SSE）
+- **ACP 调试日志**：当 `debug.acp.enabled` 为 `true` 时，原始 ACP 通信记录到 `~/.openNexus/acp-debug/`，供离线分析
 
 ## 发布构建
 
@@ -231,7 +347,9 @@ npm exec --include=optional --yes @agentclientprotocol/claude-agent-acp@latest -
 | 平台 | 桌面版产物 | 命令行产物 |
 |------|-----------|-----------|
 | macOS Apple Silicon | `opennexus-darwin-desktop.tar.gz` | `opennexus-darwin-arm64.tar.gz` |
+| macOS x86_64 | - | `opennexus-darwin-amd64.tar.gz` |
 | Linux x86_64 | `opennexus-linux-desktop.tar.gz` | `opennexus-linux-amd64.tar.gz` |
+| Linux arm64 | - | `opennexus-linux-arm64.tar.gz` |
 | Windows x86_64 | `opennexus-windows-desktop.zip` | `opennexus-windows-amd64.zip` |
 
 本地打包依赖 Rust、pnpm 与 `pake-cli@3.13.0`，详见 `scripts/build-pake.sh`。

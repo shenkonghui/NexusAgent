@@ -1,4 +1,4 @@
-import { Code2, BookOpenText } from 'lucide-react'
+import { Code2 } from 'lucide-react'
 import type { ModeDef, PanelDef, LayoutNode } from './types'
 import { leaf, split, tabs } from './types'
 import { PANELS } from './panels'
@@ -42,20 +42,6 @@ export const MODES: ModeDef[] = [
         1.3,
       ),
       // 右：AI 对话
-      leaf('chat', 1),
-    ]),
-  },
-  {
-    id: 'docs',
-    titleKey: 'taskMode.docs',
-    icon: <BookOpenText size={14} />,
-    sessionKind: 'docs',
-    configBar: 'docs',
-    requiresDocTarget: true,
-    layout: split('row', [
-      // 中间列：文档预览/编辑（含 drawio 渲染）
-      leaf('doc-preview', 1.3),
-      // 右：AI 对话（生成 drawio）
       leaf('chat', 1),
     ]),
   },

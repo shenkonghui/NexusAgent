@@ -1,5 +1,5 @@
 import { apiFetch, apiFetchRaw } from './client'
-import type { AgentCommand, AgentSkill, DocFileEntry } from '../types'
+import type { AgentCommand, AgentSkill } from '../types'
 
 // 目录项
 export interface DirEntry {
@@ -196,16 +196,4 @@ export function deleteWorkspaceEntry(path: string): Promise<{ data: { path: stri
   return apiFetch(`/filesystem/entry?path=${encodeURIComponent(path)}`, {
     method: 'DELETE',
   })
-}
-
-// 文档扫描响应：递归列出目录下所有 .md 文件
-export interface DocScanResponse {
-  root: string
-  files: DocFileEntry[]
-  truncated: boolean
-}
-
-// 递归扫描指定目录下所有 .md 文件（含子目录），用于侧边栏文档文件夹绑定后展开列出文档。
-export function listDocs(path: string): Promise<{ data: DocScanResponse }> {
-  return apiFetch(`/filesystem/docs?path=${encodeURIComponent(path)}`)
 }

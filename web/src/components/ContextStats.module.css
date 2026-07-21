@@ -28,13 +28,14 @@
   transition: stroke-dasharray 0.3s ease;
 }
 
-/* 悬停显示的占用详情弹层 */
+/* 悬停/点击显示的占用详情弹层（向上开，避免被底部配置栏的 overflow 裁切） */
 .popover {
   position: absolute;
-  top: calc(100% + 8px);
+  bottom: calc(100% + 8px);
   right: 0;
   z-index: 60;
-  min-width: 200px;
+  min-width: 240px;
+  max-width: 340px;
   padding: 10px 12px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
@@ -78,6 +79,190 @@
 }
 
 @keyframes ctxFadeIn {
-  from { opacity: 0; transform: translateY(-2px); }
+  from { opacity: 0; transform: translateY(2px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== 查看详情：类别占用明细 + 工具调用记录 ===== */
+.detailToggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 4px 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.detailToggle:hover {
+  color: var(--text-primary);
+}
+
+.detailBody {
+  margin-top: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.detailSection {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.detailSection:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.detailSectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.detailCount {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--bg-hover, rgba(0, 0, 0, 0.06));
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 500;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 类别占比行 */
+.catRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.catLabel {
+  flex: 0 0 52px;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.catBarTrack {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.catBarFill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--text-primary);
+  transition: width 0.3s ease;
+}
+
+.catValue {
+  flex: 0 0 auto;
+  min-width: 34px;
+  text-align: right;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+/* 工具调用列表 */
+.toolList {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.toolItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.toolIcon {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+
+.toolText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.toolStatus {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.toolStatus_completed {
+  background: #22c55e;
+}
+
+.toolStatus_failed {
+  background: #ef4444;
+}
+
+.toolStatus_in_progress {
+  background: #f59e0b;
+}
+
+.toolStatus_pending {
+  background: var(--border);
+}
+
+/* 清理上下文按钮 */
+.clearBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.clearBtn:hover:not(:disabled) {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.04));
+  border-color: var(--text-muted);
+}
+
+.clearBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }

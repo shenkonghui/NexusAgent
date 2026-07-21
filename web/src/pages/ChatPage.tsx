@@ -24,17 +24,16 @@ import ModelPicker from '../components/ModelPicker'
 import { type ConvState as ConvStatusState } from '../components/ConvStatusBar'
 import TaskModeSwitch, { type TaskMode } from '../components/TaskModeSwitch'
 import { Plus } from 'lucide-react'
-import { useFileViewer } from '../context/FileViewerContext'
-import { saveLastDoc, loadDocFolders, loadDocSession, saveDocSession, clearDocSession, TASK_MODE_KEY, LAST_DOC_KEY_PREFIX, type DocTarget } from '../utils/docs'
-import { docEditSystemPrompt, docSessionTitle } from '../utils/docPrompt'
 import LayoutRenderer from '../modes/LayoutRenderer'
 import { getMode } from '../modes/registry'
 import type { PanelCtx } from '../modes/types'
 import styles from './ChatPage.module.css'
 
-// navigate 时携带的 state：initialPrompt/createdSession 用于新建会话跳转；
-// doc 用于侧边栏点击文档时，切到文档模式并打开指定文档。
-type NavigateState = { initialPrompt?: string; createdSession?: Session; doc?: DocTarget }
+// localStorage key：顶层任务模式（历史上有 coding/docs，现仅 coding）
+const TASK_MODE_KEY = 'opennexus.taskMode'
+
+// navigate 时携带的 state：initialPrompt/createdSession 用于新建会话跳转。
+type NavigateState = { initialPrompt?: string; createdSession?: Session }
 
 type ConvState = ConvStatusState
 
@@ -49,8 +48,6 @@ export default function ChatPage() {
   const workspaceId = !isNaN(urlWorkspaceId) ? urlWorkspaceId : storedWorkspaceId
   const navigate = useNavigate()
   const location = useLocation()
-  // 文档模式下，左侧「文件」浏览器选中的文件（绝对路径），优先作为当前文档。
-  const { openFilePath } = useFileViewer()
   const initialPromptRef = useRef<string>('')
   const bootstrappedSessionIdRef = useRef<number | null>(null)
   // location.state 变化时同步到 ref（navigate 跳转不会重新挂载组件，useRef 不会自动更新）
@@ -60,64 +57,24 @@ export default function ChatPage() {
   }
 
   // 顶层 UI 模式（与 ACP SessionMode 正交）。localStorage 记忆，默认 coding。
-  // 模式来自 registry；未识别的值回退到首个模式。
-  const [taskMode, setTaskMode] = useState<TaskMode>(
-    () => localStorage.getItem(TASK_MODE_KEY) || 'coding',
-  )
+  // 历史上有 coding/docs 两种模式，docs 模式已移除；老用户 localStorage 残留的 'docs'
+  // 在初始化时一次性迁移为 'coding'，避免无意义的状态。
+  const [taskMode, setTaskMode] = useState<TaskMode>(() => {
+    const saved = localStorage.getItem(TASK_MODE_KEY)
+    if (saved !== 'coding') {
+      localStorage.setItem(TASK_MODE_KEY, 'coding')
+    }
+    return 'coding'
+  })
   const handleTaskModeChange = useCallback((m: TaskMode) => {
     setTaskMode(m)
     localStorage.setItem(TASK_MODE_KEY, m)
   }, [])
 
-  // 文档模式当前打开的文档。侧边栏点击文档时通过 navigate state 传入；否则读 localStorage 上次打开的。
-  const [docTarget, setDocTarget] = useState<DocTarget | null>(() => {
-    if (navState?.doc) return navState.doc
-    try {
-      const stored = localStorage.getItem(LAST_DOC_KEY_PREFIX + (workspaceId || 0))
-      if (stored) return JSON.parse(stored) as DocTarget
-    } catch { /* ignore */ }
-    return null
-  })
-  // 侧边栏点击文档会 navigate 到 tasks 页并带 doc state，这里响应 state 变化
-  useEffect(() => {
-    if (navState?.doc) {
-      // 同一工作区的所有文档共用同一个会话，切换文档不再重置对话；
-      // 仅更新预览目标与记忆。会话的加载/重置由「工作区共享会话恢复」effect 负责。
-      setDocTarget(navState.doc)
-      // 自动切到文档模式
-      if (taskMode !== 'docs') {
-        setTaskMode('docs')
-        localStorage.setItem(TASK_MODE_KEY, 'docs')
-      }
-      localStorage.setItem(LAST_DOC_KEY_PREFIX + (workspaceId || 0), JSON.stringify(navState.doc))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navState?.doc])
-
-  // ===== 文档模式专用状态（独立于编码模式的 session/messages） =====
-  // 文档模式复用原生 PromptInput + MessageList，但维护自己的 session，
-  // 这样编码会话和文档对话互不干扰。
-  const [docMessages, setDocMessages] = useState<Message[]>([])
-  const [docSession, setDocSession] = useState<Session | null>(null)
-  const [docConvState, setDocConvState] = useState<ConvState>('idle')
-  // AI 直接编辑磁盘文件后，自增此值触发文档预览重新读取。
-  const [docReloadKey, setDocReloadKey] = useState(0)
-  // 文档会话激活后加载的模式 / 配置项（复用编码对话框的模式/模型选择器）。
-  const [docModes, setDocModes] = useState<SessionMode[]>([])
-  const [docConfigOptions, setDocConfigOptions] = useState<ConfigOption[]>([])
-  const [docCurrentModeId, setDocCurrentModeId] = useState('')
-  // 文档模式独立的权限队列（doc AI 直接编辑磁盘会触发权限请求）。
-  const [docPendingPermission, setDocPendingPermission] = useState<PermissionRequestPayload | null>(null)
-  const [docPermissionResponding, setDocPermissionResponding] = useState(false)
-  const docPermissionQueueRef = useRef<PermissionRequestPayload[]>([])
-  const docWaitingPermissionRef = useRef(false)
-  const docAbortRef = useRef<AbortController | null>(null)
-  const docMountedRef = useRef(true)
-  useEffect(() => { docMountedRef.current = true; return () => { docMountedRef.current = false } }, [])
-  // 上一次发送时的文档路径：共享会话跨文档时，文档变化需向 AI 重新图的当前目标。
-  const lastDocPathRef = useRef('')
-  // 已为哪个工作区恢复过文档共享会话，避免重复拉取与覆盖流式中的消息。
-  const docRestoredWorkspaceRef = useRef<number | null>(null)
+  // 统一的「新建任务」入口：跳到新建任务页。
+  const handleNewTask = useCallback(() => {
+    navigate(newTaskUrl(workspaceId))
+  }, [workspaceId, navigate])
 
   // 会话相关状态
   const [session, setSession] = useState<Session | null>(null)
@@ -191,18 +148,7 @@ export default function ChatPage() {
 
   const bootstrapSession = navState?.createdSession?.id === sessionId ? navState.createdSession : null
   const isCreateMode = !hasSession && isNewTaskPath(location.pathname, workspaceId)
-  const isDocMode = taskMode === 'docs' && !hasSession
   const activeSession = session ?? bootstrapSession
-
-  // 当前文档的绝对路径：优先取左侧文件浏览器选中项，否则由 docTarget 解析。
-  const activeDocAbsPath: string = (() => {
-    if (openFilePath) return openFilePath
-    if (docTarget) {
-      const found = loadDocFolders().find((d) => d.id === docTarget.folderId)
-      if (found) return `${found.path.replace(/\/$/, '')}/${docTarget.filePath}`
-    }
-    return ''
-  })()
 
   // 从消息流中提取当前 session mode
   useEffect(() => {
@@ -366,9 +312,9 @@ export default function ChatPage() {
       .catch((err) => setError(err instanceof Error ? err.message : t('common.failed')))
   }
 
-  // 监听 agent 变化，探测 config options（新建页与文档模式都需要预探供模型选择）
+  // 监听 agent 变化，探测 config options（新建页需要预探供模型选择）
   useEffect(() => {
-    if (hasSession || (!isCreateMode && !isDocMode) || !selectedAgent) {
+    if (hasSession || !isCreateMode || !selectedAgent) {
       setProbeConfigs([])
       setSelectedModel('')
       return
@@ -393,19 +339,19 @@ export default function ChatPage() {
       })
       .finally(() => { if (alive) setProbing(false) })
     return () => { alive = false }
-  }, [selectedAgent, hasSession, isCreateMode, isDocMode])
+  }, [selectedAgent, hasSession, isCreateMode])
 
   // 新建页：提前预连接 agent，减少首次发送时的冷启动等待。
   // agent 选中后立即用 probe cwd 预热；workspaceCwd 就绪后若不同则再次预热。
   useEffect(() => {
-    if (hasSession || (!isCreateMode && !isDocMode) || !selectedAgent) return
+    if (hasSession || !isCreateMode || !selectedAgent) return
     preconnectAgent(selectedAgent, workspaceCwd)
-  }, [selectedAgent, workspaceCwd, hasSession, isCreateMode, isDocMode])
+  }, [selectedAgent, workspaceCwd, hasSession, isCreateMode])
 
   // 新建任务页：加载 agent 级 slash command / mode（探测完成后刷新）
   useEffect(() => {
-    if (hasSession || (!isCreateMode && !isDocMode) || !selectedAgent || probing) {
-      if (hasSession || (!isCreateMode && !isDocMode)) {
+    if (hasSession || !isCreateMode || !selectedAgent || probing) {
+      if (hasSession || !isCreateMode) {
         setHomeCommands([])
         setHomeModes([])
       }
@@ -413,56 +359,18 @@ export default function ChatPage() {
     }
     listAgentCommands(selectedAgent, workspaceCwd || undefined).then((r) => setHomeCommands(r.data.commands || [])).catch(() => setHomeCommands([]))
     listAgentModes(selectedAgent).then((r) => setHomeModes(r.data.modes || [])).catch(() => setHomeModes([]))
-  }, [selectedAgent, hasSession, isCreateMode, isDocMode, probing, workspaceCwd])
+  }, [selectedAgent, hasSession, isCreateMode, probing, workspaceCwd])
 
   // 新建任务页：加载 skills（与 agent 无关；cwd 为空时仍扫用户目录）
   useEffect(() => {
-    if (hasSession || (!isCreateMode && !isDocMode)) {
+    if (hasSession || !isCreateMode) {
       setHomeSkills([])
       return
     }
     listSkillsByPath(workspaceCwd || undefined)
       .then((r) => setHomeSkills(r.data.skills || []))
       .catch(() => setHomeSkills([]))
-  }, [workspaceCwd, hasSession, isCreateMode, isDocMode])
-
-  // 文档助手会话创建后加载其模式 / 配置项，供对话框的模式/模型选择器使用（编码对话框形式）。
-  useEffect(() => {
-    if (!docSession) { setDocModes([]); setDocConfigOptions([]); return }
-    const id = docSession.id
-    listModes(id).then((r) => {
-      const list = r.data.modes || []
-      setDocModes(list)
-      if (list.length > 0) setDocCurrentModeId((prev) => prev || list[0].id)
-    }).catch(() => setDocModes([]))
-    listConfigOptions(id).then((r) => setDocConfigOptions(r.data.config_options || [])).catch(() => setDocConfigOptions([]))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docSession?.id])
-
-  // 工作区共享会话恢复：进入文档模式 / 切换工作区时，加载该工作区持久化的
-  // 文档会话及其历史，使同一工作区的文档对话可跨文档 / 跨刷新恢复。
-  useEffect(() => {
-    if (!user || !isDocMode || !workspaceId) return
-    if (docRestoredWorkspaceRef.current === workspaceId) return
-    docRestoredWorkspaceRef.current = workspaceId
-    const persisted = loadDocSession(workspaceId)
-    if (!persisted) { setDocSession(null); setDocMessages([]); lastDocPathRef.current = ''; return }
-    Promise.all([getSession(persisted), listMessages(persisted)])
-      .then(([s, m]) => {
-        if (!docMountedRef.current) return
-        setDocSession(s.data)
-        setDocMessages(m.data.messages || [])
-      })
-      .catch(() => {
-        // 会话已被删除 / 失效：清除记忆，回到空对话（首次发送时重建）
-        clearDocSession(workspaceId)
-        if (!docMountedRef.current) return
-        setDocSession(null)
-        setDocMessages([])
-        lastDocPathRef.current = ''
-      })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, isDocMode, workspaceId])
+  }, [workspaceCwd, hasSession, isCreateMode])
 
   // 将 URL 中的 workspace 同步到 hook，使 sidebar 展示该 workspace 的会话列表。
   // 任务列表页（无会话）与 会话详情页 都需要同步，否则切换工作区时侧边栏会显示其它工作区的会话。
@@ -763,228 +671,6 @@ export default function ChatPage() {
     )
   }
 
-  // ===== 文档模式权限队列（与编码模式隔离，绑定 docSession.id） =====
-  function enqueueDocPermission(req: PermissionRequestPayload) {
-    docWaitingPermissionRef.current = true
-    setDocPendingPermission((prev) => {
-      if (prev?.request_id === req.request_id) return prev
-      if (!prev) return req
-      if (!docPermissionQueueRef.current.some((p) => p.request_id === req.request_id)) {
-        docPermissionQueueRef.current = [...docPermissionQueueRef.current, req]
-      }
-      return prev
-    })
-    setDocConvState('waiting_permission')
-  }
-
-  function clearDocPermissions() {
-    docPermissionQueueRef.current = []
-    docWaitingPermissionRef.current = false
-    setDocPendingPermission(null)
-  }
-
-  function advanceDocPermissionQueue() {
-    const next = docPermissionQueueRef.current.shift() || null
-    docWaitingPermissionRef.current = !!next
-    setDocPendingPermission(next)
-    if (next) setDocConvState('waiting_permission')
-    else setDocConvState((s) => (s === 'waiting_permission' ? 'streaming' : s))
-  }
-
-  async function handleDocPermissionRespond(optionId: string) {
-    if (!docPendingPermission || !docSession) return
-    setDocPermissionResponding(true)
-    setError('')
-    try {
-      const current = docPendingPermission
-      const queued = optionId === 'allow-always' ? [...docPermissionQueueRef.current] : []
-      if (optionId === 'allow-always') docPermissionQueueRef.current = []
-      await respondPermission(docSession.id, current.request_id, optionId)
-      for (const req of queued) {
-        try { await respondPermission(docSession.id, req.request_id, optionId) } catch { /* 后端可能已批量处理 */ }
-      }
-      if (optionId === 'allow-always') {
-        docWaitingPermissionRef.current = false
-        setDocPendingPermission(null)
-        setDocConvState('streaming')
-      } else {
-        advanceDocPermissionQueue()
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('common.failed'))
-    } finally {
-      setDocPermissionResponding(false)
-    }
-  }
-
-  async function handleDocPermissionCancel() {
-    if (!docPendingPermission || !docSession) return
-    setDocPermissionResponding(true)
-    setError('')
-    try {
-      await respondPermission(docSession.id, docPendingPermission.request_id, '', true)
-      advanceDocPermissionQueue()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('common.failed'))
-    } finally {
-      setDocPermissionResponding(false)
-    }
-  }
-
-  // ===== 文档模式发送：复用原生 streamPrompt 链路，维护独立的 docSession/docMessages =====
-  // doc AI 像编码模式一样直接读写磁盘上的 .md 文件；完成后自增 docReloadKey 让预览重新读盘。
-  // 仍可在文档中嵌入 ```drawio XML 代码块，预览会自动渲染。
-  async function handleDocSend(prompt: string) {
-    const docPath = activeDocAbsPath
-    if (!docPath || !workspaceId) return
-    const text = prompt.trim()
-    if (!text) return
-    setDocConvState('connecting')
-    setError('')
-
-    // 首次发送：创建工作区共享 session，并前置注入文档编辑 system prompt
-    let sid = docSession?.id
-    let promptToSend = text
-    if (!sid) {
-      try {
-        let agentType = selectedAgent || 'claude-code'
-        if (!selectedAgent) {
-          try {
-            const prefs = await getAgentPrefs()
-            if (prefs.data.last_agent_type) agentType = prefs.data.last_agent_type
-          } catch { /* 回退默认 */ }
-        }
-        const resp = await createSession(agentType, workspaceId, selectedModel || undefined)
-        sid = resp.data.id
-        setDocSession(resp.data)
-        // 持久化为该工作区的文档共享会话，后续打开任意文档都复用它
-        saveDocSession(workspaceId, sid)
-        docRestoredWorkspaceRef.current = workspaceId
-        const docName = docPath.split('/').pop() || docPath
-        try { await updateSessionTitle(sid, docSessionTitle(docName)) } catch { /* 忽略 */ }
-        promptToSend = `${docEditSystemPrompt(docPath)}\n\n===\n\n用户请求：${text}`
-        lastDocPathRef.current = docPath
-      } catch (err) {
-        setError(t('docAI.initError', { message: err instanceof Error ? err.message : String(err) }))
-        setDocConvState('idle')
-        return
-      }
-    } else if (docPath !== lastDocPathRef.current) {
-      // 共享会话内切换到另一篇文档：提示 AI 当前操作目标已变（携带完整编辑约定）
-      promptToSend = `${docEditSystemPrompt(docPath)}\n\n===\n\n用户请求：${text}`
-      lastDocPathRef.current = docPath
-    }
-
-    // 乐观追加用户消息（sequence=0，实时流到达后按 sequence 去重替换）
-    const optimisticId = -Date.now()
-    const userMsg: Message = {
-      id: optimisticId, session_id: String(sid), role: 'user', kind: 'user_message_chunk',
-      content: text, raw_json: '', sequence: 0, execution_id: null, created_at: new Date().toISOString(),
-    }
-    setDocMessages((prev) => [...prev, userMsg])
-
-    const ac = new AbortController()
-    docAbortRef.current = ac
-    setDocConvState('streaming')
-
-    await streamPrompt(
-      sid,
-      promptToSend,
-      (msg) => {
-        if (!docMountedRef.current) return
-        if (msg.kind === 'permission_request') {
-          const req = parsePermissionRequest(msg.raw_json)
-          if (req) enqueueDocPermission(req)
-        }
-        // 按 sequence 去重：避免轮询补齐与实时流重复
-        setDocMessages((prev) => {
-          const rest = prev.filter((m) => m.id === optimisticId || m.sequence < msg.sequence)
-          const noOptimistic = rest.filter((m) => m.id !== optimisticId)
-          return [...noOptimistic, msg]
-        })
-        setDocConvState((s) => (s === 'waiting_permission' ? s : 'streaming'))
-      },
-      () => {
-        if (!docMountedRef.current) return
-        docAbortRef.current = null
-        clearDocPermissions()
-        setDocConvState('idle')
-        // AI 可能已直接修改磁盘文件，触发文档预览重新读盘
-        setDocReloadKey((k) => k + 1)
-      },
-      (err) => {
-        if (!docMountedRef.current) return
-        docAbortRef.current = null
-        clearDocPermissions()
-        setDocConvState('idle')
-        setError(t('docAI.sendFailed', { message: err.message }))
-      },
-      {
-        signal: ac.signal,
-        shouldPauseIdleTimeout: () => docWaitingPermissionRef.current,
-      },
-    )
-  }
-
-  async function handleDocCancel() {
-    if (!docSession) return
-    try { await cancelSession(docSession.id) } catch { /* 尽力 */ }
-    docAbortRef.current?.abort()
-    clearDocPermissions()
-    setDocConvState('idle')
-  }
-
-  // 文档对话框模式选择（编码对话框形式）：会话未创建时仅本地记录，已创建则下发。
-  async function handleDocSetMode(modeId: string) {
-    if (!modeId || modeId === docCurrentModeId) return
-    setError('')
-    setDocCurrentModeId(modeId)
-    if (docSession) {
-      try { await setSessionMode(docSession.id, modeId) } catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) }
-    }
-  }
-
-  // 文档对话框模型/配置选择：会话未创建时等同于预探模型选择，已创建则下发到会话。
-  async function handleDocSetConfigOption(configId: string, value: string) {
-    setError('')
-    if (!docSession) {
-      setSelectedModel(value)
-      setProbeConfigs((prev) => prev.map((o) => (o.id === configId ? { ...o, current_value: value } : o)))
-      if (selectedAgent) {
-        const opt = probeConfigs.find((o) => o.id === configId)
-        schedulePrefsPatch({
-          last_agent_type: selectedAgent,
-          agent_type: selectedAgent,
-          configs: { [opt?.category || 'model']: value },
-        })
-      }
-      return
-    }
-    const opt = docConfigOptions.find((o) => o.id === configId)
-    setDocConfigOptions((prev) => prev.map((o) => (o.id === configId ? { ...o, current_value: value } : o)))
-    try {
-      await setConfigOption(docSession.id, configId, value)
-      if (opt?.category && docSession.agent_type) {
-        schedulePrefsPatch({
-          last_agent_type: docSession.agent_type,
-          agent_type: docSession.agent_type,
-          configs: { [opt.category]: value },
-        })
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('common.failed'))
-      listConfigOptions(docSession.id).then((r) => setDocConfigOptions(r.data.config_options || [])).catch(() => {})
-    }
-  }
-
-  const displayDocConvState: ConvState = docConvState
-
-  // 稳定引用：供 memo 化的 DocPreviewView 比较 props，避免每次重渲染新建导致预览重渲染。
-  const handleCloseDoc = useCallback(() => {
-    setDocTarget(null)
-    saveLastDoc(workspaceId, { folderId: '', filePath: '' })
-  }, [workspaceId])
-
   const displayConvState: ConvState = pendingPermission ? 'waiting_permission' : convState
 
   async function recoverFromTimeout(prompt: string, gotAgentReply: boolean) {
@@ -1167,120 +853,47 @@ export default function ChatPage() {
   if (!user) return null
   if (hasSession && loading && !activeSession) return <LoadingSpinner text={t('common.loading')} />
 
-  // ============ 统一模式渲染：编码 / 文档（数据驱动） ============
+  // ============ 统一模式渲染（数据驱动） ============
   // 模式 → 布局树 → LayoutRenderer 递归渲染。新增模式不需改这里。
-  // 文档模式优先于"无会话"分支：它有独立的 docSession，不依赖编码会话存在。
   // 编码模式要求有会话，否则落到下面的任务列表/新建任务分支。
   const modeDef = getMode(taskMode)
-  const shouldRenderLayout = modeDef.sessionKind === 'docs' || hasSession
-  if (shouldRenderLayout) {
-    // 构造 PanelCtx：按模式选择对应的会话生命周期
-    const isDocs = modeDef.sessionKind === 'docs'
-    const ctx: PanelCtx = isDocs
-      ? {
-          sessionKind: 'docs',
-          sessionId: docSession?.id,
-          session: docSession,
-          messages: docMessages,
-          convState: displayDocConvState,
-          sending: displayDocConvState !== 'idle',
-          onSend: handleDocSend,
-          onCancel: handleDocCancel,
-          commands: homeCommands,
-          modes: docSession ? docModes : homeModes,
-          skills: homeSkills,
-          currentModeId: docCurrentModeId,
-          onSetMode: handleDocSetMode,
-          configOptions: docSession ? docConfigOptions : probeConfigs,
-          onSetConfigOption: handleDocSetConfigOption,
-          agents: agents.map((a) => ({ type: a.type, display_name: a.display_name })),
-          selectedAgent,
-          onSelectAgent: (val) => {
-            setSelectedAgent(val)
-            if (val) schedulePrefsPatch({ last_agent_type: val })
-          },
-          selectedModel,
-          probeConfigs,
-          onSelectModel: (val) => {
-            setSelectedModel(val)
-            setProbeConfigs((prev) => prev.map((o) => (o.category === 'model' ? { ...o, current_value: val } : o)))
-            if (selectedAgent) {
-              schedulePrefsPatch({
-                last_agent_type: selectedAgent,
-                agent_type: selectedAgent,
-                configs: { model: val },
-              })
-            }
-          },
-          probing,
-          pendingPermission: docPendingPermission,
-          permissionResponding: docPermissionResponding,
-          onPermissionRespond: handleDocPermissionRespond,
-          onPermissionCancel: handleDocPermissionCancel,
-          executions: [],
-          workspaceId,
-          cwd: workspaceCwd,
-          // 文件浏览器选中的文件也视为当前文档（使输入框可用、预览可渲染）
-          docTarget: docTarget || (openFilePath ? { folderId: '', filePath: openFilePath } : null),
-          docContent: '',
-          onDocContentChange: () => {},
-          docReloadKey,
-          onCloseDoc: handleCloseDoc,
-          // 文档对话列复用编码对话框形式（模式/模型选择器），仅空态文案不同
-          ...({
-            __chatConfig: {
-              configBar: 'coding',
-              emptyTitleKey: 'docMode.chatEmptyTitle',
-              emptyHintKey: 'docMode.chatEmptyHint',
-              placeholderKey: 'docAI.placeholder',
-              selectDocFirstKey: 'docMode.selectDocFirst',
-            },
-          } as object),
-        }
-      : {
-          sessionKind: 'primary',
-          sessionId,
-          session: activeSession,
-          messages,
-          convState: displayConvState,
-          sending,
-          onSend: handleSend,
-          onCancel: handleCancel,
-          commands,
-          modes,
-          skills,
-          currentModeId,
-          onSetMode: handleSetMode,
-          configOptions,
-          onSetConfigOption: handleSetConfigOption,
-          agents: agents.map((a) => ({ type: a.type, display_name: a.display_name })),
-          selectedAgent,
-          onSelectAgent: () => {},
-          selectedModel: '',
-          probeConfigs: [],
-          onSelectModel: () => {},
-          probing: false,
-          pendingPermission,
-          permissionResponding,
-          onPermissionRespond: handlePermissionRespond,
-          onPermissionCancel: handlePermissionCancel,
-          executions,
-          restoreRefreshKey,
-          workspaceId,
-          cwd: activeSession?.workspace?.cwd || '',
-          onRestored: handleRestored,
-          onRestoreInputChange: setRestoreInput,
-          restoreInput,
-          source: activeSession?.source,
-          docTarget: null,
-          docContent: '',
-          onDocContentChange: () => {},
-          ...({
-            __chatConfig: {
-              configBar: 'coding',
-            },
-          } as object),
-        }
+  if (hasSession) {
+    // 构造 PanelCtx
+    const ctx: PanelCtx = {
+      sessionKind: 'primary',
+      sessionId,
+      session: activeSession,
+      messages,
+      convState: displayConvState,
+      sending,
+      onSend: handleSend,
+      onCancel: handleCancel,
+      commands,
+      modes,
+      skills,
+      currentModeId,
+      onSetMode: handleSetMode,
+      configOptions,
+      onSetConfigOption: handleSetConfigOption,
+      pendingPermission,
+      permissionResponding,
+      onPermissionRespond: handlePermissionRespond,
+      onPermissionCancel: handlePermissionCancel,
+      executions,
+      restoreRefreshKey,
+      workspaceId,
+      cwd: activeSession?.workspace?.cwd || '',
+      onRestored: handleRestored,
+      onContextCleared: () => { loadData() },
+      onRestoreInputChange: setRestoreInput,
+      restoreInput,
+      source: activeSession?.source,
+      ...({
+        __chatConfig: {
+          configBar: 'coding',
+        },
+      } as object),
+    }
 
     return (
       <AppLayout sidebarProps={{ sessions, workspaceId, currentId: sessionId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
@@ -1291,26 +904,22 @@ export default function ChatPage() {
               <TaskModeSwitch value={taskMode} onChange={handleTaskModeChange} />
               <div className={styles.actions}>
                 <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
-                {!isDocs && (
-                  <button type="button" className={styles.newTaskBtn} onClick={() => navigate(newTaskUrl(workspaceId))}>
-                    <Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('session.newSession')}
-                  </button>
-                )}
+                <button type="button" className={styles.newTaskBtn} onClick={handleNewTask}>
+                  <Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('session.newSession')}
+                </button>
                 <UserMenu />
               </div>
             </div>
             <div className={styles.sessionInfo}>
               <span className={styles.agentType}>
-                {isDocs
-                  ? (docTarget?.filePath.split('/').pop() || t('taskMode.docs'))
-                  : (activeSession?.title || activeSession?.agent_type || '')}
+                {activeSession?.title || activeSession?.agent_type || ''}
               </span>
-              {!isDocs && displayConvState !== 'idle' && (
+              {displayConvState !== 'idle' && (
                 <span className={`${styles.convStatus} ${styles[`conv_${displayConvState}`]}`}>
                   {t(`session.conv_${displayConvState}`)}
                 </span>
               )}
-              {!isDocs && activeSession?.workspace?.cwd && (
+              {activeSession?.workspace?.cwd && (
                 <span className={styles.cwd} title={activeSession.workspace.cwd}>
                   {activeSession.workspace.cwd.split('/').filter(Boolean).pop()}
                 </span>
@@ -1320,13 +929,13 @@ export default function ChatPage() {
 
           {error && (
             <ErrorBanner
-              message={retryable && !isDocs ? `${error} (${t('common.retry')})` : error}
+              message={retryable ? `${error} (${t('common.retry')})` : error}
               onClose={() => { setError(''); setRetryable(false) }}
-              onRetry={!isDocs && retryable ? handleRetry : undefined}
+              onRetry={retryable ? handleRetry : undefined}
             />
           )}
 
-          {!isDocs && interruptedTasks.length > 0 && !sending && (
+          {interruptedTasks.length > 0 && !sending && (
             <div className={styles.interruptedBanner}>
               <span>
                 {t('session.interruptedPrompt', { count: interruptedTasks.length, defaultValue: `上次任务因服务重启中断（共 ${interruptedTasks.length} 个）` })}
@@ -1375,13 +984,6 @@ export default function ChatPage() {
       onSetMode: () => {},
       configOptions: [],
       onSetConfigOption: () => {},
-      agents: agents.map((a) => ({ type: a.type, display_name: a.display_name })),
-      selectedAgent,
-      onSelectAgent: (val) => { setSelectedAgent(val); if (val) schedulePrefsPatch({ last_agent_type: val }) },
-      selectedModel,
-      probeConfigs,
-      onSelectModel: () => {},
-      probing,
       pendingPermission: null,
       permissionResponding: false,
       onPermissionRespond: () => {},
@@ -1389,9 +991,6 @@ export default function ChatPage() {
       executions: [],
       workspaceId,
       cwd: workspaceCwd,
-      docTarget: null,
-      docContent: '',
-      onDocContentChange: () => {},
       // 顶部配置栏已负责 Agent/模型/模式选择，聊天列不再重复渲染配置栏
       ...({ __chatConfig: { configBar: 'none' } } as object),
     }
@@ -1407,7 +1006,7 @@ export default function ChatPage() {
               </div>
               <div className={styles.actions}>
                 <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
-                <button type="button" className={styles.newTaskBtn} onClick={() => navigate(newTaskUrl(workspaceId))}><Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('session.newSession')}</button>
+                <button type="button" className={styles.newTaskBtn} onClick={handleNewTask}><Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('session.newSession')}</button>
                 <UserMenu />
               </div>
             </div>
@@ -1461,7 +1060,7 @@ export default function ChatPage() {
             </div>
             <div className={styles.actions}>
               <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
-              <button type="button" className={styles.newTaskBtn} onClick={() => navigate(newTaskUrl(workspaceId))}><Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('session.newSession')}</button>
+              <button type="button" className={styles.newTaskBtn} onClick={handleNewTask}><Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('session.newSession')}</button>
               <UserMenu />
             </div>
           </div>

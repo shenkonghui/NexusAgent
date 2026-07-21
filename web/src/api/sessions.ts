@@ -50,6 +50,13 @@ export function resumeSession(id: number): Promise<{ data: Session }> {
   })
 }
 
+// 清理会话上下文：重置底层 ACP 会话，token 占用归零，保留会话与历史消息
+export function clearContext(id: number): Promise<{ data: Session }> {
+  return apiFetch(`/sessions/${id}/clear-context`, {
+    method: 'POST',
+  })
+}
+
 // 获取会话消息历史
 export function listMessages(id: number): Promise<{ data: { messages: Message[] } }> {
   return apiFetch(`/sessions/${id}/messages`)

@@ -29,6 +29,7 @@ type SessionStore interface {
 	DeleteSession(ctx context.Context, sessionID string) error
 	CancelSession(ctx context.Context, sessionID string) error
 	ResumeSession(ctx context.Context, sessionID string) (*models.Session, error)
+	ClearContext(ctx context.Context, sessionID string) (*models.Session, error)
 	ListMessages(sessionID string) ([]models.Message, error)
 	// FindMessageByID 按消息主键查询单条消息（用于撤销等按消息定位的场景）。
 	FindMessageByID(messageID uint) (*models.Message, error)
@@ -289,6 +290,21 @@ func (h *SessionHandler) Resume(c *gin.Context) {
 		return
 	}
 	updated, err := h.store.ResumeSession(c.Request.Context(), sess.SessionID)
+	if err != nil {
+		writeSessionError(c, err)
+		return
+	}
+	Success(c, http.StatusOK, updated)
+}
+
+// ClearContext POST /api/v1/sessions/:id/clear-context
+// 清理会话上下文：重置底层 ACP 会话（token 占用归零），保留数据库会话与历史消息。
+func (h *SessionHandler) ClearContext(c *gin.Context) {
+	sess, ok := h.loadOwnedSession(c)
+	if !ok {
+		return
+	}
+	updated, err := h.store.ClearContext(c.Request.Context(), sess.SessionID)
 	if err != nil {
 		writeSessionError(c, err)
 		return

@@ -51,6 +51,14 @@ func (r *Router) ResumeSession(ctx context.Context, sessionID string) (*models.S
 	return r.service.ResumeSession(ctx, sessionID)
 }
 
+// ClearContext 清理会话上下文（重置底层 ACP 会话），委托 service。
+func (r *Router) ClearContext(ctx context.Context, sessionID string) (*models.Session, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.ClearContext(ctx, sessionID)
+}
+
 // ListAgents 返回所有已注册的 agent。
 func (r *Router) ListAgents() []*AgentDescriptor {
 	return r.registry.List()

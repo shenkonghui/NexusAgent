@@ -10,7 +10,6 @@ import type {
   PermissionRequestPayload,
 } from '../types'
 import type { ConvState } from '../components/ConvStatusBar'
-import type { DocEditMode } from '../components/DocWorkspace'
 
 /**
  * 布局树节点。一个模式的界面 = 一棵 LayoutNode 树。
@@ -43,8 +42,8 @@ export const tabs = (panels: string[], flex = 1, defaultTab?: string): LayoutNod
  * 任一面板需要的数据都从 PanelCtx 取，避免各面板各自从 store/hook 拉。
  */
 export interface PanelCtx {
-  // ===== 会话生命周期（两种：编码主会话 / 文档助手会话） =====
-  sessionKind: 'primary' | 'docs'
+  // ===== 会话生命周期 =====
+  sessionKind: 'primary'
 
   sessionId: number | undefined
   session: Session | null
@@ -66,15 +65,6 @@ export interface PanelCtx {
   configOptions: ConfigOption[]
   onSetConfigOption: (configId: string, value: string) => void
 
-  // 文档模式配置（agent + model 下拉）
-  agents: { type: string; display_name: string }[]
-  selectedAgent: string
-  onSelectAgent: (type: string) => void
-  selectedModel: string
-  probeConfigs: ConfigOption[]
-  onSelectModel: (value: string) => void
-  probing: boolean
-
   // 权限
   pendingPermission: PermissionRequestPayload | null
   permissionResponding: boolean
@@ -91,15 +81,8 @@ export interface PanelCtx {
   workspaceId: number | undefined
   cwd: string
   onRestored?: (promptText: string) => void
-
-  // ===== 文档模式专用 =====
-  docTarget: { folderId: string; filePath: string } | null
-  docContent: string
-  onDocContentChange: (next: string) => void
-  docForceMode?: DocEditMode
-  onCloseDoc?: () => void
-  // 文档预览重新读取磁盘的触发器（AI 直接编辑文件后自增，使预览刷新）
-  docReloadKey?: number
+  // 清理会话上下文成功后回调（重新拉取消息，刷新 token 占用）
+  onContextCleared?: () => void
 
   // 输入框受控值（恢复输入场景）
   restoreInput?: string
@@ -118,7 +101,7 @@ export interface PanelDef {
 }
 
 /** 配置栏样式（对话列顶部） */
-export type ConfigBarKind = 'coding' | 'docs' | 'none'
+export type ConfigBarKind = 'coding' | 'none'
 
 /** 模式注册项 */
 export interface ModeDef {
@@ -126,11 +109,9 @@ export interface ModeDef {
   titleKey: string
   icon: ReactNode
   /** 该模式对话列绑定哪个会话生命周期 */
-  sessionKind: 'primary' | 'docs'
+  sessionKind: 'primary'
   /** 对话列顶部配置栏样式 */
   configBar: ConfigBarKind
   /** 该模式的面板布局树 */
   layout: LayoutNode
-  /** 文档模式下额外需要的面板（如 doc-preview），由 PanelCtx 驱动是否渲染占位 */
-  requiresDocTarget?: boolean
 }

@@ -29,6 +29,7 @@ type taskSettingsItem struct {
 	Tags             []string `json:"tags"`
 	TagPrompt        string   `json:"tag_prompt"`
 	TitlePrompt      string   `json:"title_prompt"`
+	DocEditPrompt    string   `json:"doc_edit_prompt"`
 }
 
 type taskSettingsRequest struct {
@@ -39,6 +40,7 @@ type taskSettingsRequest struct {
 	Tags             []string `json:"tags"`
 	TagPrompt        string `json:"tag_prompt"`
 	TitlePrompt      string `json:"title_prompt"`
+	DocEditPrompt    string `json:"doc_edit_prompt"`
 }
 
 // toItem 把存储模型转换为返回给前端的结构（标签 JSON 解析为数组，空提示词填默认）。
@@ -50,6 +52,10 @@ func (h *TaskSettingsHandler) toItem(s *models.TaskSettings) taskSettingsItem {
 	titlePrompt := strings.TrimSpace(s.TitlePrompt)
 	if titlePrompt == "" {
 		titlePrompt = services.DefaultTaskTitlePrompt
+	}
+	docEditPrompt := strings.TrimSpace(s.DocEditPrompt)
+	if docEditPrompt == "" {
+		docEditPrompt = services.DefaultDocEditPrompt
 	}
 	tags := []string{}
 	if raw := strings.TrimSpace(s.Tags); raw != "" {
@@ -69,6 +75,7 @@ func (h *TaskSettingsHandler) toItem(s *models.TaskSettings) taskSettingsItem {
 		Tags:             tags,
 		TagPrompt:        tagPrompt,
 		TitlePrompt:      titlePrompt,
+		DocEditPrompt:    docEditPrompt,
 	}
 }
 
@@ -109,6 +116,7 @@ func (h *TaskSettingsHandler) UpdateSettings(c *gin.Context) {
 		Tags:            string(tagBytes),
 		TagPrompt:       strings.TrimSpace(req.TagPrompt),
 		TitlePrompt:     strings.TrimSpace(req.TitlePrompt),
+		DocEditPrompt:   strings.TrimSpace(req.DocEditPrompt),
 	}
 	if err := h.settingsRepo.Upsert(s); err != nil {
 		Fail(c, http.StatusInternalServerError, "INTERNAL", "保存任务设置失败")

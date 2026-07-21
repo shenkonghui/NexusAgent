@@ -110,6 +110,10 @@ func (f *fakeSessionStore) ResumeSession(_ context.Context, sessionID string) (*
 	return &models.Session{SessionID: sessionID, Status: models.SessionStatusActive}, nil
 }
 
+func (f *fakeSessionStore) ClearContext(_ context.Context, sessionID string) (*models.Session, error) {
+	return &models.Session{SessionID: sessionID, Status: models.SessionStatusActive}, nil
+}
+
 func (f *fakeSessionStore) ListMessages(sessionID string) ([]models.Message, error) {
 	if f.listMsgErr != nil {
 		return nil, f.listMsgErr
@@ -545,6 +549,9 @@ func (s *commandsFakeStore) GetSessionByDBID(id uint) (*models.Session, error) {
 func (s *commandsFakeStore) DeleteSession(context.Context, string) error { return nil }
 func (s *commandsFakeStore) CancelSession(context.Context, string) error { return nil }
 func (s *commandsFakeStore) ResumeSession(context.Context, string) (*models.Session, error) {
+	return nil, nil
+}
+func (s *commandsFakeStore) ClearContext(context.Context, string) (*models.Session, error) {
 	return nil, nil
 }
 func (s *commandsFakeStore) ListMessages(string) ([]models.Message, error) { return nil, nil }
