@@ -451,9 +451,24 @@ func (h *SessionHandler) ConfigOptions(c *gin.Context) {
 				}
 			}
 		}
+		// 会话记录中保存了用户发送时选择的模型（ModelValue），
+		// 用它覆盖 model 选项的 CurrentValue，避免回显 agent 默认模型。
+		if item.Category == "model" && sess.ModelValue != "" && optionValuePresent(item.Options, sess.ModelValue) {
+			item.CurrentValue = sess.ModelValue
+		}
 		items = append(items, item)
 	}
 	Success(c, http.StatusOK, gin.H{"config_options": items})
+}
+
+// optionValuePresent 判断给定值是否存在于可选项列表中。
+func optionValuePresent(options []configOptionValue, value string) bool {
+	for _, o := range options {
+		if o.Value == value {
+			return true
+		}
+	}
+	return false
 }
 
 type setConfigOptionRequest struct {

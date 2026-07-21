@@ -10,6 +10,7 @@ import { listSessions, listRunningSessions } from '../api/sessions'
 import { listDirs, listDocs } from '../api/filesystem'
 import type { DirEntry } from '../api/filesystem'
 import { getWorkspace } from '../api/workspaces'
+import { loadDocFolders, saveDocFolders } from '../utils/docs'
 import { PanelLeftClose, Star, Pencil, X, Check, SquarePlus, FileText, Calendar, ClipboardList, Timer, Settings, Zap, ScrollText, Loader2, CheckCircle2, XCircle, Clock3, CircleDashed, BookOpenText, FolderUp, ChevronDown, ChevronRight, Folder } from 'lucide-react'
 import styles from './SessionSidebar.module.css'
 import LogPanel from './LogPanel'
@@ -26,7 +27,6 @@ interface SessionSidebarProps {
 
 const STORAGE_KEY = 'opennexus.sidebar.collapsed'
 const FAVS_KEY = 'opennexus.favorites'
-const DOCS_KEY = 'opennexus.documents'
 
 function loadCollapsed(): { favorites: boolean; manual: boolean; scheduled: boolean; documents: boolean } {
   try {
@@ -34,18 +34,6 @@ function loadCollapsed(): { favorites: boolean; manual: boolean; scheduled: bool
     if (raw) return JSON.parse(raw)
   } catch { /* ignore */ }
   return { favorites: false, manual: false, scheduled: false, documents: false }
-}
-
-function loadDocuments(): DocFolder[] {
-  try {
-    const raw = localStorage.getItem(DOCS_KEY)
-    if (raw) return JSON.parse(raw)
-  } catch { /* ignore */ }
-  return []
-}
-
-function saveDocuments(docs: DocFolder[]) {
-  try { localStorage.setItem(DOCS_KEY, JSON.stringify(docs)) } catch { /* ignore */ }
 }
 
 function loadFavorites(): number[] {
@@ -92,7 +80,7 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
   const [collapsed, setCollapsed] = useState(loadCollapsed)
   const [favorites, setFavorites] = useState<number[]>(loadFavorites)
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
-  const [documents, setDocuments] = useState<DocFolder[]>(() => loadDocuments())
+  const [documents, setDocuments] = useState<DocFolder[]>(() => loadDocFolders())
   // 当前工作区 cwd：文档文件夹选择器的根目录边界，用户只能在此目录内选择
   const [workspaceCwd, setWorkspaceCwd] = useState('')
   const [showDocPicker, setShowDocPicker] = useState(false)
@@ -212,7 +200,7 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
     if (!window.confirm(t('documents.deleteConfirm'))) return
     const next = documents.filter((d) => d.id !== id)
     setDocuments(next)
-    saveDocuments(next)
+    saveDocFolders(next)
     // 清理该文件夹的展开态与扫描缓存
     setExpandedFolders((prev) => { const s = new Set(prev); s.delete(id); return s })
     setFolderDocs((prev) => { const m = new Map(prev); m.delete(id); return m })
@@ -268,7 +256,7 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
     }
     const next = [...documents, newFolder]
     setDocuments(next)
-    saveDocuments(next)
+    saveDocFolders(next)
     closeFolderPicker()
   }
 
@@ -529,17 +517,26 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
                             <div className={styles.empty}>{t('documents.noMdFiles')}</div>
                           )}
                           {scan && !scan.loading && !scan.error && scan.files.map((f) => {
-                            const docUrl = `/docs/${folder.id}/${f.rel_path}`
+                            // 点击文档：跳到任务页并切换到文档模式打开该文档（不再走独立的 /docs 路由）
+                            const isActive = location.pathname === tasksUrl(workspaceId)
+                              && (location.state as { doc?: { folderId: string; filePath: string } } | null)?.doc?.filePath === f.rel_path
                             return (
-                              <div key={f.abs_path} className={`${styles.item} ${location.pathname === docUrl ? styles.itemActive : ''}`}>
-                                <Link to={docUrl} className={styles.itemLink}>
+                              <div key={f.abs_path} className={`${styles.item} ${isActive ? styles.itemActive : ''}`}>
+                                <button
+                                  type="button"
+                                  className={styles.itemLink}
+                                  onClick={() => navigate(tasksUrl(workspaceId), {
+                                    state: { doc: { folderId: folder.id, filePath: f.rel_path } },
+                                  })}
+                                  title={f.rel_path}
+                                >
                                   <div className={styles.itemRow}>
                                     <span className={styles.itemTitle}>
                                       <BookOpenText size={13} style={{ flexShrink: 0 }} />
                                       {f.rel_path}
                                     </span>
                                   </div>
-                                </Link>
+                                </button>
                               </div>
                             )
                           })}

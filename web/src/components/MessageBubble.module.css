@@ -1,6 +1,6 @@
 .container {
   display: flex;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
   padding: 0 20px;
 }
 
@@ -12,7 +12,7 @@
 .bubble {
   max-width: 70%;
   border-radius: 12px;
-  padding: 10px 16px;
+  padding: 6px 14px;
   position: relative;
 }
 
@@ -28,7 +28,7 @@
   color: var(--text-primary);
   max-width: 100%;
   width: 100%;
-  padding: 4px 0;
+  padding: 2px 0;
 }
 
 .thoughtBubble {

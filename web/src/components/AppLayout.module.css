@@ -12,6 +12,120 @@
   height: 100%;
   border-right: 1px solid var(--border);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 侧边栏顶部视图切换标签栏（菜单 / 文件） */
+.tabBar {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+
+.tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 6px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.tabActive {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tabCollapse {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tabCollapse:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+/* 侧边栏主体：菜单/文件两个视图共享区域 */
+.sidebarBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.viewPane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.filesEmpty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* 右侧主内容区：页面内容与文件编辑器共享 */
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.mainPane {
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 侧边栏拖拽调整宽度手柄 */
+.sidebarResizer {
+  flex: 0 0 5px;
+  margin-left: -3px;
+  height: 100%;
+  cursor: col-resize;
+  position: relative;
+  z-index: 20;
+  background: transparent;
+  transition: background 0.12s;
+}
+
+.sidebarResizer:hover,
+.sidebarResizer:active {
+  background: var(--accent-subtle, rgba(0, 122, 255, 0.12));
 }
 
 /* 折叠状态下展开侧边栏的图标按钮 */

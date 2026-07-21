@@ -1,14 +1,15 @@
 import { useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useParams, useNavigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
+import { FileViewerProvider } from './context/FileViewerContext'
 import { WORKSPACE_STORAGE_KEY } from './hooks/useCurrentWorkspace'
+import { loadDocFolders } from './utils/docs'
 import LoginPage from './pages/LoginPage'
 import ChatPage from './pages/ChatPage'
 import SettingsPage from './pages/SettingsPage'
 import ScheduledTasksPage from './pages/ScheduledTasksPage'
 import NotesPage from './pages/NotesPage'
-import DocViewerPage from './pages/DocViewerPage'
 import ProfilePage from './pages/ProfilePage'
 import SessionRedirect from './components/SessionRedirect'
 
@@ -21,10 +22,27 @@ function WorkspaceHomeRedirect() {
   return <Navigate to={wid ? `/workspaces/${wid}/tasks` : '/'} replace />
 }
 
+// 兼容旧的 /docs/:folderId/* 分享链接：定位到对应工作区后跳转到任务页文档模式。
+function DocRedirect() {
+  const { folderId, '*': filePath } = useParams<{ folderId: string; '*': string }>()
+  const navigate = useNavigate()
+  useEffect(() => {
+    const folders = loadDocFolders()
+    const found = folders.find((d) => d.id === folderId)
+    const wid = found?.workspaceId
+    navigate(`/workspaces/${wid || ''}/tasks`, {
+      replace: true,
+      state: folderId && filePath ? { doc: { folderId, filePath } } : undefined,
+    })
+  }, [folderId, filePath, navigate])
+  return null
+}
+
 export default function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
+        <FileViewerProvider>
         <BrowserRouter>
         <Routes>
           <Route path="/" element={<ChatPage />} />
@@ -37,12 +55,13 @@ export default function App() {
           <Route path="/sessions/:id" element={<SessionRedirect />} />
           <Route path="/scheduled-tasks" element={<ScheduledTasksPage />} />
           <Route path="/notes" element={<NotesPage />} />
-          <Route path="/docs/:folderId/*" element={<DocViewerPage />} />
+          <Route path="/docs/:folderId/*" element={<DocRedirect />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         </BrowserRouter>
+        </FileViewerProvider>
       </AuthProvider>
     </ThemeProvider>
   )

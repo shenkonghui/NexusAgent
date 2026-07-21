@@ -1,13 +1,16 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
-import { listSessionFiles, type SessionFileEntry } from '../api/filesystem'
+import { listSessionFiles, listFiles, type SessionFileEntry } from '../api/filesystem'
 import { ChevronDown, ChevronRight, Folder, FolderOpen, FileCode, FileJson, FileText, File, RefreshCw } from 'lucide-react'
 import styles from './FileExplorer.module.css'
 
 interface FileExplorerProps {
-  sessionId: number
   onSelectFile: (path: string) => void
   selectedPath?: string
+  /** 会话模式：相对 session cwd 懒加载（与 rootPath 二选一，优先） */
+  sessionId?: number
+  /** 工作区模式：以绝对路径为根懒加载（sessionId 未提供时生效） */
+  rootPath?: string
 }
 
 // 文件图标根据扩展名
@@ -25,23 +28,39 @@ function fileIcon(name: string): ReactNode {
   return <File size={14} />
 }
 
-export default function FileExplorer({ sessionId, onSelectFile, selectedPath }: FileExplorerProps) {
+export default function FileExplorer({ sessionId, rootPath, onSelectFile, selectedPath }: FileExplorerProps) {
   // 展开的目录路径 -> 子节点
   const [expanded, setExpanded] = useState<Map<string, SessionFileEntry[]>>(new Map())
   const [rootEntries, setRootEntries] = useState<SessionFileEntry[]>([])
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
 
-  // 加载根目录
+  // 统一数据源：优先会话模式(sessionId)，否则工作区模式(rootPath 绝对路径)
+  const loadEntries = useCallback(async (path?: string): Promise<SessionFileEntry[]> => {
+    if (sessionId != null) {
+      const resp = await listSessionFiles(sessionId, path)
+      return resp.data.entries
+    }
+    const target = path || rootPath
+    if (!target) return []
+    const resp = await listFiles(target)
+    // 工作区 FileEntry 统一为 SessionFileEntry 结构；目录优先、同类按名排序
+    return resp.data.entries
+      .map((e) => ({ name: e.name, path: e.path, is_dir: e.is_dir }))
+      .sort((a, b) => (a.is_dir === b.is_dir ? a.name.localeCompare(b.name) : a.is_dir ? -1 : 1))
+  }, [sessionId, rootPath])
+
+  // 加载根目录（数据源变化时重置展开态）
   const loadRoot = useCallback(async () => {
     setError('')
+    setExpanded(new Map())
+    if (sessionId == null && !rootPath) { setRootEntries([]); return }
     try {
-      const resp = await listSessionFiles(sessionId)
-      setRootEntries(resp.data.entries)
+      setRootEntries(await loadEntries())
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载文件列表失败')
     }
-  }, [sessionId])
+  }, [loadEntries, sessionId, rootPath])
 
   useEffect(() => {
     loadRoot()
@@ -60,8 +79,8 @@ export default function FileExplorer({ sessionId, onSelectFile, selectedPath }: 
     setLoadingPaths((prev) => new Set(prev).add(path))
     setError('')
     try {
-      const resp = await listSessionFiles(sessionId, path)
-      setExpanded((prev) => new Map(prev).set(path, resp.data.entries))
+      const entries = await loadEntries(path)
+      setExpanded((prev) => new Map(prev).set(path, entries))
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载目录失败')
     } finally {

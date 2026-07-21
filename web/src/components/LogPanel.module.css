@@ -1,6 +1,5 @@
 /* LogPanel 作为右侧固定面板渲染（通过 React Portal 挂载到 body）。
-   宽度与 WorkspacePanel 的 .workspaceWrap 一致（520px），贴合视口右侧，
-   视觉上等同于右侧窗口而非浮窗。 */
+   固定宽度 520px，贴合视口右侧，视觉上等同于右侧窗口而非浮窗。 */
 .panel {
   position: fixed;
   top: 0;

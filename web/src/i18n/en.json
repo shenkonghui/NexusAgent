@@ -534,5 +534,63 @@
     "filterAll": "All",
     "filterType": "Filter by event type",
     "disabledHint": "ACP debug is disabled. Set debug.acp.enabled: true in config.yaml and restart."
+  },
+  "docEditor": {
+    "edit": "Edit",
+    "preview": "Preview",
+    "save": "Save",
+    "saving": "Saving...",
+    "saved": "Saved",
+    "saveFailed": "Save failed",
+    "unsavedConfirm": "You have unsaved changes. Leave anyway?",
+    "openAIPanel": "AI Assistant",
+    "closeAIPanel": "Close AI panel"
+  },
+  "docAI": {
+    "title": "AI Assistant",
+    "subtitle": "Generate draw.io diagrams via chat",
+    "placeholder": "Describe the diagram you want, e.g. \"draw a user login flow\"",
+    "send": "Generate",
+    "insertToDoc": "Insert to doc",
+    "inserted": "Inserted at end of doc",
+    "viewSource": "View source",
+    "renderFailed": "Render failed. Retry or ask AI to regenerate.",
+    "generating": "Generating…",
+    "waitingGenerate": "Waiting for AI to generate the diagram…",
+    "initError": "Failed to init AI: {{message}}",
+    "sendFailed": "Send failed: {{message}}",
+    "welcome": "👋 I'm your doc diagram assistant. Tell me what to draw and I'll produce draw.io XML that can be inserted into the doc."
+  },
+  "taskMode": {
+    "coding": "Coding",
+    "docs": "Docs"
+  },
+  "docMode": {
+    "emptyTitle": "Docs Workspace",
+    "emptyHint": "Pick a .md file from the \"Documents\" group in the left sidebar, or let AI generate a draw.io diagram in the chat.",
+    "chatEmptyTitle": "Doc AI Assistant",
+    "chatEmptyHint": "Describe the diagram you want in the input below (e.g. \"draw a user login flow\"). The generated draw.io diagram will appear in the doc on the right.",
+    "selectDocFirst": "Please pick a document from the sidebar first",
+    "noAgent": "No agent available",
+    "model": "Model"
+  },
+  "panel": {
+    "chat": "Chat",
+    "files": "Files",
+    "terminal": "Terminal",
+    "changes": "Changes",
+    "debug": "Debug",
+    "docPreview": "Doc",
+    "requireSession": "Create or select a task session first"
+  },
+  "sidebar": {
+    "menuTab": "Menu",
+    "filesTab": "Files",
+    "noWorkspace": "Select a workspace first"
+  },
+  "fileBrowser": {
+    "readFailed": "Failed to read file",
+    "saveFailed": "Failed to save file",
+    "selectHint": "Select a file from the sidebar file browser"
   }
 }

@@ -1,14 +1,38 @@
-import { useState, useEffect, createContext, useContext, type ReactNode, type ComponentProps } from 'react'
+import { useState, useEffect, createContext, useContext, type ReactNode, type ComponentProps, type MouseEvent as ReactMouseEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { PanelLeftOpen } from 'lucide-react'
+import { PanelLeftOpen, PanelLeftClose, Menu, FolderTree } from 'lucide-react'
 import SessionSidebar from './SessionSidebar'
+import FileExplorer from './FileExplorer'
+import WorkspaceFileEditor from './WorkspaceFileEditor'
+import { getWorkspace } from '../api/workspaces'
+import { useFileViewer } from '../context/FileViewerContext'
 import styles from './AppLayout.module.css'
 
 // 整体隐藏/展开侧边栏的状态，独立于 SessionSidebar 内部分组折叠状态
 const STORAGE_KEY = 'opennexus.sidebar.hidden'
+// 侧边栏宽度（可拖拽调整）
+const WIDTH_KEY = 'opennexus.sidebar.width'
+// 侧边栏视图：菜单 / 文件浏览器
+const VIEW_KEY = 'opennexus.sidebar.view'
+const DEFAULT_WIDTH = 240
+const MIN_WIDTH = 180
+const MAX_WIDTH = 520
 
 function loadHidden(): boolean {
   try { return localStorage.getItem(STORAGE_KEY) === '1' } catch { return false }
+}
+
+function loadWidth(): number {
+  try {
+    const raw = localStorage.getItem(WIDTH_KEY)
+    const n = raw ? Number(raw) : NaN
+    if (!isNaN(n) && n >= MIN_WIDTH && n <= MAX_WIDTH) return n
+  } catch { /* ignore */ }
+  return DEFAULT_WIDTH
+}
+
+function loadView(): 'menu' | 'files' {
+  try { return localStorage.getItem(VIEW_KEY) === 'files' ? 'files' : 'menu' } catch { return 'menu' }
 }
 
 interface SidebarContextValue {
@@ -48,12 +72,39 @@ interface AppLayoutProps {
  * 各页面通过 sidebarProps 透传数据/回调，children 即右侧主内容区。
  */
 export default function AppLayout({ sidebarProps, children }: AppLayoutProps) {
+  const { t } = useTranslation()
+  const { openFilePath, openFile, closeFile, hasEmbedded } = useFileViewer()
   const [collapsed, setCollapsed] = useState(loadHidden)
+  const [width, setWidth] = useState(loadWidth)
+  const [view, setView] = useState<'menu' | 'files'>(loadView)
+  // 当前工作区 cwd，作为文件浏览器的根目录
+  const [cwd, setCwd] = useState('')
+  const workspaceId = sidebarProps.workspaceId
+
+  // 仅当不存在内嵌文件面板（如编码模式 files 面板）时，才用主区域覆盖层显示文件
+  const showOverlay = !!openFilePath && !hasEmbedded
 
   // 持久化整体折叠状态，使各页面切换后保持一致
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0') } catch { /* ignore */ }
   }, [collapsed])
+
+  // 持久化侧边栏视图（菜单/文件）
+  useEffect(() => {
+    try { localStorage.setItem(VIEW_KEY, view) } catch { /* ignore */ }
+  }, [view])
+
+  // 获取当前工作区 cwd，作为文件浏览器根目录；切换工作区时关闭已打开文件
+  useEffect(() => {
+    closeFile()
+    if (!workspaceId) { setCwd(''); return }
+    let alive = true
+    getWorkspace(workspaceId)
+      .then((r) => { if (alive) setCwd(r.data.workspace.cwd || '') })
+      .catch(() => { if (alive) setCwd('') })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId])
 
   // Cmd/Ctrl+B 切换侧边栏隐藏/展开（由各页面统一收口至此）
   useEffect(() => {
@@ -69,15 +120,88 @@ export default function AppLayout({ sidebarProps, children }: AppLayoutProps) {
 
   function toggle() { setCollapsed((v) => !v) }
 
+  // 拖拽调整侧边栏宽度
+  function startResize(e: ReactMouseEvent) {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = width
+    let current = startWidth
+    function onMove(ev: MouseEvent) {
+      const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startWidth + (ev.clientX - startX)))
+      current = next
+      setWidth(next)
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      try { localStorage.setItem(WIDTH_KEY, String(current)) } catch { /* ignore */ }
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+
   return (
     <SidebarContext.Provider value={{ collapsed, toggle }}>
       <div className={styles.layout}>
         {!collapsed && (
-          <div className={styles.sidebarWrap}>
-            <SessionSidebar {...sidebarProps} onCollapse={() => setCollapsed(true)} />
+          <div className={styles.sidebarWrap} style={{ width }}>
+            <div className={styles.tabBar}>
+              <button
+                type="button"
+                className={`${styles.tab} ${view === 'menu' ? styles.tabActive : ''}`}
+                onClick={() => setView('menu')}
+                title={t('sidebar.menuTab')}
+              >
+                <Menu size={14} /> {t('sidebar.menuTab')}
+              </button>
+              <button
+                type="button"
+                className={`${styles.tab} ${view === 'files' ? styles.tabActive : ''}`}
+                onClick={() => setView('files')}
+                title={t('sidebar.filesTab')}
+              >
+                <FolderTree size={14} /> {t('sidebar.filesTab')}
+              </button>
+              <button
+                type="button"
+                className={styles.tabCollapse}
+                onClick={toggle}
+                title={t('common.close') + ' (⌘B)'}
+              >
+                <PanelLeftClose size={16} />
+              </button>
+            </div>
+            <div className={styles.sidebarBody}>
+              <div className={styles.viewPane} style={{ display: view === 'menu' ? 'flex' : 'none' }}>
+                <SessionSidebar {...sidebarProps} />
+              </div>
+              <div className={styles.viewPane} style={{ display: view === 'files' ? 'flex' : 'none' }}>
+                {cwd ? (
+                  <FileExplorer rootPath={cwd} onSelectFile={openFile} selectedPath={openFilePath ?? undefined} />
+                ) : (
+                  <div className={styles.filesEmpty}>{t('sidebar.noWorkspace')}</div>
+                )}
+              </div>
+            </div>
           </div>
         )}
-        {children}
+        {!collapsed && (
+          <div className={styles.sidebarResizer} onMouseDown={startResize} role="separator" aria-orientation="vertical" />
+        )}
+        <div className={styles.main}>
+          <div className={styles.mainPane} style={{ display: showOverlay ? 'none' : 'flex' }}>
+            {children}
+          </div>
+          {showOverlay && (
+            <div className={styles.mainPane} style={{ display: 'flex' }}>
+              <WorkspaceFileEditor key={openFilePath} path={openFilePath!} onClose={closeFile} />
+            </div>
+          )}
+        </div>
       </div>
     </SidebarContext.Provider>
   )

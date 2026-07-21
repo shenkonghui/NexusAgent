@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback, type FormEvent, type KeyboardEvent, type DragEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Send, Square } from 'lucide-react'
 import type { AgentCommand, SessionMode, AgentSkill, Note } from '../types'
 import { listFiles, type FileEntry, uploadFilesToWorkspace } from '../api/filesystem'
 import { listNotes, listNoteTags } from '../api/notes'
@@ -708,16 +709,24 @@ export default function PromptInput({
           )}
         </div>
         {!embedded && (sending && onCancel ? (
-          <button className={styles.cancelBtn} type="button" onClick={onCancel}>
-            {t('session.cancelPrompt')}
+          <button
+            className={styles.cancelBtn}
+            type="button"
+            onClick={onCancel}
+            title={t('session.cancelPrompt')}
+            aria-label={t('session.cancelPrompt')}
+          >
+            <Square size={18} fill="currentColor" strokeWidth={0} />
           </button>
         ) : (
           <button
             className={styles.sendBtn}
             type="submit"
             disabled={disabled || sending || !text.trim()}
+            title={t('prompt.send')}
+            aria-label={t('prompt.send')}
           >
-            {t('prompt.send')}
+            <Send size={18} />
           </button>
         ))}
       </form>

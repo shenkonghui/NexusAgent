@@ -1,0 +1,136 @@
+import type { ReactNode } from 'react'
+import type {
+  Session,
+  Message,
+  AgentCommand,
+  ConfigOption,
+  SessionMode,
+  AgentSkill,
+  Execution,
+  PermissionRequestPayload,
+} from '../types'
+import type { ConvState } from '../components/ConvStatusBar'
+import type { DocEditMode } from '../components/DocWorkspace'
+
+/**
+ * 布局树节点。一个模式的界面 = 一棵 LayoutNode 树。
+ * - leaf：渲染单个面板（查 PANELS 注册表）
+ * - split：沿 row/col 方向按 flex 比例排列子节点
+ * - tabs：标签组，所有子面板保持挂载、用 display 切换可见性（终端 WS 等不中断）
+ */
+export type LayoutNode =
+  | { kind: 'leaf'; panel: string; flex?: number }
+  | { kind: 'split'; dir: 'row' | 'col'; children: LayoutNode[]; flex?: number }
+  | { kind: 'tabs'; panels: string[]; defaultTab?: string; flex?: number }
+
+/** 便捷构造器 */
+export const leaf = (panel: string, flex = 1): LayoutNode => ({ kind: 'leaf', panel, flex })
+export const split = (dir: 'row' | 'col', children: LayoutNode[], flex = 1): LayoutNode => ({
+  kind: 'split',
+  dir,
+  children,
+  flex,
+})
+export const tabs = (panels: string[], flex = 1, defaultTab?: string): LayoutNode => ({
+  kind: 'tabs',
+  panels,
+  defaultTab,
+  flex,
+})
+
+/**
+ * 面板渲染时拿到的共享上下文。ChatPage 构造、向下传递。
+ * 任一面板需要的数据都从 PanelCtx 取，避免各面板各自从 store/hook 拉。
+ */
+export interface PanelCtx {
+  // ===== 会话生命周期（两种：编码主会话 / 文档助手会话） =====
+  sessionKind: 'primary' | 'docs'
+
+  sessionId: number | undefined
+  session: Session | null
+  messages: Message[]
+  convState: ConvState
+  sending: boolean
+
+  onSend: (prompt: string) => void
+  onCancel: () => void
+
+  // ===== 对话相关元数据 =====
+  commands: AgentCommand[]
+  modes: SessionMode[]
+  skills: AgentSkill[]
+  currentModeId: string
+  onSetMode: (modeId: string) => void
+
+  // 编码模式配置（ModelSelector + ContextStats）
+  configOptions: ConfigOption[]
+  onSetConfigOption: (configId: string, value: string) => void
+
+  // 文档模式配置（agent + model 下拉）
+  agents: { type: string; display_name: string }[]
+  selectedAgent: string
+  onSelectAgent: (type: string) => void
+  selectedModel: string
+  probeConfigs: ConfigOption[]
+  onSelectModel: (value: string) => void
+  probing: boolean
+
+  // 权限
+  pendingPermission: PermissionRequestPayload | null
+  permissionResponding: boolean
+  onPermissionRespond: (optionId: string) => void
+  onPermissionCancel: () => void
+
+  // 执行记录（scheduled/classify 会话用）
+  executions: Execution[]
+
+  // 恢复检查点后的刷新触发器（变化时让 changes 面板重新拉取）
+  restoreRefreshKey?: number
+
+  // 路由/工作区上下文
+  workspaceId: number | undefined
+  cwd: string
+  onRestored?: (promptText: string) => void
+
+  // ===== 文档模式专用 =====
+  docTarget: { folderId: string; filePath: string } | null
+  docContent: string
+  onDocContentChange: (next: string) => void
+  docForceMode?: DocEditMode
+  onCloseDoc?: () => void
+  // 文档预览重新读取磁盘的触发器（AI 直接编辑文件后自增，使预览刷新）
+  docReloadKey?: number
+
+  // 输入框受控值（恢复输入场景）
+  restoreInput?: string
+  onRestoreInputChange?: (v: string) => void
+
+  // 会话来源标记（classify 会话隐藏输入框）
+  source?: string
+}
+
+/** 面板注册项 */
+export interface PanelDef {
+  id: string
+  titleKey: string
+  icon: ReactNode
+  render: (ctx: PanelCtx) => ReactNode
+}
+
+/** 配置栏样式（对话列顶部） */
+export type ConfigBarKind = 'coding' | 'docs' | 'none'
+
+/** 模式注册项 */
+export interface ModeDef {
+  id: string
+  titleKey: string
+  icon: ReactNode
+  /** 该模式对话列绑定哪个会话生命周期 */
+  sessionKind: 'primary' | 'docs'
+  /** 对话列顶部配置栏样式 */
+  configBar: ConfigBarKind
+  /** 该模式的面板布局树 */
+  layout: LayoutNode
+  /** 文档模式下额外需要的面板（如 doc-preview），由 PanelCtx 驱动是否渲染占位 */
+  requiresDocTarget?: boolean
+}

@@ -1,82 +1,148 @@
-.main {
+.workspace {
   flex: 1;
-  min-width: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-base);
-  height: 100%;
+  min-width: 0;
+  border-left: 1px solid var(--border);
 }
 
-.header {
+.docHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 20px;
+  padding: 8px 16px;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
   gap: 12px;
+  flex-shrink: 0;
 }
 
-.headerLeft {
+.docHeaderLeft {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   min-width: 0;
   flex: 1;
 }
 
-.headerRight {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
-}
-
-.backBtn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-  flex-shrink: 0;
-}
-
-.backBtn:hover {
-  background: var(--bg-hover);
-  color: var(--accent);
-}
-
-.docIcon {
-  color: var(--accent);
-  flex-shrink: 0;
-}
-
-.title {
-  font-size: 16px;
+.docTitle {
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin: 0;
+  max-width: 260px;
 }
 
 .docPath {
   font-size: 11px;
   color: var(--text-muted);
-  max-width: 300px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-family: 'IBM Plex Mono', 'Monaco', 'Menlo', monospace;
+}
+
+.docHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.modeSwitch {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-muted);
+}
+
+.modeBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  line-height: 1;
+}
+
+.modeBtn + .modeBtn {
+  border-left: 1px solid var(--border);
+}
+
+.modeBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.modeBtnActive {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.modeBtnActive:hover {
+  background: var(--accent-subtle);
+  color: var(--accent);
+}
+
+.modeLabel {
+  white-space: nowrap;
+}
+
+.saveBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  line-height: 1;
+}
+
+.saveBtn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.saveBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  font-size: 14px;
+}
+
+.iconBtn:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
 }
 
 .content {
@@ -212,6 +278,21 @@
   text-decoration: underline;
 }
 
+.editorBox {
+  width: 100%;
+  height: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.editorBox :global(.cm-container) {
+  height: 100%;
+}
+
 .errorState {
   display: flex;
   flex-direction: column;
@@ -236,4 +317,30 @@
 .retryBtn:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* 空态：未选文档时 */
+.emptyState {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 24px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.emptyTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.emptyHint {
+  font-size: 13px;
+  margin: 0;
+  line-height: 1.7;
 }

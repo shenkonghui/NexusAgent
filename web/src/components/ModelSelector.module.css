@@ -7,28 +7,30 @@
 .item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  min-width: 0;
 }
 
 .label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
   white-space: nowrap;
 }
 
 .select {
-  padding: 4px 10px;
+  padding: 3px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 12px;
   background: var(--bg-input);
   color: var(--text-primary);
   cursor: pointer;
-  max-width: 200px;
+  max-width: 150px;
+  text-overflow: ellipsis;
 }
 
 .selectCompact {
-  max-width: 11em;
+  max-width: 8em;
 }
 
 .select:focus {
@@ -53,12 +55,12 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 10px;
+  padding: 3px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-input);
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
   transition: color 0.15s, border-color 0.15s;
@@ -74,10 +76,10 @@
   cursor: not-allowed;
 }
 
-/* 下拉面板：纵向排列其余配置项 */
+/* 下拉面板：纵向排列其余配置项（配置栏位于底部，向上弹出） */
 .dropdown {
   position: absolute;
-  top: calc(100% + 6px);
+  bottom: calc(100% + 6px);
   left: 0;
   z-index: 60;
   display: flex;

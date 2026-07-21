@@ -175,6 +175,14 @@ export function readWorkspaceFile(path: string): Promise<{ data: WorkspaceFileCo
   return apiFetch(`/filesystem/file?path=${encodeURIComponent(path)}`)
 }
 
+// 写入工作区中的文件（通过绝对路径）。文档编辑器保存用。
+export function writeWorkspaceFile(path: string, content: string): Promise<{ data: { path: string; size: number } }> {
+  return apiFetch(`/filesystem/file`, {
+    method: 'PUT',
+    body: JSON.stringify({ path, content }),
+  })
+}
+
 // 文档扫描响应：递归列出目录下所有 .md 文件
 export interface DocScanResponse {
   root: string

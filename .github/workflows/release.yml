@@ -7,18 +7,19 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   build:
     name: Build ${{ matrix.os }}-${{ matrix.arch }}
-    runs-on: ${{ matrix.os == 'darwin' && 'macos-latest' || matrix.os == 'linux' && 'ubuntu-latest' || 'windows-latest' }}
+    runs-on: ${{ matrix.os == 'darwin' && 'macos-latest' || 'windows-latest' }}
     strategy:
       matrix:
-        os: [darwin, linux, windows]
-        arch: [amd64, arm64]
-        exclude:
-          - os: windows
+        include:
+          - os: darwin
             arch: arm64
+          - os: windows
+            arch: amd64
 
     steps:
       - name: Checkout
@@ -37,22 +38,13 @@ jobs:
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
 
-      - name: Install Linux build dependencies
-        if: matrix.os == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc libsqlite3-dev curl lsof
-          if [ "${{ matrix.arch }}" = "amd64" ]; then
-            sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-          fi
-
       - name: Build Frontend
         run: |
           cd web
           npm ci
           npm run build
 
-      - name: Build Binary (macOS/Linux)
+      - name: Build Binary (macOS)
         if: matrix.os != 'windows'
         run: |
           mkdir -p dist
@@ -72,7 +64,7 @@ jobs:
             -ldflags="-s -w -X main.version=${{ github.ref_name }}" `
             -o "dist/opennexus-${{ matrix.os }}-${{ matrix.arch }}.exe" ./cmd/server
 
-      - name: Package CLI (Linux / macOS)
+      - name: Package CLI (macOS)
         if: matrix.os != 'windows'
         run: |
           cd dist
@@ -85,28 +77,16 @@ jobs:
           Compress-Archive -Path "dist/opennexus-${{ matrix.os }}-${{ matrix.arch }}.exe" `
             -DestinationPath "dist/opennexus-${{ matrix.os }}-${{ matrix.arch }}.zip" -Force
 
-      # ========== 桌面客户端：macOS arm64 / Linux amd64 / Windows amd64 ==========
+      # ========== 桌面客户端：macOS arm64 / Windows amd64 ==========
       - name: Setup Rust (Desktop)
-        if: |
-          (matrix.os == 'darwin' && matrix.arch == 'arm64') ||
-          (matrix.os == 'linux' && matrix.arch == 'amd64') ||
-          (matrix.os == 'windows' && matrix.arch == 'amd64')
         uses: dtolnay/rust-toolchain@stable
 
       - name: Setup pnpm (Desktop)
-        if: |
-          (matrix.os == 'darwin' && matrix.arch == 'arm64') ||
-          (matrix.os == 'linux' && matrix.arch == 'amd64') ||
-          (matrix.os == 'windows' && matrix.arch == 'amd64')
         uses: pnpm/action-setup@v4
         with:
           version: 9
 
       - name: Install pake-cli (Desktop)
-        if: |
-          (matrix.os == 'darwin' && matrix.arch == 'arm64') ||
-          (matrix.os == 'linux' && matrix.arch == 'amd64') ||
-          (matrix.os == 'windows' && matrix.arch == 'amd64')
         run: pnpm install -g pake-cli@3.13.0
 
       - name: Build macOS Desktop (arm64)
@@ -116,14 +96,6 @@ jobs:
           ./scripts/build-pake.sh dist ${{ github.ref_name }} app
           ./scripts/package-darwin.sh dist opennexus-darwin-arm64 dist
           cd dist && tar czf opennexus-darwin-desktop.tar.gz openNexus.app
-
-      - name: Build Linux Desktop (amd64)
-        if: matrix.os == 'linux' && matrix.arch == 'amd64'
-        run: |
-          chmod +x scripts/build-pake.sh scripts/package-linux.sh
-          ./scripts/build-pake.sh dist ${{ github.ref_name }} appimage
-          ./scripts/package-linux.sh dist opennexus-linux-amd64 dist
-          cd dist && tar czf opennexus-linux-desktop.tar.gz openNexus
 
       - name: Build Windows Desktop (amd64)
         if: matrix.os == 'windows' && matrix.arch == 'amd64'
@@ -245,6 +217,47 @@ jobs:
             electron/dist/*.yml
           if-no-files-found: error
 
+  # ========== Docker 镜像：推送到 GitHub Container Registry (ghcr.io) ==========
+  docker:
+    name: Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
   release:
     name: Create Release
     needs: [build, electron]
@@ -272,17 +285,13 @@ jobs:
             echo "| 平台 | 文件 | 说明 |"
             echo "|------|------|------|"
             echo "| macOS Apple Silicon | \`opennexus-darwin-desktop.tar.gz\` | 解压后双击 \`openNexus.app\` |"
-            echo "| Linux x86_64 | \`opennexus-linux-desktop.tar.gz\` | 解压后运行 \`openNexus/launch.sh\` |"
             echo "| Windows x86_64 | \`opennexus-windows-desktop.zip\` | 解压后运行 \`openNexus/launch.bat\` |"
             echo ""
             echo "### 命令行版本"
             echo ""
             echo "| 平台 | 文件 | 说明 |"
             echo "|------|------|------|"
-            echo "| macOS Intel | \`opennexus-darwin-amd64.tar.gz\` | 命令行运行 |"
             echo "| macOS Apple Silicon | \`opennexus-darwin-arm64.tar.gz\` | 命令行运行 |"
-            echo "| Linux x86_64 | \`opennexus-linux-amd64.tar.gz\` | 命令行运行 |"
-            echo "| Linux ARM64 | \`opennexus-linux-arm64.tar.gz\` | 命令行运行 |"
             echo "| Windows x86_64 | \`opennexus-windows-amd64.zip\` | 命令行运行 |"
             echo ""
             echo "### 使用方式"

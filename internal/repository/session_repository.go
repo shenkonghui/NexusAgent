@@ -103,6 +103,13 @@ func (r *SessionRepository) UpdateAgentSessionID(id uint, agentSessionID string)
 		Update("agent_session_id", agentSessionID).Error
 }
 
+// UpdateModelValue 更新会话记录的模型值（创建时或会话内切换模型时调用），
+// 使配置项回显始终为"实际使用/发送时选择的模型"。
+func (r *SessionRepository) UpdateModelValue(id uint, modelValue string) error {
+	return r.db.Model(&models.Session{}).Where("id = ?", id).
+		Update("model_value", modelValue).Error
+}
+
 // FindByWorkspaceID 返回指定 workspace 下的所有 session。
 func (r *SessionRepository) FindByWorkspaceID(workspaceID uint) ([]models.Session, error) {
 	var sessions []models.Session

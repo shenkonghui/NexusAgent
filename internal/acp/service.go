@@ -1849,7 +1849,32 @@ func (s *Service) SetConfigOption(ctx context.Context, sessionID, configID, valu
 	}
 	acpSID := agentSessionID(sess)
 	s.debugLog(sess.ID, "set_config", acpSID, map[string]any{"config_id": configID, "value": value})
-	return conn.SetConfigOption(ctx, acpSID, configID, value)
+	if err := conn.SetConfigOption(ctx, acpSID, configID, value); err != nil {
+		return err
+	}
+	// 若切换的是模型（category=model），持久化到会话记录，
+	// 使配置项回显始终为「实际使用/发送时选择的模型」，避免刷新后回落到 agent 默认模型。
+	if s.isModelConfigOption(sessionID, configID) {
+		if err := s.sessions.UpdateModelValue(sess.ID, value); err != nil {
+			slog.Warn("持久化会话模型失败", "session_id", sessionID, "value", value, "error", err)
+		}
+	}
+	return nil
+}
+
+// isModelConfigOption 判断给定 configID 在会话缓存的配置项中是否属于 category=model。
+func (s *Service) isModelConfigOption(sessionID, configID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, opt := range s.configs[sessionID] {
+		if opt.Select == nil || opt.Select.Category == nil {
+			continue
+		}
+		if string(opt.Select.Id) == configID {
+			return string(*opt.Select.Category) == "model"
+		}
+	}
+	return false
 }
 
 // SetSessionMode 切换会话模式（如 ask / agent / edit）。

@@ -558,15 +558,23 @@ const VirtuosoSegmentList = forwardRef<VirtuosoHandle, {
           </>
         )
       }}
-      components={loadingFooter ? {
-        Footer: () => (
-          <div className={styles.loading}>
-            <span className={styles.dot} />
-            <span className={styles.dot} />
-            <span className={styles.dot} />
-          </div>
-        ),
-      } : undefined}
+      // 注意：react-virtuoso 会对「存在于 props 上的可选键」直接发布其值，
+      // 即使值为 undefined 也会覆盖内部默认的 components（{}），导致读取
+      // components.EmptyPlaceholder 时崩溃。因此无 Footer 时必须整体省略该 prop，
+      // 而不能传 components={undefined}。
+      {...(loadingFooter
+        ? {
+            components: {
+              Footer: () => (
+                <div className={styles.loading}>
+                  <span className={styles.dot} />
+                  <span className={styles.dot} />
+                  <span className={styles.dot} />
+                </div>
+              ),
+            },
+          }
+        : {})}
     />
   )
 })
