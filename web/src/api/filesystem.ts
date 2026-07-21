@@ -183,6 +183,21 @@ export function writeWorkspaceFile(path: string, content: string): Promise<{ dat
   })
 }
 
+// 在工作区中新建文件或目录（通过绝对路径）。
+export function createWorkspaceEntry(path: string, isDir: boolean): Promise<{ data: { path: string; is_dir: boolean } }> {
+  return apiFetch(`/filesystem/create`, {
+    method: 'POST',
+    body: JSON.stringify({ path, is_dir: isDir }),
+  })
+}
+
+// 删除工作区中的文件或目录（通过绝对路径，目录递归删除）。
+export function deleteWorkspaceEntry(path: string): Promise<{ data: { path: string; deleted: boolean } }> {
+  return apiFetch(`/filesystem/entry?path=${encodeURIComponent(path)}`, {
+    method: 'DELETE',
+  })
+}
+
 // 文档扫描响应：递归列出目录下所有 .md 文件
 export interface DocScanResponse {
   root: string

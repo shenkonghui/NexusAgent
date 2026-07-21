@@ -146,6 +146,8 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			protected.GET("/filesystem/sub-agents", fsHandler.SubAgents)
 			protected.GET("/filesystem/file", fsHandler.ReadFile)
 			protected.PUT("/filesystem/file", fsHandler.WriteFile)
+			protected.POST("/filesystem/create", fsHandler.CreateEntry)
+			protected.DELETE("/filesystem/entry", fsHandler.DeleteEntry)
 
 			// 定时任务
 			sched := protected.Group("/scheduled-tasks")

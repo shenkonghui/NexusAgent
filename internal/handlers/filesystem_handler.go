@@ -538,3 +538,86 @@ func (h *FileSystemHandler) WriteFile(c *gin.Context) {
 		"size": size,
 	})
 }
+
+// CreateEntry POST /api/v1/filesystem/create
+// Body: { "path": "<绝对路径>", "is_dir": bool }
+// 新建空文件或目录。目标已存在时返回冲突错误。
+func (h *FileSystemHandler) CreateEntry(c *gin.Context) {
+	var req struct {
+		Path  string `json:"path" binding:"required"`
+		IsDir bool   `json:"is_dir"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_JSON", "请求参数格式错误")
+		return
+	}
+	absPath, err := filepath.Abs(strings.TrimSpace(req.Path))
+	if err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_PATH", "路径无效")
+		return
+	}
+	if _, err := os.Stat(absPath); err == nil {
+		Fail(c, http.StatusConflict, "ALREADY_EXISTS", "同名文件或目录已存在")
+		return
+	}
+	if req.IsDir {
+		if err := os.MkdirAll(absPath, 0o755); err != nil {
+			Fail(c, http.StatusInternalServerError, "MKDIR_FAILED", "创建目录失败")
+			return
+		}
+	} else {
+		if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
+			Fail(c, http.StatusInternalServerError, "MKDIR_FAILED", "创建父目录失败")
+			return
+		}
+		f, err := os.OpenFile(absPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err != nil {
+			Fail(c, http.StatusInternalServerError, "CREATE_FAILED", "创建文件失败")
+			return
+		}
+		_ = f.Close()
+	}
+	Success(c, http.StatusOK, gin.H{
+		"path":   absPath,
+		"is_dir": req.IsDir,
+	})
+}
+
+// DeleteEntry DELETE /api/v1/filesystem/entry?path=<绝对路径>
+// 删除指定文件或目录（目录递归删除）。
+func (h *FileSystemHandler) DeleteEntry(c *gin.Context) {
+	reqPath := strings.TrimSpace(c.Query("path"))
+	if reqPath == "" {
+		Fail(c, http.StatusBadRequest, "MISSING_PATH", "缺少 path 参数")
+		return
+	}
+	absPath, err := filepath.Abs(reqPath)
+	if err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_PATH", "路径无效")
+		return
+	}
+	info, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			Fail(c, http.StatusNotFound, "PATH_NOT_FOUND", "文件或目录不存在")
+			return
+		}
+		Fail(c, http.StatusForbidden, "PATH_ACCESS_DENIED", "无法访问该路径")
+		return
+	}
+	if info.IsDir() {
+		if err := os.RemoveAll(absPath); err != nil {
+			Fail(c, http.StatusInternalServerError, "DELETE_FAILED", "删除目录失败")
+			return
+		}
+	} else {
+		if err := os.Remove(absPath); err != nil {
+			Fail(c, http.StatusInternalServerError, "DELETE_FAILED", "删除文件失败")
+			return
+		}
+	}
+	Success(c, http.StatusOK, gin.H{
+		"path":    absPath,
+		"deleted": true,
+	})
+}
