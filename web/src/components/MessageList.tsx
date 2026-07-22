@@ -233,19 +233,28 @@ export default function MessageList({ messages, loading, scheduled, executions, 
       {unblocked.length > 0 && (
         <PlainList messages={unblocked} loading={scheduledLoading} sessionId={sessionId} cwd={cwd} onRestored={onRestored} />
       )}
-      {blocks.map((block, idx) => (
-        <ExecutionBlockView
-          key={block.executionId}
-          block={block}
-          index={idx + 1}
-          total={blocks.length}
-          loading={scheduledLoading && idx === blocks.length - 1}
-          status={execStatusMap.get(block.executionId)?.status || ''}
-          errorMsg={execStatusMap.get(block.executionId)?.error || ''}
-          sessionId={sessionId}
-          cwd={cwd}
-        />
-      ))}
+      {blocks.map((block, idx) => {
+        const exec = execStatusMap.get(block.executionId)
+        const execStatus = exec?.status || ''
+        // 执行状态已进入终态（成功/失败/跳过）时，即便 SSE 订阅仍保持开启（convState 仍为
+        // streaming/connecting），也不再显示「运行中 / ...」效果——以权威的执行状态为准，
+        // 避免定时/分类任务出现「状态页已成功却仍在转圈」的矛盾表现。
+        const isTerminal =
+          execStatus === 'success' || execStatus === 'failed' || execStatus === 'skipped'
+        return (
+          <ExecutionBlockView
+            key={block.executionId}
+            block={block}
+            index={idx + 1}
+            total={blocks.length}
+            loading={scheduledLoading && idx === blocks.length - 1 && !isTerminal}
+            status={execStatus}
+            errorMsg={exec?.error || ''}
+            sessionId={sessionId}
+            cwd={cwd}
+          />
+        )
+      })}
       {scheduledLoading && blocks.length === 0 && (
         <div className={styles.loading}>
           <span className={styles.dot} />
