@@ -1,4 +1,3 @@
-import { useTranslation } from 'react-i18next'
 import type { SessionMode } from '../types'
 import { formatOptionLabel, fullOptionLabel } from '../utils/selectLabel'
 import styles from './ModelSelector.module.css'
@@ -16,14 +15,12 @@ export default function SessionModeSelector({
   onChange,
   disabled = false,
 }: SessionModeSelectorProps) {
-  const { t } = useTranslation()
   if (modes.length === 0) return null
 
   const current = modes.find((m) => m.id === currentModeId)
 
   return (
     <div className={styles.item}>
-      <label className={styles.label}>{t('chat.mode')}</label>
       <select
         className={`${styles.select} ${styles.selectCompact}`}
         value={currentModeId}

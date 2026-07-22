@@ -77,7 +77,7 @@
   padding: 4px 12px;
   background: var(--bg-surface);
   border-top: 1px solid var(--border);
-  gap: 12px;
+  gap: 8px;
   min-height: 32px;
 }
 
@@ -137,7 +137,7 @@
 .homeConfigRow {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 8px;
   flex-wrap: wrap;
   width: 100%;
   min-height: 32px;
@@ -147,7 +147,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
+  height: var(--config-control-height);
 }
 
 .homeConfigLabel {
@@ -158,17 +158,20 @@
 }
 
 .homeConfigSelect {
-  height: 32px;
-  padding: 0 10px;
+  height: var(--config-control-height);
+  width: var(--config-control-width);
+  padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 13px;
+  font-size: var(--config-control-font);
   background: var(--bg-input);
   color: var(--text-primary);
   cursor: pointer;
-  max-width: 220px;
   outline: none;
   line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .homeConfigSelect:focus {
@@ -182,15 +185,15 @@
 }
 
 .homeConfigInput {
-  height: 32px;
-  padding: 0 10px;
+  height: var(--config-control-height);
+  padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 13px;
+  font-size: var(--config-control-font);
   background: var(--bg-input);
   color: var(--text-primary);
   outline: none;
-  width: 260px;
+  width: var(--config-control-width);
   line-height: 1;
 }
 

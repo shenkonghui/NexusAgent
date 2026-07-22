@@ -5,7 +5,6 @@ import PromptInput from '../components/PromptInput'
 import ConvStatusBar from '../components/ConvStatusBar'
 import PermissionDialog from '../components/PermissionDialog'
 import ModelSelector from '../components/ModelSelector'
-import ModelPicker from '../components/ModelPicker'
 import SessionModeSelector from '../components/SessionModeSelector'
 import ContextStats from '../components/ContextStats'
 import { BookOpenText } from 'lucide-react'
@@ -49,64 +48,63 @@ export default function ChatPanel({
         ? t(placeholderKey)
         : t('session.promptPlaceholder')
 
-  const builtInConfigBar = configBar !== 'none' ? (
-    <div className={styles.configBar}>
-      {configBar === 'coding' ? (
-        <>
-          <div className={styles.configOptions}>
-            <SessionModeSelector
-              modes={ctx.modes}
-              currentModeId={ctx.currentModeId}
-              onChange={ctx.onSetMode}
-              disabled={ctx.sending}
-            />
-            <ModelSelector
-              options={ctx.configOptions}
-              onApply={ctx.onSetConfigOption}
-              disabled={ctx.sending}
-            />
-          </div>
-          <div className={styles.statsArea}>
-            <ContextStats messages={ctx.messages} sessionId={ctx.sessionId} onCleared={ctx.onContextCleared} />
-          </div>
-        </>
-      ) : (
-        // 文档模式：agent + 模型下拉
-        <div className={styles.docConfigRow}>
-          <div className={styles.configItem}>
-            <label className={styles.configLabel}>Agent</label>
+  // 统一配置栏：Agent + 模式 + 模型，所有模式复用同一套控件。
+  // 数据源优先用会话级 configOptions（会话详情页，可切换运行时配置），
+  // 回退到 probeConfigs（新建任务页，探测出的配置）。
+  const builtInConfigBar = configBar !== 'none' ? (() => {
+    // 配置选项：会话级 configOptions（会话详情页）或 probeConfigs（新建任务页，已映射为 configOptions）
+    const cfgOpts = ctx.configOptions.length > 0 ? ctx.configOptions : ctx.probeConfigs
+    const onApplyCfg = ctx.onSetConfigOption
+    // Agent：新建任务页可选（有 agents 列表且 onSelectAgent 非空），会话详情页只读显示
+    const hasAgentSelect = ctx.agents.length > 0 && ctx.session === null
+    const agentValue = hasAgentSelect ? ctx.selectedAgent : (ctx.session?.agent_type || '')
+    const agentDisplay = hasAgentSelect
+      ? ctx.agents.find((a) => a.type === ctx.selectedAgent)?.display_name || ''
+      : (ctx.session?.agent_type || '')
+
+    return (
+      <div className={styles.configBar}>
+        <div className={styles.configOptions}>
+          {/* Agent */}
+          {hasAgentSelect ? (
             <select
               className={styles.configSelect}
-              value={ctx.selectedAgent}
+              value={agentValue}
               onChange={(e) => ctx.onSelectAgent(e.target.value)}
-              disabled={conv !== 'idle'}
+              disabled={ctx.sending || ctx.probing}
             >
               {ctx.agents.length === 0 && <option value="">{t('docMode.noAgent')}</option>}
               {ctx.agents.map((agent) => (
-                <option key={agent.type} value={agent.type}>
-                  {agent.display_name}
-                </option>
+                <option key={agent.type} value={agent.type}>{agent.display_name}</option>
               ))}
             </select>
-          </div>
-          {ctx.probeConfigs
-            .filter((o) => o.type === 'select' && o.category === 'model' && o.options.length > 0)
-            .map((opt) => (
-              <div key={opt.id} className={styles.configItem}>
-                <label className={styles.configLabel}>{t('docMode.model')}</label>
-                <ModelPicker
-                  value={ctx.selectedModel}
-                  options={opt.options}
-                  onChange={ctx.onSelectModel}
-                  disabled={ctx.probing || conv !== 'idle'}
-                  placeholder={t('session.selectModel')}
-                />
-              </div>
-            ))}
+          ) : agentDisplay ? (
+            <span className={styles.configReadonly}>{agentDisplay}</span>
+          ) : null}
+
+          {/* 模式：统一用 SessionModeSelector */}
+          <SessionModeSelector
+            modes={ctx.modes}
+            currentModeId={ctx.currentModeId}
+            onChange={ctx.onSetMode}
+            disabled={ctx.sending}
+          />
+
+          {/* 模型（及其它配置项）：用统一的 ModelSelector 渲染 */}
+          <ModelSelector
+            options={cfgOpts}
+            onApply={onApplyCfg}
+            disabled={ctx.sending || ctx.probing}
+          />
         </div>
-      )}
-    </div>
-  ) : null
+        {ctx.session && (
+          <div className={styles.statsArea}>
+            <ContextStats messages={ctx.messages} sessionId={ctx.sessionId} onCleared={ctx.onContextCleared} />
+          </div>
+        )}
+      </div>
+    )
+  })() : null
 
   return (
     <div className={styles.chat}>

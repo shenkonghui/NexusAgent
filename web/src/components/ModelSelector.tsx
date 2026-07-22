@@ -27,7 +27,6 @@ function ConfigItem({ opt, onApply, disabled }: { opt: ConfigOption; onApply: (i
   const isModel = opt.category === 'model'
   return (
     <div className={styles.item}>
-      <label className={styles.label}>{isModel ? '模型' : opt.name}</label>
       <select
         className={`${styles.select} ${isModel ? '' : styles.selectCompact}`}
         value={opt.current_value}

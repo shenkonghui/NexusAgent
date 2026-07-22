@@ -14,13 +14,11 @@ import { streamPrompt, subscribeStream, streamResumeTask, isTimeoutError } from 
 import { tasksUrl, newTaskUrl, sessionUrl, isNewTaskPath } from '../utils/routes'
 import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution, Agent, PermissionRequestPayload, RunningTask, AgentPrefs } from '../types'
 import { parsePermissionRequest } from '../utils/permission'
-import { formatOptionLabel, fullOptionLabel } from '../utils/selectLabel'
 import AppLayout, { SidebarToggleButton } from '../components/AppLayout'
 import ErrorBanner from '../components/ErrorBanner'
 import LoadingSpinner from '../components/LoadingSpinner'
 import UserMenu from '../components/UserMenu'
 import WorkspaceSelector from '../components/WorkspaceSelector'
-import ModelPicker from '../components/ModelPicker'
 import { type ConvState as ConvStatusState } from '../components/ConvStatusBar'
 import TaskModeSwitch, { type TaskMode } from '../components/TaskModeSwitch'
 import { Plus } from 'lucide-react'
@@ -1397,110 +1395,8 @@ export default function ChatPage() {
 
   // ============ 无会话模式：任务列表 / 新建任务 ============
   if (!hasSession) {
-    // 新建任务页（编码模式）复用统一布局：Agent/模型/模式在对话框下方配置栏选择，
+    // 新建任务页（编码模式）复用统一布局：Agent/模式/模型在对话框下方配置栏选择（内置 configBar），
     // 聊天面板的输入框首次发送时创建会话（handleFirstSend）。切模式即切界面，无需先发送。
-    // 配置栏作为 ReactNode 通过 __chatConfig 注入 ChatPanel，渲染于 PromptInput 下方。
-    const homeConfigBar = (
-      <div className={styles.configBar}>
-        <div className={styles.homeConfigRow}>
-          <div className={styles.homeConfigItem}>
-            <label className={styles.homeConfigLabel}>Agent</label>
-            <select className={styles.homeConfigSelect}
-              value={selectedAgent}
-              onChange={(e) => {
-                const val = e.target.value
-                setSelectedAgent(val)
-                if (val) schedulePrefsPatch({ last_agent_type: val })
-              }}
-              disabled={creating}
-            >
-              {agents.length === 0 && <option value="">无可用 Agent</option>}
-              {agents.map((agent) => (
-                <option key={agent.type} value={agent.type}>{agent.display_name}</option>
-              ))}
-            </select>
-          </div>
-          {/* 渲染可选择的配置项（模型用可过滤输入，模式等用下拉框） */}
-          {probeConfigs.filter((o) => o.type === 'select' && o.options.length > 0).map((opt) => {
-            const label = opt.category === 'model' ? '模型'
-              : opt.category === 'mode' ? '模式'
-              : opt.category === 'thought_level' ? '思考级别'
-              : opt.name
-            const isModel = opt.category === 'model'
-            return (
-              <div key={opt.id} className={styles.homeConfigItem}>
-                <label className={styles.homeConfigLabel}>{label}</label>
-                {isModel ? (
-                  <ModelPicker
-                    value={selectedModel}
-                    options={opt.options}
-                    onChange={(val) => {
-                      setSelectedModel(val)
-                      setProbeConfigs((prev) => prev.map((o) => (o.id === opt.id ? { ...o, current_value: val } : o)))
-                      if (selectedAgent) {
-                        schedulePrefsPatch({
-                          last_agent_type: selectedAgent,
-                          agent_type: selectedAgent,
-                          configs: { [opt.category || 'model']: val },
-                        })
-                      }
-                    }}
-                    disabled={probing || creating}
-                    placeholder={t('session.selectModel')}
-                  />
-                ) : (
-                  <select className={styles.homeConfigSelect}
-                    value={opt.current_value || ''}
-                    disabled={probing || creating}
-                    onChange={(ev) => {
-                      const val = ev.target.value
-                      setProbeConfigs((prev) => prev.map((o) => (o.id === opt.id ? { ...o, current_value: val } : o)))
-                      if (selectedAgent && opt.category) {
-                        schedulePrefsPatch({
-                          last_agent_type: selectedAgent,
-                          agent_type: selectedAgent,
-                          configs: { [opt.category]: val },
-                        })
-                      }
-                    }}
-                  >
-                    {opt.options.map((v) => (
-                      <option key={v.value} value={v.value} title={fullOptionLabel(v.name, v.description)}>
-                        {formatOptionLabel(v.name, v.description, 10)}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            )
-          })}
-          {/* 探测无配置时提供手动输入 */}
-          {!probing && !loading && probeConfigs.filter((o) => o.type === 'select' && o.options.length > 0).length === 0 && (
-            <div className={styles.homeConfigItem}>
-              <label className={styles.homeConfigLabel}>模型</label>
-              <input className={styles.homeConfigInput}
-                type="text" value={selectedModel}
-                onChange={(e) => {
-                  const val = e.target.value
-                  setSelectedModel(val)
-                  if (val && selectedAgent) {
-                    schedulePrefsPatch({
-                      last_agent_type: selectedAgent,
-                      agent_type: selectedAgent,
-                      configs: { model: val },
-                    })
-                  }
-                }}
-                placeholder="手动输入模型 ID"
-                disabled={creating}
-              />
-            </div>
-          )}
-          {probing && <span className={styles.homeConfigHint}>探测配置中...</span>}
-          {/* 工作目录：后续由 workspace 管理 */}
-        </div>
-      </div>
-    )
     const createCtx: PanelCtx = {
       sessionKind: 'primary',
       sessionId: undefined,
@@ -1513,16 +1409,40 @@ export default function ChatPage() {
       commands: homeCommands,
       modes: homeModes,
       skills: homeSkills,
-      currentModeId: '',
-      onSetMode: () => {},
-      configOptions: [],
-      onSetConfigOption: () => {},
+      currentModeId: probeConfigs.find((o) => o.category === 'mode')?.current_value || '',
+      onSetMode: (modeId: string) => {
+        setProbeConfigs((prev) => prev.map((o) => (o.category === 'mode' ? { ...o, current_value: modeId } : o)))
+        if (selectedAgent) {
+          schedulePrefsPatch({ last_agent_type: selectedAgent, agent_type: selectedAgent, configs: { mode: modeId } })
+        }
+      },
+      // 新建任务页无 session，configOptions 直接用探测出的 probeConfigs，
+      // 配置变更时更新本地 probeConfigs 并保存偏好（会话创建时随 handleFirstSend 下发）
+      configOptions: probeConfigs,
+      onSetConfigOption: (configId: string, value: string) => {
+        const opt = probeConfigs.find((o) => o.id === configId)
+        setProbeConfigs((prev) => prev.map((o) => (o.id === configId ? { ...o, current_value: value } : o)))
+        if (opt?.category === 'model') setSelectedModel(value)
+        if (selectedAgent) {
+          schedulePrefsPatch({
+            last_agent_type: selectedAgent,
+            agent_type: selectedAgent,
+            configs: { [opt?.category || 'model']: value },
+          })
+        }
+      },
       agents: agents.map((a) => ({ type: a.type, display_name: a.display_name })),
       selectedAgent,
       onSelectAgent: (val) => { setSelectedAgent(val); if (val) schedulePrefsPatch({ last_agent_type: val }) },
       selectedModel,
       probeConfigs,
-      onSelectModel: () => {},
+      onSelectModel: (val) => {
+        setSelectedModel(val)
+        setProbeConfigs((prev) => prev.map((o) => (o.category === 'model' ? { ...o, current_value: val } : o)))
+        if (selectedAgent) {
+          schedulePrefsPatch({ last_agent_type: selectedAgent, agent_type: selectedAgent, configs: { model: val } })
+        }
+      },
       probing,
       pendingPermission: null,
       permissionResponding: false,
@@ -1534,8 +1454,14 @@ export default function ChatPage() {
       docTarget: null,
       docContent: '',
       onDocContentChange: () => {},
-      // Agent/模型/模式配置栏注入聊天列底部渲染（与会话详情页位置一致）
-      ...({ __chatConfig: { configBar: 'none', configBarNode: homeConfigBar } } as object),
+      // 统一配置栏：Agent + 模式 + 模型（与会话详情页共用同一套内置 configBar）
+      ...({
+        __chatConfig: {
+          configBar: 'coding',
+          emptyTitleKey: 'docMode.chatEmptyTitle',
+          emptyHintKey: 'docMode.chatEmptyHint',
+        },
+      } as object),
     }
 
     if (!isCreateMode) {

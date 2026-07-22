@@ -149,7 +149,7 @@ export default function PromptInput({
   embedded = false,
   value: controlledValue,
   onValueChange,
-  rows = 3,
+  rows = 1,
   commands = [],
   modes = [],
   skills = [],

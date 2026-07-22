@@ -7,7 +7,8 @@
 .item {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  height: var(--config-control-height);
   min-width: 0;
 }
 
@@ -18,19 +19,22 @@
 }
 
 .select {
-  padding: 3px 8px;
+  height: var(--config-control-height);
+  width: var(--config-control-width);
+  padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--config-control-font);
   background: var(--bg-input);
   color: var(--text-primary);
   cursor: pointer;
-  max-width: 150px;
   text-overflow: ellipsis;
+  line-height: 1;
 }
 
 .selectCompact {
-  max-width: 8em;
+  /* 复用统一尺寸变量 */
+  width: var(--config-control-width);
 }
 
 .select:focus {

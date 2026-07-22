@@ -60,6 +60,11 @@
 
   --scrollbar-thumb: #3c3c4a;
   --scrollbar-track: transparent;
+
+  /* 配置栏控件统一尺寸（所有模式的 Agent/模式/模型选择器共用） */
+  --config-control-height: 30px;
+  --config-control-width: 110px;
+  --config-control-font: 12px;
 }
 
 /* ===== 浅色主题 ===== */
@@ -116,6 +121,10 @@
 
   --scrollbar-thumb: #c8c8d0;
   --scrollbar-track: transparent;
+
+  --config-control-height: 30px;
+  --config-control-width: 110px;
+  --config-control-font: 12px;
 }
 
 * {
