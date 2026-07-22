@@ -39,13 +39,13 @@ type NavigateState = { initialPrompt?: string; createdSession?: Session; doc?: D
 type ConvState = ConvStatusState
 
 export default function ChatPage() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const { wid, sid } = useParams<{ wid?: string; sid?: string }>()
   const urlWorkspaceId = wid ? Number(wid) : NaN
   const sessionId = sid ? Number(sid) : NaN
   const hasSession = !isNaN(sessionId)
   const { user, loading: authLoading } = useRequireAuth()
-  const { workspaceId: storedWorkspaceId, sessions, selectWorkspace, reload: reloadWorkspace } = useCurrentWorkspace(!!user)
+  const { workspaceId: storedWorkspaceId, sessions, selectWorkspace, reload: reloadWorkspace, loading: wsLoading } = useCurrentWorkspace(!!user)
   const workspaceId = !isNaN(urlWorkspaceId) ? urlWorkspaceId : storedWorkspaceId
   const navigate = useNavigate()
   const location = useLocation()
@@ -517,6 +517,20 @@ export default function ChatPage() {
       loadHomeData()
     }
   }, [user, hasSession, sessionId, loadData, loadHomeData, reloadWorkspace, navState?.createdSession])
+
+  // 打开首页（任务列表页）时不再显示历史列表：有最近任务则跳转过去，否则跳到新建任务页。
+  // 等待 workspace 数据加载完成后再判断，避免在 sessions 尚未就绪时误跳到新建任务页。
+  useEffect(() => {
+    if (!user || hasSession || isCreateMode) return
+    if (wsLoading || !workspaceId) return
+    const manualSessions = sessions.filter((s) => !s.source || s.source === 'manual')
+    if (manualSessions.length > 0) {
+      const latest = manualSessions[0] // 后端按 created_at DESC 返回，首个即最近任务
+      navigate(sessionUrl(latest.id, latest.workspace_id), { replace: true })
+    } else {
+      navigate(newTaskUrl(workspaceId), { replace: true })
+    }
+  }, [user, hasSession, isCreateMode, wsLoading, workspaceId, sessions, navigate])
 
   // 当组件卸载或切换到不同会话时，中断旧的 SSE 流，防止内存泄漏和 React 警告
   useEffect(() => {
@@ -1302,6 +1316,9 @@ export default function ChatPage() {
           ...({
             __chatConfig: {
               configBar: 'coding',
+              // 编码模式复用文档模式的空态外观（图标 + 标题 + 提示）
+              emptyTitleKey: 'docMode.chatEmptyTitle',
+              emptyHintKey: 'docMode.chatEmptyHint',
             },
           } as object),
         }
@@ -1342,6 +1359,7 @@ export default function ChatPage() {
             </div>
           </div>
 
+          <div className={styles.content}>
           {error && (
             <ErrorBanner
               message={retryable && !isDocs ? `${error} (${t('common.retry')})` : error}
@@ -1371,6 +1389,7 @@ export default function ChatPage() {
           <div className={styles.layoutBody}>
             <LayoutRenderer node={modeDef.layout} ctx={ctx} />
           </div>
+          </div>
         </div>
       </AppLayout>
     )
@@ -1378,11 +1397,110 @@ export default function ChatPage() {
 
   // ============ 无会话模式：任务列表 / 新建任务 ============
   if (!hasSession) {
-    const locale = i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US'
-    const manualSessions = sessions.filter((s) => !s.source || s.source === 'manual')
-
-    // 新建任务页（编码模式）复用统一布局：Agent/模型/模式在顶部配置栏选择，
+    // 新建任务页（编码模式）复用统一布局：Agent/模型/模式在对话框下方配置栏选择，
     // 聊天面板的输入框首次发送时创建会话（handleFirstSend）。切模式即切界面，无需先发送。
+    // 配置栏作为 ReactNode 通过 __chatConfig 注入 ChatPanel，渲染于 PromptInput 下方。
+    const homeConfigBar = (
+      <div className={styles.configBar}>
+        <div className={styles.homeConfigRow}>
+          <div className={styles.homeConfigItem}>
+            <label className={styles.homeConfigLabel}>Agent</label>
+            <select className={styles.homeConfigSelect}
+              value={selectedAgent}
+              onChange={(e) => {
+                const val = e.target.value
+                setSelectedAgent(val)
+                if (val) schedulePrefsPatch({ last_agent_type: val })
+              }}
+              disabled={creating}
+            >
+              {agents.length === 0 && <option value="">无可用 Agent</option>}
+              {agents.map((agent) => (
+                <option key={agent.type} value={agent.type}>{agent.display_name}</option>
+              ))}
+            </select>
+          </div>
+          {/* 渲染可选择的配置项（模型用可过滤输入，模式等用下拉框） */}
+          {probeConfigs.filter((o) => o.type === 'select' && o.options.length > 0).map((opt) => {
+            const label = opt.category === 'model' ? '模型'
+              : opt.category === 'mode' ? '模式'
+              : opt.category === 'thought_level' ? '思考级别'
+              : opt.name
+            const isModel = opt.category === 'model'
+            return (
+              <div key={opt.id} className={styles.homeConfigItem}>
+                <label className={styles.homeConfigLabel}>{label}</label>
+                {isModel ? (
+                  <ModelPicker
+                    value={selectedModel}
+                    options={opt.options}
+                    onChange={(val) => {
+                      setSelectedModel(val)
+                      setProbeConfigs((prev) => prev.map((o) => (o.id === opt.id ? { ...o, current_value: val } : o)))
+                      if (selectedAgent) {
+                        schedulePrefsPatch({
+                          last_agent_type: selectedAgent,
+                          agent_type: selectedAgent,
+                          configs: { [opt.category || 'model']: val },
+                        })
+                      }
+                    }}
+                    disabled={probing || creating}
+                    placeholder={t('session.selectModel')}
+                  />
+                ) : (
+                  <select className={styles.homeConfigSelect}
+                    value={opt.current_value || ''}
+                    disabled={probing || creating}
+                    onChange={(ev) => {
+                      const val = ev.target.value
+                      setProbeConfigs((prev) => prev.map((o) => (o.id === opt.id ? { ...o, current_value: val } : o)))
+                      if (selectedAgent && opt.category) {
+                        schedulePrefsPatch({
+                          last_agent_type: selectedAgent,
+                          agent_type: selectedAgent,
+                          configs: { [opt.category]: val },
+                        })
+                      }
+                    }}
+                  >
+                    {opt.options.map((v) => (
+                      <option key={v.value} value={v.value} title={fullOptionLabel(v.name, v.description)}>
+                        {formatOptionLabel(v.name, v.description, 10)}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )
+          })}
+          {/* 探测无配置时提供手动输入 */}
+          {!probing && !loading && probeConfigs.filter((o) => o.type === 'select' && o.options.length > 0).length === 0 && (
+            <div className={styles.homeConfigItem}>
+              <label className={styles.homeConfigLabel}>模型</label>
+              <input className={styles.homeConfigInput}
+                type="text" value={selectedModel}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setSelectedModel(val)
+                  if (val && selectedAgent) {
+                    schedulePrefsPatch({
+                      last_agent_type: selectedAgent,
+                      agent_type: selectedAgent,
+                      configs: { model: val },
+                    })
+                  }
+                }}
+                placeholder="手动输入模型 ID"
+                disabled={creating}
+              />
+            </div>
+          )}
+          {probing && <span className={styles.homeConfigHint}>探测配置中...</span>}
+          {/* 工作目录：后续由 workspace 管理 */}
+        </div>
+      </div>
+    )
     const createCtx: PanelCtx = {
       sessionKind: 'primary',
       sessionId: undefined,
@@ -1416,61 +1534,16 @@ export default function ChatPage() {
       docTarget: null,
       docContent: '',
       onDocContentChange: () => {},
-      // 顶部配置栏已负责 Agent/模型/模式选择，聊天列不再重复渲染配置栏
-      ...({ __chatConfig: { configBar: 'none' } } as object),
+      // Agent/模型/模式配置栏注入聊天列底部渲染（与会话详情页位置一致）
+      ...({ __chatConfig: { configBar: 'none', configBarNode: homeConfigBar } } as object),
     }
 
     if (!isCreateMode) {
+      // 任务列表页不再展示历史列表：数据就绪后由 effect 自动跳转（最近任务 → 会话详情；无任务 → 新建任务页）。
+      // 跳转完成前渲染加载占位，避免闪烁历史列表。
       return (
         <AppLayout sidebarProps={{ sessions, workspaceId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
-          <div className={styles.main}>
-            <div className={`${styles.header} ${styles.headerSingle}`}>
-              <div className={styles.sessionInfo}>
-                <SidebarToggleButton />
-                <TaskModeSwitch value={taskMode} onChange={handleTaskModeChange} />
-              </div>
-              <div className={styles.actions}>
-                <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
-                <button type="button" className={styles.newTaskBtn} onClick={() => navigate(newTaskUrl(workspaceId))}><Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('session.newSession')}</button>
-                <UserMenu />
-              </div>
-            </div>
-
-            {error && <ErrorBanner message={error} onClose={() => setError('')} />}
-
-            {loading ? <LoadingSpinner /> : (
-              <div className={styles.listContent}>
-                <h3 className={styles.listTitle}>{t('session.history')}</h3>
-                <div className={styles.sessionList}>
-                  {manualSessions.length === 0 ? (
-                    <p className={styles.listEmpty}>{t('session.noSessions')}</p>
-                  ) : (
-                    manualSessions.map((item) => (
-                      <div key={item.id} className={styles.sessionCard}
-                        onClick={() => navigate(sessionUrl(item.id, item.workspace_id))}
-                      >
-                        <div className={styles.sessionHeader}>
-                          <span className={styles.sessionAgent}>{item.title || item.agent_type}</span>
-                          {(item.status === 'active' || item.status === 'error') && (
-                            <span className={`${styles.sessionStatus} ${styles[`status_${item.status}`] || ''}`}>
-                              {item.status === 'active' ? t('session.active') : t('status.error')}
-                            </span>
-                          )}
-                        </div>
-                        {item.last_prompt && <p className={styles.sessionPrompt}>{item.last_prompt}</p>}
-                        <div className={styles.sessionFooter}>
-                          <span className={styles.sessionTime}>{new Date(item.created_at).toLocaleString(locale)}</span>
-                          <button type="button" className={styles.listDeleteBtn}
-                            onClick={(e) => { e.stopPropagation(); handleDeleteSession(item.id) }}
-                          >{t('common.delete')}</button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+          <LoadingSpinner text={t('common.loading')} />
         </AppLayout>
       )
     }
@@ -1490,110 +1563,12 @@ export default function ChatPage() {
             </div>
           </div>
 
-          <div className={styles.configBar}>
-            <div className={styles.homeConfigRow}>
-              <div className={styles.homeConfigItem}>
-                <label className={styles.homeConfigLabel}>Agent</label>
-                <select className={styles.homeConfigSelect}
-                  value={selectedAgent}
-                  onChange={(e) => {
-                    const val = e.target.value
-                    setSelectedAgent(val)
-                    if (val) schedulePrefsPatch({ last_agent_type: val })
-                  }}
-                  disabled={creating}
-                >
-                  {agents.length === 0 && <option value="">无可用 Agent</option>}
-                  {agents.map((agent) => (
-                    <option key={agent.type} value={agent.type}>{agent.display_name}</option>
-                  ))}
-                </select>
-              </div>
-              {/* 渲染可选择的配置项（模型用可过滤输入，模式等用下拉框） */}
-              {probeConfigs.filter((o) => o.type === 'select' && o.options.length > 0).map((opt) => {
-                const label = opt.category === 'model' ? '模型'
-                  : opt.category === 'mode' ? '模式'
-                  : opt.category === 'thought_level' ? '思考级别'
-                  : opt.name
-                const isModel = opt.category === 'model'
-                return (
-                  <div key={opt.id} className={styles.homeConfigItem}>
-                    <label className={styles.homeConfigLabel}>{label}</label>
-                    {isModel ? (
-                      <ModelPicker
-                        value={selectedModel}
-                        options={opt.options}
-                        onChange={(val) => {
-                          setSelectedModel(val)
-                          setProbeConfigs((prev) => prev.map((o) => (o.id === opt.id ? { ...o, current_value: val } : o)))
-                          if (selectedAgent) {
-                            schedulePrefsPatch({
-                              last_agent_type: selectedAgent,
-                              agent_type: selectedAgent,
-                              configs: { [opt.category || 'model']: val },
-                            })
-                          }
-                        }}
-                        disabled={probing || creating}
-                        placeholder={t('session.selectModel')}
-                      />
-                    ) : (
-                      <select className={styles.homeConfigSelect}
-                        value={opt.current_value || ''}
-                        disabled={probing || creating}
-                        onChange={(ev) => {
-                          const val = ev.target.value
-                          setProbeConfigs((prev) => prev.map((o) => (o.id === opt.id ? { ...o, current_value: val } : o)))
-                          if (selectedAgent && opt.category) {
-                            schedulePrefsPatch({
-                              last_agent_type: selectedAgent,
-                              agent_type: selectedAgent,
-                              configs: { [opt.category]: val },
-                            })
-                          }
-                        }}
-                      >
-                        {opt.options.map((v) => (
-                          <option key={v.value} value={v.value} title={fullOptionLabel(v.name, v.description)}>
-                            {formatOptionLabel(v.name, v.description, 10)}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                )
-              })}
-              {/* 探测无配置时提供手动输入 */}
-              {!probing && !loading && probeConfigs.filter((o) => o.type === 'select' && o.options.length > 0).length === 0 && (
-                <div className={styles.homeConfigItem}>
-                  <label className={styles.homeConfigLabel}>模型</label>
-                  <input className={styles.homeConfigInput}
-                    type="text" value={selectedModel}
-                    onChange={(e) => {
-                      const val = e.target.value
-                      setSelectedModel(val)
-                      if (val && selectedAgent) {
-                        schedulePrefsPatch({
-                          last_agent_type: selectedAgent,
-                          agent_type: selectedAgent,
-                          configs: { model: val },
-                        })
-                      }
-                    }}
-                    placeholder="手动输入模型 ID"
-                    disabled={creating}
-                  />
-                </div>
-              )}
-              {probing && <span className={styles.homeConfigHint}>探测配置中...</span>}
-              {/* 工作目录：后续由 workspace 管理 */}
-            </div>
-          </div>
-
+          <div className={styles.content}>
           {error && <ErrorBanner message={error} onClose={() => setError('')} />}
 
           <div className={styles.layoutBody}>
             <LayoutRenderer node={modeDef.layout} ctx={createCtx} />
+          </div>
           </div>
         </div>
 

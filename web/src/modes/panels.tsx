@@ -150,6 +150,7 @@ function renderChat(ctx: PanelCtx) {
     emptyHintKey?: string
     placeholderKey?: string
     selectDocFirstKey?: string
+    configBarNode?: ReactNode
   }
   const cfg = (ctx as PanelCtx & { __chatConfig?: ChatConfig }).__chatConfig
   return (
@@ -160,6 +161,7 @@ function renderChat(ctx: PanelCtx) {
       emptyHintKey={cfg?.emptyHintKey}
       placeholderKey={cfg?.placeholderKey}
       selectDocFirstKey={cfg?.selectDocFirstKey}
+      configBarNode={cfg?.configBarNode}
     />
   )
 }

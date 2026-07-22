@@ -13,6 +13,15 @@
   min-width: 0;
 }
 
+/* 内容区：包住配置栏与布局主体，接力纵向 flex 布局 */
+.content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .header {
   display: flex;
   flex-direction: column;
@@ -61,14 +70,15 @@
   font-family: 'IBM Plex Mono', 'Monaco', 'Menlo', monospace;
 }
 
+/* 新建任务页配置栏：渲染于对话框下方，与会话详情页 configBar 风格一致 */
 .configBar {
   display: flex;
   align-items: center;
-  padding: 8px 24px;
-  background: var(--bg-muted);
-  border-bottom: 1px solid var(--border);
+  padding: 4px 12px;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border);
   gap: 12px;
-  min-height: 44px;
+  min-height: 32px;
 }
 
 .configOptions {

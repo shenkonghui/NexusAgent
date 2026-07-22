@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import MessageList from '../components/MessageList'
 import PromptInput from '../components/PromptInput'
@@ -18,6 +19,8 @@ interface ChatPanelProps {
   emptyHintKey?: string
   placeholderKey?: string
   selectDocFirstKey?: string
+  /** 外部注入的自定义配置栏节点，渲染在 PromptInput 下方（优先于内置 configBar） */
+  configBarNode?: ReactNode
 }
 
 /**
@@ -31,6 +34,7 @@ export default function ChatPanel({
   emptyHintKey,
   placeholderKey,
   selectDocFirstKey,
+  configBarNode,
 }: ChatPanelProps) {
   const { t } = useTranslation()
   const isEmpty = ctx.messages.length === 0
@@ -45,7 +49,7 @@ export default function ChatPanel({
         ? t(placeholderKey)
         : t('session.promptPlaceholder')
 
-  const configBarNode = configBar !== 'none' ? (
+  const builtInConfigBar = configBar !== 'none' ? (
     <div className={styles.configBar}>
       {configBar === 'coding' ? (
         <>
@@ -153,7 +157,7 @@ export default function ChatPanel({
             placeholder={placeholder}
           />
         )}
-        {configBarNode}
+        {configBarNode ?? builtInConfigBar}
       </div>
     </div>
   )
