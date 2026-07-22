@@ -2,24 +2,24 @@ import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { renderDrawioXmlToSvg } from './drawioViewerRender'
 
 /**
  * 把 Markdown 文档导出为 PDF（点击直接下载 .pdf，不弹浏览器打印框）。
  *
  * 架构（绕开浏览器原生打印）：
- *   1. drawio 块：用 drawio embed viewer 协议把 XML 转成真实 SVG 字符串
- *      （html2canvas 无法截图跨域 iframe，所以必须先把 drawio 转成内联 SVG
- *      再嵌入，否则图表会是空白）。
+ *   1. drawio 块：用 draw.io 官方查看器（viewer-static.min.js，内置完整 shape 库）
+ *      在本地把 XML 高保真渲染成 SVG 字符串（离线可用，几乎不失真；
+ *      html2canvas 无法截图跨域 iframe，所以必须先转成内联 SVG 再嵌入，
+ *      否则图表会是空白）。
  *   2. 正文 + 嵌入的 SVG：渲染到一个屏幕外的白底容器（独立 DOM，不依赖当前
  *      是 view/edit 模式，不受主应用布局污染）。
  *   3. html2pdf.js（html2canvas + jsPDF）对该容器截图生成 PDF，直接下载。
  *
- * drawio 转换失败/超时时降级为显示 XML 源码，不阻塞导出。
+ * drawio 渲染失败时降级为显示 XML 源码，不阻塞导出。
  */
 
 const REMARK_PLUGINS = [remarkGfm]
-
-const DRAWIO_EMBED_URL = 'https://viewer.diagrams.net?embed=1&proto=json&browser=0&ui=min'
 
 // 匹配 fenced ```drawio / ```draw 代码块，捕获其 XML 源码
 const DRAWIO_BLOCK_RE = /```(?:drawio|draw)\s*\n([\s\S]*?)```/g
@@ -41,137 +41,26 @@ function extractDrawioBlocks(content: string): string[] {
 }
 
 /**
- * 通过 drawio embed viewer 把一段 mxGraph XML 转换为 SVG 字符串。
- *
- * 协议（官方 embed mode）：
- *   1. iframe 加载 viewer.diagrams.net
- *   2. 收到 {event:'init'} → 发送 {action:'load', xml}
- *   3. 收到 {event:'load'} → 发送 {action:'export', format:'svg'}
- *   4. 收到 {event:'export'} → data 即 SVG 字符串
- *
- * 注意：依赖远程 viewer.diagrams.net，网络不通时通过 timeout 快速失败，
- * 调用方负责兜底（降级为源码）。
- */
-function exportDrawioToSvg(xml: string, timeoutMs = 15000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const iframe = document.createElement('iframe')
-    iframe.setAttribute('aria-hidden', 'true')
-    iframe.title = 'drawio-export'
-    // drawio viewer 内部 mxGraph 按容器实际尺寸渲染图形，必须给实际尺寸。
-    iframe.style.position = 'fixed'
-    iframe.style.left = '-99999px'
-    iframe.style.top = '0'
-    iframe.style.width = '1024px'
-    iframe.style.height = '768px'
-    iframe.style.border = '0'
-    document.body.appendChild(iframe)
-
-    let settled = false
-    let exportRequested = false
-    let attempts = 0
-
-    const timer = window.setTimeout(() => {
-      done(new Error('drawio export timeout'))
-    }, timeoutMs)
-
-    const done = (err: Error | null, svg?: string) => {
-      if (settled) return
-      settled = true
-      window.clearTimeout(timer)
-      window.removeEventListener('message', onMessage)
-      if (iframe.parentNode) iframe.parentNode.removeChild(iframe)
-      if (err) reject(err)
-      else resolve(svg || '')
-    }
-
-    // SVG 是否包含实际绘图内容（path/rect/ellipse/image/text 等），而非空壳
-    const hasContent = (svg: string): boolean => {
-      return /<(path|rect|ellipse|image|text|g\s|foreignObject|line|polygon)\b/i.test(svg)
-    }
-
-    const requestExport = (format: 'svg' | 'png') => {
-      const win = iframe.contentWindow
-      if (!win) return
-      win.postMessage(
-        JSON.stringify({ action: 'export', format, xml, spin: 'Exporting', scale: 2 }),
-        '*',
-      )
-    }
-
-    const onMessage = (e: MessageEvent) => {
-      if (e.source !== iframe.contentWindow) return
-      let data: any
-      try {
-        data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data
-      } catch {
-        return
-      }
-      const win = iframe.contentWindow
-      if (!win) return
-
-      if (data?.event === 'init') {
-        win.postMessage(JSON.stringify({ action: 'load', xml, autosave: 0 }), '*')
-      } else if (data?.event === 'load' && !exportRequested) {
-        exportRequested = true
-        // 关键：load 只表示 XML 已解析，图形尚未渲染完。延迟后再 export，
-        // 给 mxGraph 时间完成布局与绘制。延迟梯度递增，逐步重试拿非空结果。
-        const tryExport = () => {
-          attempts += 1
-          requestExport('svg')
-        }
-        // 首次延迟 600ms，之后若拿不到内容会逐步延长重试
-        window.setTimeout(tryExport, 600)
-      } else if (data?.event === 'export') {
-        const svg = typeof data.data === 'string' ? data.data : ''
-        if (svg && svg.includes('<svg') && hasContent(svg)) {
-          done(null, svg)
-        } else if (attempts < 5) {
-          // 空结果：图形尚未渲染完，延长等待后重试（600→1200→1800→2400→3000ms）
-          window.setTimeout(() => {
-            attempts += 1
-            requestExport('svg')
-          }, 600 * attempts)
-        } else {
-          done(new Error('drawio export empty after retries'))
-        }
-      }
-    }
-
-    window.addEventListener('message', onMessage)
-    iframe.src = DRAWIO_EMBED_URL
-  })
-}
-
-/**
- * 批量把 drawio XML 转成 SVG。
- * 并行转换 + 总时间预算：即使 viewer.diagrams.net 完全连不上，最多等 budgetMs
- * 后放弃剩余未完成的图，降级为源码，保证导出流程永不卡死。
+ * 批量把 drawio XML 本地高保真渲染为 SVG。
+ * 用 draw.io 官方查看器在浏览器端渲染，不依赖公网服务；单张失败留空，
+ * 渲染时降级为源码，保证导出流程永不卡死。
  */
 async function convertDrawioBlocks(
   xmls: string[],
   onProgress?: (done: number, total: number) => void,
-  budgetMs = 20000,
 ): Promise<Map<string, string>> {
   const map = new Map<string, string>()
-  let completed = 0
   const total = xmls.length
-
-  const tasks = xmls.map((xml) =>
-    exportDrawioToSvg(xml)
-      .then((svg) => {
-        if (svg) map.set(xml, svg)
-      })
-      .catch(() => {
-        /* 单张失败：留空，渲染时降级为源码 */
-      })
-      .finally(() => {
-        completed += 1
-        onProgress?.(completed, total)
-      }),
-  )
-
-  const budget = new Promise<void>((resolve) => window.setTimeout(resolve, budgetMs))
-  await Promise.race([Promise.allSettled(tasks), budget])
+  for (let i = 0; i < xmls.length; i++) {
+    const xml = xmls[i]
+    try {
+      const svg = await renderDrawioXmlToSvg(xml)
+      if (svg) map.set(xml, svg)
+    } catch {
+      /* 单张失败：留空，渲染时降级为源码 */
+    }
+    onProgress?.(i + 1, total)
+  }
   return map
 }
 
@@ -244,7 +133,8 @@ const PDF_STYLE = `
     font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
       'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB',
       'Microsoft YaHei', sans-serif;
-    padding: 0;
+    /* 内容宽度对齐整页 A4，页边距靠这里的 padding 留白（html2pdf margin 设为 0） */
+    padding: 32px 28px;
   }
   .pdf-export-title {
     font-size: 20px;
@@ -296,8 +186,15 @@ const PDF_STYLE = `
   .markdown-body hr { border: none; border-top: 1px solid #e0e0e6; margin: 20px 0; }
   .markdown-body img { max-width: 100%; border-radius: 4px; }
   .markdown-body a { color: #b8941a; text-decoration: none; }
-  .drawio-diagram { margin: 12px 0; text-align: center; }
+  .drawio-diagram {
+    margin: 12px 0;
+    text-align: center;
+    /* 避免图表在分页处被一分为二（html2pdf css 模式会读取） */
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
   .drawio-diagram svg { max-width: 100%; height: auto; }
+  .drawio-diagram img { page-break-inside: avoid; break-inside: avoid; }
 `
 
 export interface ExportOptions {
@@ -325,14 +222,22 @@ export async function exportMarkdownToPdf(
       ? await convertDrawioBlocks(drawioXmls, options.onDrawioProgress)
       : new Map<string, string>()
 
-  // 2. 创建屏幕外容器（白底，固定宽度让 html2canvas 拿到正常排版）
+  // 2. 创建屏幕外容器。
+  // 关键：外层 host 负责屏幕外定位（position:fixed），内层 pageEl 保持普通文档流
+  // （默认 static），只有 pageEl 交给 html2pdf。
+  // 原因：html2pdf 会 deepClone 传入元素并塞进自己的 container 里，且不会重置克隆体
+  // 的 position。若传入元素本身是 position:fixed，克隆体会脱离 container 的文档流并被
+  // 定位到屏幕外，container 高度塌陷为 0，html2canvas 截到空白 → PDF 全空。
   const host = document.createElement('div')
   host.style.position = 'fixed'
   host.style.left = '-99999px'
   host.style.top = '0'
-  host.style.width = '794px' // A4 @ 96dpi 宽度
-  host.style.background = '#ffffff'
   host.style.zIndex = '-1'
+
+  const pageEl = document.createElement('div')
+  pageEl.style.width = '794px' // A4 @ 96dpi 整页宽度（与 html2pdf 容器宽度对齐）
+  pageEl.style.background = '#ffffff'
+  host.appendChild(pageEl)
   document.body.appendChild(host)
 
   // 注入样式
@@ -341,7 +246,7 @@ export async function exportMarkdownToPdf(
   styleEl.textContent = PDF_STYLE
   document.head.appendChild(styleEl)
 
-  const root = createRoot(host)
+  const root = createRoot(pageEl)
   try {
     // 3. 渲染 React（MarkdownContent + 嵌入的 drawio SVG as <img>）
     await new Promise<void>((resolve) => {
@@ -368,25 +273,32 @@ export async function exportMarkdownToPdf(
     })
 
     // 3.5 等待容器内所有 <img>（drawio SVG）加载完成，否则 html2canvas 会截到空白
-    await waitForImages(host)
+    await waitForImages(pageEl)
 
     // 4. html2pdf 生成 PDF 并下载（动态导入，避免拖慢首屏）
+    // margin 设为 0：内容宽度已按整页 A4 排版，页边距由 .pdf-export-root 的 padding 承担，
+    // 避免 html2pdf 容器内宽（A4 内宽）与内容宽（整页宽）不一致导致右侧内容被裁切。
     const filename = `${sanitizeFilename(title) || 'document'}.pdf`
     const { default: html2pdf } = await import('html2pdf.js')
+    // pagebreak 字段 html2pdf.js 运行时支持，但类型定义未涵盖，整体 cast 绕过
+    const pdfOptions = {
+      margin: [0, 0, 0, 0],
+      filename,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const },
+      // 让 drawio 图表不被分页切开：css 模式读取 break-inside:avoid，
+      // avoid 选择器在图表会被截断时把整个块下推到下一页
+      pagebreak: { mode: ['css', 'legacy'], avoid: ['.drawio-diagram', '.drawio-diagram img'] },
+    }
     await html2pdf()
-      .set({
-        margin: [10, 10, 10, 10],
-        filename,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          backgroundColor: '#ffffff',
-          logging: false,
-        } as unknown as object,
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const },
-      })
-      .from(host)
+      .set(pdfOptions as unknown as never)
+      .from(pageEl)
       .save()
   } finally {
     // 5. 清理
