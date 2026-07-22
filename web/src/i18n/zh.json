@@ -559,7 +559,11 @@
     "saveFailed": "保存失败",
     "unsavedConfirm": "有未保存的改动，确定离开吗？",
     "openAIPanel": "AI 助手",
-    "closeAIPanel": "关闭 AI 面板"
+    "closeAIPanel": "关闭 AI 面板",
+    "exportPdf": "导出 PDF",
+    "exporting": "导出中...",
+    "exportProgress": "导出中 {{done}}/{{total}} 张图表",
+    "exportFailed": "导出失败"
   },
   "docAI": {
     "title": "AI 助手",

@@ -5,13 +5,20 @@ import ErrorBanner from './ErrorBanner'
 import LoadingSpinner from './LoadingSpinner'
 import MarkdownContent from './MarkdownContent'
 import CodeEditor from './CodeEditor'
-import { Pencil, Eye, Save, Check } from 'lucide-react'
+import { Pencil, Eye, Save, Check, FileDown, Loader2 } from 'lucide-react'
 import { loadDocFolders } from '../utils/docs'
+import { exportMarkdownToPdf } from '../utils/exportPdf'
 import styles from './DocWorkspace.module.css'
 
 // 从文件相对路径提取文件名作为标题
 function fileNameOf(relPath: string): string {
   return relPath.split('/').pop() || relPath
+}
+
+// 文件名去掉扩展名作为 PDF 标题
+function docTitleOf(relPath: string): string {
+  const name = fileNameOf(relPath)
+  return name.replace(/\.[^.]+$/, '')
 }
 
 export type DocEditMode = 'view' | 'edit'
@@ -66,6 +73,8 @@ export default function DocWorkspace({
   const [mode, setMode] = useState<DocEditMode>('view')
   const [saving, setSaving] = useState(false)
   const [justSaved, setJustSaved] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [exportProgress, setExportProgress] = useState('')
 
   const dirty = content !== savedContent
   const justSavedTimer = useRef<number | undefined>(undefined)
@@ -135,6 +144,23 @@ export default function DocWorkspace({
     }
   }, [absPath, content, dirty, saving, t])
 
+  const handleExportPdf = useCallback(async () => {
+    if (exporting) return
+    setExporting(true)
+    setExportProgress('')
+    try {
+      await exportMarkdownToPdf(docTitleOf(filePath || absPathProp || ''), content, {
+        onDrawioProgress: (done, total) =>
+          setExportProgress(t('docEditor.exportProgress', { done, total })),
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('docEditor.exportFailed'))
+    } finally {
+      setExporting(false)
+      setExportProgress('')
+    }
+  }, [exporting, content, filePath, absPathProp, t])
+
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
       if (dirty) {
@@ -184,6 +210,20 @@ export default function DocWorkspace({
             {justSaved ? <Check size={14} /> : <Save size={14} />}
             <span className={styles.modeLabel}>
               {saving ? t('docEditor.saving') : justSaved ? t('docEditor.saved') : t('docEditor.save')}
+            </span>
+          </button>
+          <button
+            type="button"
+            className={styles.saveBtn}
+            onClick={handleExportPdf}
+            disabled={exporting || loading || (!!error && !content)}
+            title={t('docEditor.exportPdf')}
+          >
+            {exporting ? <Loader2 size={14} className={styles.spinner} /> : <FileDown size={14} />}
+            <span className={styles.modeLabel}>
+              {exporting
+                ? exportProgress || t('docEditor.exporting')
+                : t('docEditor.exportPdf')}
             </span>
           </button>
           {onClose && (

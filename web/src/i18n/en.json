@@ -559,7 +559,11 @@
     "saveFailed": "Save failed",
     "unsavedConfirm": "You have unsaved changes. Leave anyway?",
     "openAIPanel": "AI Assistant",
-    "closeAIPanel": "Close AI panel"
+    "closeAIPanel": "Close AI panel",
+    "exportPdf": "Export PDF",
+    "exporting": "Exporting...",
+    "exportProgress": "Exporting {{done}}/{{total}} diagrams",
+    "exportFailed": "Export failed"
   },
   "docAI": {
     "title": "AI Assistant",
