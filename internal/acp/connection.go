@@ -223,6 +223,12 @@ func (c *Connection) Close() error {
 	return c.process.Stop()
 }
 
+// InspectFailure 在 agent 启动/握手失败后诊断子进程状态，返回人类可读的线索。
+// 必须在 Close() 之前调用。
+func (c *Connection) InspectFailure() string {
+	return c.process.InspectFailure()
+}
+
 // Client 返回内部 Client（用于测试）。
 func (c *Connection) Client() *Client {
 	return c.client

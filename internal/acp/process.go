@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -14,12 +16,25 @@ import (
 // 超过后升级为 SIGKILL（强制终止进程组）。
 const stopGracePeriod = 2 * time.Second
 
+// stderrCaptureLimit 是 InspectFailure 返回的 stderr 尾部最大字节数。
+// 取尾部是因为启动错误（如缺少 API Key、版本不兼容）通常打印在最后。
+const stderrCaptureLimit = 4 * 1024
+
+// procState 表示 InspectFailure 探测到的子进程状态，由平台相关函数 probeProcessState 返回。
+type procState int
+
+const (
+	procStateRunning procState = iota // 进程仍在运行（可能正常，可能无响应）
+	procStateExited                   // 进程已终止
+)
+
 // Process 管理 agent 子进程的生命周期。
 type Process struct {
-	cmd     *exec.Cmd
-	stdin   io.WriteCloser
-	stdout  io.ReadCloser
-	backend Backend
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	stdout    io.ReadCloser
+	stderrBuf *ringBuffer // 捕获 stderr 尾部，握手失败时用于诊断
+	backend   Backend
 }
 
 // resolveAgentCommand 定位可执行文件。
@@ -82,8 +97,10 @@ func NewProcess(backend Backend, workDir string) (*Process, error) {
 	if err != nil {
 		return nil, fmt.Errorf("创建 stdout 管道: %w", err)
 	}
-	// 将 stderr 重定向到当前进程的 stderr，便于排查 agent 启动错误
-	cmd.Stderr = os.Stderr
+	// 捕获 stderr 尾部用于握手失败诊断，同时保留实时输出到当前进程 stderr 便于开发排查。
+	// agent 的启动错误（缺少 API Key、版本不兼容等）会打到这里。
+	stderrBuf := newRingBuffer(stderrCaptureLimit)
+	cmd.Stderr = io.MultiWriter(os.Stderr, stderrBuf)
 
 	if err := cmd.Start(); err != nil {
 		slog.Error("启动 agent 进程失败",
@@ -96,10 +113,11 @@ func NewProcess(backend Backend, workDir string) (*Process, error) {
 	}
 
 	return &Process{
-		cmd:     cmd,
-		stdin:   stdin,
-		stdout:  stdout,
-		backend: backend,
+		cmd:       cmd,
+		stdin:     stdin,
+		stdout:    stdout,
+		stderrBuf: stderrBuf,
+		backend:   backend,
 	}, nil
 }
 
@@ -126,4 +144,73 @@ func (p *Process) Stop() error {
 		return fmt.Errorf("停止 agent 进程: %w", err)
 	}
 	return nil
+}
+
+// InspectFailure 在 agent 启动/握手失败后诊断子进程状态，返回人类可读的线索。
+// 判定两类典型故障：
+//  1. 进程已退出——可能因缺少 API Key、配置错误或依赖缺失导致启动失败
+//  2. 进程仍在运行但无响应——可能正在等待登录认证、下载依赖、遇到网络问题，
+//     或 agent 子进程被作业控制信号挂起（SIGTSTP）
+//
+// 必须在 Stop() 之前调用；调用后 Stop() 仍会正常回收进程。
+// 不主动调用 Wait() 回收进程（避免影响后续 Stop 的 terminateProcessGroup）。
+func (p *Process) InspectFailure() string {
+	proc := p.cmd.Process
+	if proc == nil {
+		return "进程未启动"
+	}
+
+	if probeProcessState(proc.Pid) == procStateExited {
+		return "进程已退出（可能因缺少 API Key、配置错误或依赖缺失导致启动失败）"
+	}
+	return p.unresponsiveDiagnosis()
+}
+
+// unresponsiveDiagnosis 组装「进程存活但无响应」的诊断，附 stderr 尾部。
+func (p *Process) unresponsiveDiagnosis() string {
+	tail := p.stderrTail()
+	if tail == "" {
+		return "进程仍在运行但握手无响应（可能正在等待登录认证、下载依赖、遇到网络问题，" +
+			"或 agent 子进程被作业控制信号挂起）"
+	}
+	return fmt.Sprintf("进程仍在运行但握手无响应，stderr 尾部输出:\n%s", tail)
+}
+
+// stderrTail 返回捕获的 stderr 尾部（去首尾空白，截断到 stderrCaptureLimit）。
+func (p *Process) stderrTail() string {
+	if p.stderrBuf == nil {
+		return ""
+	}
+	return strings.TrimSpace(p.stderrBuf.String())
+}
+
+// ringBuffer 是一个容量固定的字节缓冲区，只保留最后写入的 maxLen 字节。
+// 用于捕获 agent stderr 尾部用于诊断，避免长期运行的进程导致缓冲区无限增长。
+type ringBuffer struct {
+	mu  sync.Mutex
+	buf []byte
+	max int
+}
+
+func newRingBuffer(max int) *ringBuffer {
+	return &ringBuffer{max: max}
+}
+
+func (r *ringBuffer) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.buf = append(r.buf, p...)
+	if len(r.buf) > r.max {
+		r.buf = r.buf[len(r.buf)-r.max:]
+	}
+	return len(p), nil
+}
+
+func (r *ringBuffer) String() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// 复制一份避免外部修改
+	out := make([]byte, len(r.buf))
+	copy(out, r.buf)
+	return string(out)
 }

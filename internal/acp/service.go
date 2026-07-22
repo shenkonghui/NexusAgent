@@ -532,18 +532,23 @@ func (s *Service) buildConnection(ctx context.Context, agentType, cwd string) (*
 	}
 	initResp, err := newConn.Initialize(ctx)
 	if err != nil {
+		// 握手失败时先诊断进程状态（必须在 Close 之前），给出可操作的失败原因。
+		diag := newConn.InspectFailure()
 		_ = newConn.Close()
 		slog.Error("建立 agent 连接失败：ACP 握手失败",
 			"agent", agentType,
 			"command", backend.Command(),
+			"args", backend.Args(),
+			"diagnosis", diag,
 			"err", err)
-		return nil, fmt.Errorf("ACP 握手: %w", err)
+		return nil, fmt.Errorf("ACP 握手失败: %w（诊断: %s）", err, diag)
 	}
 	if err := newConn.AuthenticateIfRequired(ctx, initResp); err != nil {
+		diag := newConn.InspectFailure()
 		_ = newConn.Close()
 		slog.Error("建立 agent 连接失败：ACP 认证失败",
-			"agent", agentType, "err", err)
-		return nil, err
+			"agent", agentType, "diagnosis", diag, "err", err)
+		return nil, fmt.Errorf("ACP 认证失败: %w（诊断: %s）", err, diag)
 	}
 	slog.Debug("建立 agent 连接成功",
 		"agent", agentType, "cwd", cwd, "protocol", initResp.ProtocolVersion)

@@ -22,3 +22,10 @@ func terminateProcessGroup(proc *os.Process, _ time.Duration) error {
 	_, _ = proc.Wait()
 	return nil
 }
+
+// probeProcessState 在 Windows 上仅区分存活/退出，无「被信号停止」概念。
+func probeProcessState(pid int) procState {
+	// Windows 上通过 OpenProcess + GetExitCodeProcess 才能精确判断，
+	// 此处简化处理：假定进程仍在运行，诊断依赖 stderr 尾部。
+	return procStateRunning
+}
