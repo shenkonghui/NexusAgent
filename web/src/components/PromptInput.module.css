@@ -1,15 +1,15 @@
 .container {
   display: flex;
-  gap: 12px;
-  padding: 16px 20px;
-  background: var(--bg-surface);
-  border-top: 1px solid var(--border);
+  gap: 8px;
+  padding: 10px 10px 8px;
+  background: transparent;
+  border-radius: 14px 14px 0 0;
   align-items: flex-end;
 }
 
 .form {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   flex: 1;
   align-items: flex-end;
 }
@@ -21,22 +21,21 @@
 
 .input {
   width: 100%;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
+  padding: 8px 10px;
+  border: none;
   border-radius: 8px;
   font-size: 14px;
   resize: none;
-  min-height: 42px;
+  min-height: 40px;
   max-height: 200px;
   line-height: 1.5;
   box-sizing: border-box;
-  background: var(--bg-input);
+  background: transparent;
   color: var(--text-primary);
 }
 
 .input:focus {
   outline: none;
-  border-color: var(--accent);
 }
 
 /* 拖拽文件接入对话:container 高亮 + inputWrap 上的遮罩层 */
@@ -191,16 +190,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   background: var(--accent);
   color: var(--text-on-accent);
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   flex-shrink: 0;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background 0.2s, opacity 0.2s;
 }
 
 .sendBtn:hover:not(:disabled) {
@@ -209,6 +208,7 @@
 
 .sendBtn:disabled {
   background: var(--text-muted);
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -216,13 +216,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   background: var(--danger);
   color: var(--text-on-accent);
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   flex-shrink: 0;
   cursor: pointer;
 }

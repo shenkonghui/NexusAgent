@@ -140,22 +140,25 @@ export default function ChatPanel({
         {ctx.source === 'classify' ? (
           <p className={styles.classifyHint}>{t('notes.classifyTaskHint')}</p>
         ) : (
-          <PromptInput
-            onSend={ctx.onSend}
-            onCancel={ctx.onCancel}
-            sending={conv !== 'idle'}
-            disabled={disabled}
-            value={ctx.restoreInput}
-            onValueChange={ctx.onRestoreInputChange}
-            commands={ctx.commands}
-            modes={ctx.modes}
-            skills={ctx.skills}
-            cwd={ctx.cwd}
-            workspaceId={ctx.workspaceId}
-            placeholder={placeholder}
-          />
+          // 统一 composer：输入框 + 配置栏合并为一个圆角卡片（参考 Cursor 输入区）
+          <div className={styles.composer}>
+            <PromptInput
+              onSend={ctx.onSend}
+              onCancel={ctx.onCancel}
+              sending={conv !== 'idle'}
+              disabled={disabled}
+              value={ctx.restoreInput}
+              onValueChange={ctx.onRestoreInputChange}
+              commands={ctx.commands}
+              modes={ctx.modes}
+              skills={ctx.skills}
+              cwd={ctx.cwd}
+              workspaceId={ctx.workspaceId}
+              placeholder={placeholder}
+            />
+            {configBarNode ?? builtInConfigBar}
+          </div>
         )}
-        {configBarNode ?? builtInConfigBar}
       </div>
     </div>
   )
