@@ -289,6 +289,22 @@ func (r *Router) ListMessages(sessionID string) ([]models.Message, error) {
 	return r.service.ListMessages(sessionID)
 }
 
+// ListMessagesPaged 分页查询消息（透传至 service）。
+func (r *Router) ListMessagesPaged(sessionID string, limit, offset int) ([]models.Message, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.ListMessagesPaged(sessionID, limit, offset)
+}
+
+// ListMessagesByKind 仅查询指定 kind 的消息（透传至 service）。
+func (r *Router) ListMessagesByKind(sessionID string, kind string) ([]models.Message, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.ListMessagesByKind(sessionID, kind)
+}
+
 // FindMessageByID 按消息主键查询单条消息。
 func (r *Router) FindMessageByID(messageID uint) (*models.Message, error) {
 	if r.service == nil {

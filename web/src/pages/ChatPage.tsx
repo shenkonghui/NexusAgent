@@ -94,6 +94,29 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navState?.doc])
 
+  // workspaceId 就绪后恢复上次打开的文档。
+  // docTarget 的 useState 初始化在首次渲染执行，此时 workspaceId 可能尚未就绪
+  //（URL 无 wid 时依赖 useCurrentWorkspace 异步加载），导致 localStorage key 不匹配而读不到。
+  // 这里在 workspaceId 变化且未通过侧边栏点击（无 navState.doc）时，重新从 localStorage 恢复。
+  // 仅在当前已是文档模式时恢复 docTarget——避免用户主动切到编码模式后被强制切回。
+  const restoredDocRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (!workspaceId || navState?.doc) return
+    if (restoredDocRef.current === workspaceId) return
+    restoredDocRef.current = workspaceId
+    if (taskMode !== 'docs') return
+    try {
+      const stored = localStorage.getItem(LAST_DOC_KEY_PREFIX + workspaceId)
+      if (stored) {
+        const target = JSON.parse(stored) as DocTarget
+        if (target && target.filePath) {
+          setDocTarget(target)
+        }
+      }
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId])
+
   // ===== 文档模式专用状态（独立于编码模式的 session/messages） =====
   // 文档模式复用原生 PromptInput + MessageList，但维护自己的 session，
   // 这样编码会话和文档对话互不干扰。

@@ -73,21 +73,21 @@ type Service struct {
 	// probeCache 缓存探测结果，按 agentType 存储，避免重复创建临时会话探测。
 	probeCache map[string][]acp.SessionConfigOption
 	// agentCommands / agentModes 按 agentType 缓存，供新建任务页使用（无会话时）。
-	agentCommands      map[string][]acp.AvailableCommand
-	agentModes         map[string][]acp.SessionMode
-	probeLock          sync.Mutex // 缓存未命中时串行探测，避免并发重复建临时 session
-	mu                 sync.RWMutex
-	wsConfig           config.WorkspaceConfig
-	skillUserDirs      []string
-	skillProjectDirs   []string
-	noteSettings       *repository.NoteSettingsRepository
-	publicBaseURL      string
-	mcpConfigPath      string
-	commandUserDirs    []string
-	commandProjectDirs []string
-	ruleUserDirs       []string
-	ruleProjectDirs    []string
-	subAgentUserDirs   []string
+	agentCommands       map[string][]acp.AvailableCommand
+	agentModes          map[string][]acp.SessionMode
+	probeLock           sync.Mutex // 缓存未命中时串行探测，避免并发重复建临时 session
+	mu                  sync.RWMutex
+	wsConfig            config.WorkspaceConfig
+	skillUserDirs       []string
+	skillProjectDirs    []string
+	noteSettings        *repository.NoteSettingsRepository
+	publicBaseURL       string
+	mcpConfigPath       string
+	commandUserDirs     []string
+	commandProjectDirs  []string
+	ruleUserDirs        []string
+	ruleProjectDirs     []string
+	subAgentUserDirs    []string
 	subAgentProjectDirs []string
 
 	// 健康检查与自动重连控制
@@ -95,6 +95,11 @@ type Service struct {
 	hcCancel     context.CancelFunc
 	hcWG         sync.WaitGroup
 	shuttingDown atomic.Bool
+	// hcStartOnce / hcStopOnce 保证 Start/StopHealthCheck 幂等：
+	// 多次调用 Start 会用 sync.Once 丢弃后续调用，避免覆盖 hcCancel 造成 goroutine 永久泄漏；
+	// 多次调用 Stop 同样安全。
+	hcStartOnce sync.Once
+	hcStopOnce  sync.Once
 
 	// activePrompts 记录每个会话正在进行的 prompt 广播器，支持多客户端订阅（断点续传重连）。
 	activePrompts map[string]*msgBroadcaster
@@ -121,30 +126,30 @@ func (s *Service) SetTaskMetaTrigger(t TaskMetaTrigger) {
 // NewService 创建新的 Service。
 func NewService(db *gorm.DB, wsConfig config.WorkspaceConfig, skillsConfig config.SkillsConfig, commandsConfig config.CommandsConfig, rulesConfig config.RulesConfig, subAgentsConfig config.SubAgentsConfig) *Service {
 	return &Service{
-		sessions:           repository.NewSessionRepository(db),
-		messages:           repository.NewMessageRepository(db),
-		workspaces:         repository.NewWorkspaceRepository(db),
-		backends:           make(map[string]Backend),
-		pool:               make(map[string]*Connection),
-		states:             make(map[string]string),
-		connectDone:        make(map[string]chan struct{}),
-		sessionPoolKey:     make(map[string]string),
-		commands:           make(map[string][]acp.AvailableCommand),
-		configs:            make(map[string][]acp.SessionConfigOption),
-		modes:              make(map[string][]acp.SessionMode),
-		probeCache:         make(map[string][]acp.SessionConfigOption),
-		agentCommands:      make(map[string][]acp.AvailableCommand),
-		agentModes:         make(map[string][]acp.SessionMode),
-		activePrompts:      make(map[string]*msgBroadcaster),
-		runningTasks:       repository.NewRunningTaskRepository(db),
-		wsConfig:           wsConfig,
-		skillUserDirs:      append([]string(nil), skillsConfig.UserDirs...),
-		skillProjectDirs:   append([]string(nil), skillsConfig.ProjectDirs...),
-		commandUserDirs:    append([]string(nil), commandsConfig.UserDirs...),
-		commandProjectDirs: append([]string(nil), commandsConfig.ProjectDirs...),
-		ruleUserDirs:       append([]string(nil), rulesConfig.UserDirs...),
-		ruleProjectDirs:    append([]string(nil), rulesConfig.ProjectDirs...),
-		subAgentUserDirs:   append([]string(nil), subAgentsConfig.UserDirs...),
+		sessions:            repository.NewSessionRepository(db),
+		messages:            repository.NewMessageRepository(db),
+		workspaces:          repository.NewWorkspaceRepository(db),
+		backends:            make(map[string]Backend),
+		pool:                make(map[string]*Connection),
+		states:              make(map[string]string),
+		connectDone:         make(map[string]chan struct{}),
+		sessionPoolKey:      make(map[string]string),
+		commands:            make(map[string][]acp.AvailableCommand),
+		configs:             make(map[string][]acp.SessionConfigOption),
+		modes:               make(map[string][]acp.SessionMode),
+		probeCache:          make(map[string][]acp.SessionConfigOption),
+		agentCommands:       make(map[string][]acp.AvailableCommand),
+		agentModes:          make(map[string][]acp.SessionMode),
+		activePrompts:       make(map[string]*msgBroadcaster),
+		runningTasks:        repository.NewRunningTaskRepository(db),
+		wsConfig:            wsConfig,
+		skillUserDirs:       append([]string(nil), skillsConfig.UserDirs...),
+		skillProjectDirs:    append([]string(nil), skillsConfig.ProjectDirs...),
+		commandUserDirs:     append([]string(nil), commandsConfig.UserDirs...),
+		commandProjectDirs:  append([]string(nil), commandsConfig.ProjectDirs...),
+		ruleUserDirs:        append([]string(nil), rulesConfig.UserDirs...),
+		ruleProjectDirs:     append([]string(nil), rulesConfig.ProjectDirs...),
+		subAgentUserDirs:    append([]string(nil), subAgentsConfig.UserDirs...),
 		subAgentProjectDirs: append([]string(nil), subAgentsConfig.ProjectDirs...),
 	}
 }
@@ -627,42 +632,61 @@ func (s *Service) PreconnectAllAsync() {
 
 // StartHealthCheck 启动后台健康检查与自动重连 goroutine。
 // 定期检查所有已注册 backend 的连接状态，断开的自动重连（带指数退避）。
-// 必须在所有 backend 注册完成后调用，且只能调用一次。
+// 必须在所有 backend 注册完成后调用。
+// 幂等：多次调用仅启动一次健康检查循环，避免覆盖 hcCancel 造成旧 goroutine 永久泄漏。
 func (s *Service) StartHealthCheck() {
-	s.hcCtx, s.hcCancel = context.WithCancel(context.Background())
-	s.hcWG.Add(1)
-	go s.healthCheckLoop()
+	s.hcStartOnce.Do(func() {
+		s.hcCtx, s.hcCancel = context.WithCancel(context.Background())
+		s.hcWG.Add(1)
+		go s.healthCheckLoop()
+	})
 }
 
 // StopHealthCheck 停止健康检查 goroutine 并关闭所有共享连接。
+// 幂等：多次调用安全（sync.Once 保护）。同时关闭残留的 activePrompts 广播器，
+// 防止卡死的 prompt goroutine 永久占用 256 缓冲与订阅者 channel。
 func (s *Service) StopHealthCheck() {
-	s.shuttingDown.Store(true)
-	if s.hcCancel != nil {
-		s.hcCancel()
-	}
+	s.hcStopOnce.Do(func() {
+		s.shuttingDown.Store(true)
+		if s.hcCancel != nil {
+			s.hcCancel()
+		}
 
-	// 立即终止 agent 子进程，不等待健康检查循环结束
-	s.mu.Lock()
-	conns := make([]*Connection, 0, len(s.pool))
-	for _, conn := range s.pool {
-		conns = append(conns, conn)
-	}
-	s.pool = make(map[string]*Connection)
-	s.mu.Unlock()
-	for _, conn := range conns {
-		_ = conn.Close()
-	}
+		// 关闭所有残留的 activePrompts 广播器（prompt goroutine 卡死时会永久残留）
+		s.mu.Lock()
+		broadcasters := make([]*msgBroadcaster, 0, len(s.activePrompts))
+		for sid, bc := range s.activePrompts {
+			broadcasters = append(broadcasters, bc)
+			delete(s.activePrompts, sid)
+		}
+		s.mu.Unlock()
+		for _, bc := range broadcasters {
+			bc.close()
+		}
 
-	done := make(chan struct{})
-	go func() {
-		s.hcWG.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		slog.Warn("健康检查 goroutine 退出超时，继续关闭")
-	}
+		// 立即终止 agent 子进程，不等待健康检查循环结束
+		s.mu.Lock()
+		conns := make([]*Connection, 0, len(s.pool))
+		for _, conn := range s.pool {
+			conns = append(conns, conn)
+		}
+		s.pool = make(map[string]*Connection)
+		s.mu.Unlock()
+		for _, conn := range conns {
+			_ = conn.Close()
+		}
+
+		done := make(chan struct{})
+		go func() {
+			s.hcWG.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			slog.Warn("健康检查 goroutine 退出超时，继续关闭")
+		}
+	})
 }
 
 // healthCheckLoop 定期检查连接状态并自动重连断开的 agent。
@@ -1268,20 +1292,7 @@ func (s *Service) DeleteSession(ctx context.Context, sessionID string) error {
 	wsID := session.WorkspaceID
 
 	s.debugUnregister(agentSessionID(session))
-	poolKey, hadConn := s.detachSession(sessionID)
-	if hadConn {
-		conn, connOK := s.pool[poolKey]
-		if connOK {
-			_ = conn.CloseSessionByID(ctx, agentSessionID(session))
-			if !s.hasActiveSessionForPoolKey(poolKey) {
-				s.mu.Lock()
-				delete(s.pool, poolKey)
-				delete(s.states, poolKey)
-				s.mu.Unlock()
-				_ = conn.Close()
-			}
-		}
-	}
+	s.detachAndReleaseConn(ctx, session)
 
 	// 先删消息再删会话，避免孤儿消息
 	if err := s.messages.DeleteByDBSessionID(session.ID); err != nil {
@@ -1293,6 +1304,44 @@ func (s *Service) DeleteSession(ctx context.Context, sessionID string) error {
 	s.debugCleanup(session.ID)
 	s.maybeCleanupOrphanTemporaryWorkspace(wsID)
 	return nil
+}
+
+// detachAndReleaseConn 是 DeleteSession / DeleteSessionWithMessages 共享的清理逻辑。
+// 1) detach 会话从 Service 的 sessionPoolKey/commands/configs/modes map 中移除（否则永久残留）。
+// 2) 若该会话所属连接池已无其他活跃会话，关闭并释放共享 Connection（含子进程）。
+// 3) 关闭并清理该会话可能残留的 activePrompts 广播器，防止 prompt goroutine 卡死时永久泄漏。
+// 所有 s.pool 读写均在 s.mu 保护下进行，消除原 DeleteSession 中未持锁读 pool 的数据竞争。
+func (s *Service) detachAndReleaseConn(ctx context.Context, session *models.Session) {
+	poolKey, hadConn := s.detachSession(session.SessionID)
+
+	// 清理可能残留的 activePrompts 广播器（prompt goroutine 卡死时会永久残留）
+	s.mu.Lock()
+	if bc, ok := s.activePrompts[session.SessionID]; ok {
+		delete(s.activePrompts, session.SessionID)
+		s.mu.Unlock()
+		bc.close()
+	} else {
+		s.mu.Unlock()
+	}
+
+	if !hadConn {
+		return
+	}
+	// 读 pool 必须持锁（原 DeleteSession 这里漏锁，触发与 ensureConnection 的数据竞争）
+	s.mu.RLock()
+	conn, connOK := s.pool[poolKey]
+	s.mu.RUnlock()
+	if !connOK {
+		return
+	}
+	_ = conn.CloseSessionByID(ctx, agentSessionID(session))
+	if !s.hasActiveSessionForPoolKey(poolKey) {
+		s.mu.Lock()
+		delete(s.pool, poolKey)
+		delete(s.states, poolKey)
+		s.mu.Unlock()
+		_ = conn.Close()
+	}
 }
 
 // maybeCleanupOrphanTemporaryWorkspace 在 temporary 工作区已无会话时删除目录与记录。
@@ -1361,9 +1410,10 @@ func (s *Service) UpdateTitle(dbSessionID uint, title string) error {
 }
 
 // RecoverActiveSessions 在服务启动时调用：
-// 1. 将所有 running 状态的 running_task 标记为 interrupted（服务重启导致 prompt 中断）。
-// 2. 仅将这些被中断任务对应的会话标记为 error（agent 进程已随重启终止，内存态丢失）。
-//    不再批量标记所有 active 会话——已正常完成的空闲会话应保持 active。
+//  1. 将所有 running 状态的 running_task 标记为 interrupted（服务重启导致 prompt 中断）。
+//  2. 仅将这些被中断任务对应的会话标记为 error（agent 进程已随重启终止，内存态丢失）。
+//     不再批量标记所有 active 会话——已正常完成的空闲会话应保持 active。
+//
 // 用户可通过 ListInterruptedTasks 查看中断任务并手动重发。
 func (s *Service) RecoverActiveSessions() {
 	if err := s.runningTasks.MarkRunningAsInterrupted(); err != nil {
@@ -1436,13 +1486,45 @@ func (s *Service) getNextSequence(dbSessionID uint) int {
 	return max
 }
 
-// ListMessages 查询会话的完整消息历史，按 sequence 升序返回。
+// ListMessages 查询会话消息历史，按 sequence 升序返回。
+// 默认最多返回 defaultMessagePageSize 条（最近 N 条），避免长会话一次性加载全部 raw_json。
+// 如需更早的消息，调用方应使用 ListMessagesPaged 显式分页。
 func (s *Service) ListMessages(sessionID string) ([]models.Message, error) {
+	return s.ListMessagesPaged(sessionID, defaultMessagePageSize, 0)
+}
+
+// defaultMessagePageSize 是 ListMessages 默认返回的消息上限。
+// 选 500：覆盖绝大多数会话的完整历史，同时为超长会话设置硬上限避免内存爆炸。
+const defaultMessagePageSize = 500
+
+// maxMessagePageSize 是 ListMessagesPaged 允许的最大 limit，防止滥用。
+const maxMessagePageSize = 1000
+
+// ListMessagesPaged 分页查询会话消息，按 sequence 升序返回。
+// limit<=0 时使用默认页大小；limit>maxMessagePageSize 时截断为最大值。
+// offset 从 0 开始；返回最近的消息（offset 作用于升序 sequence）。
+func (s *Service) ListMessagesPaged(sessionID string, limit, offset int) ([]models.Message, error) {
 	session, err := s.GetSession(sessionID)
 	if err != nil {
 		return nil, err
 	}
-	return s.messages.FindByDBSessionID(session.ID)
+	if limit <= 0 {
+		limit = defaultMessagePageSize
+	}
+	if limit > maxMessagePageSize {
+		limit = maxMessagePageSize
+	}
+	return s.messages.FindByDBSessionIDPaged(session.ID, limit, offset)
+}
+
+// ListMessagesByKind 仅查询指定 kind 的消息，按 sequence 升序返回。
+// 用于文件变更等只关心特定 kind 的场景，避免加载无关消息的 raw_json。
+func (s *Service) ListMessagesByKind(sessionID string, kind string) ([]models.Message, error) {
+	session, err := s.GetSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return s.messages.FindByKind(session.ID, kind)
 }
 
 // FindMessageByID 按消息主键查询单条消息（用于撤销等按消息定位的场景）。
@@ -1956,8 +2038,8 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 		return nil, fmt.Errorf("恢复会话-创建 ACP 会话: %w", err)
 	}
 
-	// 查询历史消息并注入上下文
-	history, _ := s.messages.FindByDBSessionID(session.ID)
+	// 查询历史消息并注入上下文（只取最近 100 条，避免长会话全量加载 raw_json 撑爆内存）
+	history, _ := s.messages.FindByDBSessionIDLastN(session.ID, 100)
 	contextText := formatHistory(history)
 	if contextText != "" {
 		// 异步注入历史上下文，不等结果
@@ -2078,12 +2160,13 @@ func (s *Service) ClearContext(ctx context.Context, sessionID string) (*models.S
 	})
 
 	// 追加一条 used=0 的 usage_update，使前端上下文占用立即归零（保留原窗口大小以维持展示）。
-	history, _ := s.messages.FindByDBSessionID(session.ID)
+	// 仅需最近一次 usage_update 的 size，无需全量加载历史。
+	lastUsage, _ := s.messages.FindLastByKind(session.ID, models.MessageKindUsageUpdate)
 	seq := s.getNextSequence(session.ID) + 1
 	resetUpdate := acp.SessionUpdate{
 		UsageUpdate: &acp.SessionUsageUpdate{
 			SessionUpdate: "usage_update",
-			Size:          lastContextSize(history),
+			Size:          contextSizeFromMessage(lastUsage),
 			Used:          0,
 		},
 	}
@@ -2096,21 +2179,19 @@ func (s *Service) ClearContext(ctx context.Context, sessionID string) (*models.S
 	return s.sessions.FindByID(session.ID)
 }
 
-// lastContextSize 从历史消息中提取最近一次 usage_update 的上下文窗口大小（size），无则返回 0。
-func lastContextSize(messages []models.Message) int {
-	size := 0
-	for _, m := range messages {
-		if m.Kind != models.MessageKindUsageUpdate || m.RawJSON == "" {
-			continue
-		}
-		var u struct {
-			Size int `json:"size"`
-		}
-		if err := json.Unmarshal([]byte(m.RawJSON), &u); err == nil && u.Size > 0 {
-			size = u.Size
-		}
+// contextSizeFromMessage 从单条 usage_update 消息中解析上下文窗口大小（size），无则返回 0。
+// 替代旧的 lastContextSize（曾遍历整个历史），现在配合 FindLastByKind 只加载最新一条。
+func contextSizeFromMessage(m *models.Message) int {
+	if m == nil || m.RawJSON == "" {
+		return 0
 	}
-	return size
+	var u struct {
+		Size int `json:"size"`
+	}
+	if err := json.Unmarshal([]byte(m.RawJSON), &u); err == nil && u.Size > 0 {
+		return u.Size
+	}
+	return 0
 }
 
 // formatHistory 将历史消息格式化为对话上下文文本，最多取最近 50 条。
@@ -2348,7 +2429,16 @@ func (s *Service) FindSessionsByWorkspaceID(workspaceID uint) ([]models.Session,
 	return s.sessions.FindByWorkspaceID(workspaceID)
 }
 
+// DeleteSessionWithMessages 用于工作区删除等批量场景：删除会话消息与记录。
+// 必须复用 DeleteSession 的连接/map 清理逻辑，否则每次调用会泄漏：
+//   - sessionPoolKey/commands/configs/modes 各 1 条 map 条目
+//   - 该会话占用的共享 Connection（若为最后一个会话则子进程永久残留）
+//   - 残留的 activePrompts 广播器
+//
+// 调用方（workspace_handler 删除循环）无 ctx，故使用 context.Background()。
 func (s *Service) DeleteSessionWithMessages(session *models.Session) error {
+	s.debugUnregister(agentSessionID(session))
+	s.detachAndReleaseConn(context.Background(), session)
 	if err := s.messages.DeleteByDBSessionID(session.ID); err != nil {
 		return err
 	}
@@ -2356,5 +2446,6 @@ func (s *Service) DeleteSessionWithMessages(session *models.Session) error {
 		return err
 	}
 	s.debugCleanup(session.ID)
+	s.maybeCleanupOrphanTemporaryWorkspace(session.WorkspaceID)
 	return nil
 }

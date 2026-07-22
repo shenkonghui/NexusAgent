@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/acp-go-sdk"
 	"gorm.io/gorm"
 
 	"opennexus/internal/config"
@@ -87,8 +88,6 @@ func TestService_GetSession_NotFound(t *testing.T) {
 		t.Error("期望未找到时返回错误")
 	}
 }
-
-
 
 func TestService_RecoverActiveSessions(t *testing.T) {
 	db := setupACPTestDB(t)
@@ -386,6 +385,67 @@ func TestService_DeleteSession_KeepsPersistentWorkspace(t *testing.T) {
 	}
 	if _, err := wsRepo.FindByID(ws.ID); err != nil {
 		t.Errorf("persistent 工作区记录应保留: %v", err)
+	}
+}
+
+// TestService_DeleteSessionWithMessages_ReleasesRouteAndCaches 验证
+// DeleteSessionWithMessages（工作区删除路径）会清理 sessionPoolKey/commands/configs/modes
+// 等缓存条目，避免原 bug 中 map 无限增长。
+func TestService_DeleteSessionWithMessages_ReleasesRouteAndCaches(t *testing.T) {
+	db := setupACPTestDB(t)
+	repo := repository.NewSessionRepository(db)
+	wsRepo := repository.NewWorkspaceRepository(db)
+	dir := filepath.Join(t.TempDir(), "dsm-ws")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("创建目录: %v", err)
+	}
+	ws := &models.Workspace{UserID: 1, Name: "ws", Cwd: dir, Mode: models.WorkspaceModePersistent}
+	if err := wsRepo.Create(ws); err != nil {
+		t.Fatalf("创建 workspace: %v", err)
+	}
+	wid := ws.ID
+	sess := &models.Session{
+		SessionID: "dsm-1", AgentType: "claude-code", Cwd: dir,
+		Status: models.SessionStatusClosed, WorkspaceID: &wid,
+	}
+	if err := repo.Create(sess); err != nil {
+		t.Fatalf("创建会话: %v", err)
+	}
+
+	skills, commands, rules, subAgents := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules, subAgents)
+
+	// 模拟该会话已建立路由与缓存（与 detachSession 清理的字段一一对应）
+	poolKey := connectionKey(sess.AgentType, dir)
+	svc.mu.Lock()
+	svc.sessionPoolKey[sess.SessionID] = poolKey
+	svc.commands[sess.SessionID] = []acp.AvailableCommand{{Name: "cmd1"}}
+	svc.configs[sess.SessionID] = []acp.SessionConfigOption{{}}
+	svc.modes[sess.SessionID] = []acp.SessionMode{{}}
+	svc.mu.Unlock()
+
+	if err := svc.DeleteSessionWithMessages(sess); err != nil {
+		t.Fatalf("DeleteSessionWithMessages: %v", err)
+	}
+
+	svc.mu.RLock()
+	_, hasRoute := svc.sessionPoolKey[sess.SessionID]
+	_, hasCmd := svc.commands[sess.SessionID]
+	_, hasCfg := svc.configs[sess.SessionID]
+	_, hasMode := svc.modes[sess.SessionID]
+	svc.mu.RUnlock()
+	if hasRoute || hasCmd || hasCfg || hasMode {
+		t.Errorf("DeleteSessionWithMessages 未清理缓存: route=%v cmd=%v cfg=%v mode=%v",
+			hasRoute, hasCmd, hasCfg, hasMode)
+	}
+
+	// 消息与会话记录也应被删除
+	msgs, _ := svc.messages.FindByDBSessionID(sess.ID)
+	if len(msgs) != 0 {
+		t.Errorf("期望消息已删除，实际 %d 条", len(msgs))
+	}
+	if _, err := repo.FindByID(sess.ID); err == nil {
+		t.Error("期望会话记录已删除")
 	}
 }
 

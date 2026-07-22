@@ -7,7 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 )
+
+// stopGracePeriod 是 Stop() 发送 SIGTERM 后等待进程自行退出的宽限时间，
+// 超过后升级为 SIGKILL（强制终止进程组）。
+const stopGracePeriod = 2 * time.Second
 
 // Process 管理 agent 子进程的生命周期。
 type Process struct {
@@ -65,6 +70,9 @@ func NewProcess(backend Backend, workDir string) (*Process, error) {
 		cmd.Dir = workDir
 	}
 	cmd.Env = append(cmd.Environ(), backend.Env()...)
+	// 设置独立进程组，便于 Stop() 时按 PGID 一并终止孙进程
+	// （npm exec / cursor-agent / codebuddy 等会派生子进程，否则会变成孤儿）。
+	setProcessGroup(cmd)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -106,14 +114,16 @@ func (p *Process) Stdout() io.ReadCloser {
 }
 
 // Stop 停止子进程。
+// 先关闭 stdin，再向进程组发送 SIGTERM 并等待 stopGracePeriod；
+// 若进程仍存活则升级为 SIGKILL 强制终止整个进程组（含孙进程）。
+// terminateProcessGroup 已回收直系子进程，此处不再重复 Wait。
 func (p *Process) Stop() error {
 	if p.cmd.Process == nil {
 		return nil
 	}
 	_ = p.stdin.Close()
-	if err := p.cmd.Process.Kill(); err != nil {
+	if err := terminateProcessGroup(p.cmd.Process, stopGracePeriod); err != nil {
 		return fmt.Errorf("停止 agent 进程: %w", err)
 	}
-	_, _ = p.cmd.Process.Wait()
 	return nil
 }

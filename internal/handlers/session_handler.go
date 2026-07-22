@@ -31,6 +31,10 @@ type SessionStore interface {
 	ResumeSession(ctx context.Context, sessionID string) (*models.Session, error)
 	ClearContext(ctx context.Context, sessionID string) (*models.Session, error)
 	ListMessages(sessionID string) ([]models.Message, error)
+	// ListMessagesPaged 分页查询消息；limit<=0 使用默认页大小。
+	ListMessagesPaged(sessionID string, limit, offset int) ([]models.Message, error)
+	// ListMessagesByKind 仅查询指定 kind 的消息（如 tool_call_update），避免加载无关历史。
+	ListMessagesByKind(sessionID string, kind string) ([]models.Message, error)
 	// FindMessageByID 按消息主键查询单条消息（用于撤销等按消息定位的场景）。
 	FindMessageByID(messageID uint) (*models.Message, error)
 	// DeleteMessagesFromSequence 删除指定会话中 sequence 大于等于 fromSeq 的消息（会话回滚，含目标）。
@@ -235,12 +239,21 @@ func (h *SessionHandler) Delete(c *gin.Context) {
 }
 
 // Messages GET /api/v1/sessions/:id/messages
+// 支持 query 参数 limit / offset 做分页；不传时返回默认页大小（最近 N 条）。
 func (h *SessionHandler) Messages(c *gin.Context) {
 	sess, ok := h.loadOwnedSession(c)
 	if !ok {
 		return
 	}
-	msgs, err := h.store.ListMessages(sess.SessionID)
+	var msgs []models.Message
+	var err error
+	if c.Query("limit") != "" || c.Query("offset") != "" {
+		limit, _ := strconv.Atoi(c.Query("limit"))
+		offset, _ := strconv.Atoi(c.Query("offset"))
+		msgs, err = h.store.ListMessagesPaged(sess.SessionID, limit, offset)
+	} else {
+		msgs, err = h.store.ListMessages(sess.SessionID)
+	}
 	if err != nil {
 		writeSessionError(c, err)
 		return

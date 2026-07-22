@@ -121,6 +121,25 @@ func (f *fakeSessionStore) ListMessages(sessionID string) ([]models.Message, err
 	return f.messages[sessionID], nil
 }
 
+// ListMessagesPaged 测试默认透传至 ListMessages（足够覆盖分页 handler 路径）。
+func (f *fakeSessionStore) ListMessagesPaged(sessionID string, _, _ int) ([]models.Message, error) {
+	return f.ListMessages(sessionID)
+}
+
+// ListMessagesByKind 过滤指定 kind 的消息。
+func (f *fakeSessionStore) ListMessagesByKind(sessionID string, kind string) ([]models.Message, error) {
+	if f.listMsgErr != nil {
+		return nil, f.listMsgErr
+	}
+	var out []models.Message
+	for _, m := range f.messages[sessionID] {
+		if m.Kind == kind {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeSessionStore) ListExecutions(_ string) ([]repository.ExecutionAggregate, error) {
 	return nil, nil
 }
@@ -555,6 +574,12 @@ func (s *commandsFakeStore) ClearContext(context.Context, string) (*models.Sessi
 	return nil, nil
 }
 func (s *commandsFakeStore) ListMessages(string) ([]models.Message, error) { return nil, nil }
+func (s *commandsFakeStore) ListMessagesPaged(string, int, int) ([]models.Message, error) {
+	return nil, nil
+}
+func (s *commandsFakeStore) ListMessagesByKind(string, string) ([]models.Message, error) {
+	return nil, nil
+}
 func (s *commandsFakeStore) ListExecutions(string) ([]repository.ExecutionAggregate, error) {
 	return nil, nil
 }
@@ -582,8 +607,8 @@ func (s *commandsFakeStore) SetConfigOption(_ context.Context, _, _, _ string) e
 	return nil
 }
 func (s *commandsFakeStore) SetSessionMode(_ context.Context, _, _ string) error { return nil }
-func (s *commandsFakeStore) RespondPermission(_, _, _ string, _ bool) error     { return nil }
-func (s *commandsFakeStore) UpdateTitle(_ uint, _ string) error { return nil }
+func (s *commandsFakeStore) RespondPermission(_, _, _ string, _ bool) error      { return nil }
+func (s *commandsFakeStore) UpdateTitle(_ uint, _ string) error                  { return nil }
 func (s *commandsFakeStore) Prompt(context.Context, string, string) (<-chan models.Message, error) {
 	return nil, nil
 }
@@ -591,14 +616,14 @@ func (s *commandsFakeStore) GetWorkspaceCwd(uint) (string, error) { return "/tmp
 func (s *commandsFakeStore) SubscribeSession(string, int) ([]models.Message, <-chan models.Message, error) {
 	return nil, nil, nil
 }
-func (s *commandsFakeStore) HasActivePrompt(string) bool                        { return false }
+func (s *commandsFakeStore) HasActivePrompt(string) bool                             { return false }
 func (s *commandsFakeStore) ListInterruptedTasks(uint) ([]models.RunningTask, error) { return nil, nil }
 func (s *commandsFakeStore) ListRunningDBSessionIDs(uint) ([]uint, error)            { return nil, nil }
 func (s *commandsFakeStore) ResumeInterruptedTask(context.Context, uint) (<-chan models.Message, error) {
 	return nil, nil
 }
 func (s *commandsFakeStore) DeleteMessagesFromSequence(uint, int) (int64, error) { return 0, nil }
-func (s *commandsFakeStore) FindMessageByID(uint) (*models.Message, error)      { return nil, nil }
+func (s *commandsFakeStore) FindMessageByID(uint) (*models.Message, error)       { return nil, nil }
 
 func TestSessionHandler_Prompt_Empty(t *testing.T) {
 	store := newFakeSessionStore()

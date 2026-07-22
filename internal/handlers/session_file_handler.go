@@ -319,7 +319,8 @@ func (h *SessionFileHandler) ListFileChanges(c *gin.Context) {
 		return
 	}
 
-	allMsgs, err := h.store.ListMessages(sess.SessionID)
+	// 仅加载 tool_call_update 消息，避免为文件变更列表全量载入历史 raw_json
+	snapshotMsgs, err := h.store.ListMessagesByKind(sess.SessionID, "tool_call_update")
 	if err != nil {
 		Fail(c, http.StatusInternalServerError, "LOAD_FAILED", "加载消息失败")
 		return
@@ -327,11 +328,8 @@ func (h *SessionFileHandler) ListFileChanges(c *gin.Context) {
 
 	// 按归一化路径去重，保留最新（sequence 最大）的 diff 项
 	latest := make(map[string]undoDiffItem)
-	for i := range allMsgs {
-		m := &allMsgs[i]
-		if m.Kind != "tool_call_update" {
-			continue
-		}
+	for i := range snapshotMsgs {
+		m := &snapshotMsgs[i]
 		items := parseSnapshotDiffs(m.RawJSON)
 		for _, item := range items {
 			relPath := normalizeRelPath(item.Path, cwd)

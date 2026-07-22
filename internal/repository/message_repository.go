@@ -37,12 +37,74 @@ func (r *MessageRepository) CreateBatch(messages []models.Message) error {
 }
 
 // FindByDBSessionID 按数据库会话主键查询全部消息，按 sequence 升序排列。
+// 注意：无 LIMIT，对超长会话会一次性载入全部 raw_json 到内存。
+// 需要分页或限量时应优先使用 FindByDBSessionIDPaged / FindByDBSessionIDLastN。
 func (r *MessageRepository) FindByDBSessionID(dbSessionID uint) ([]models.Message, error) {
 	var messages []models.Message
 	err := r.db.Where("db_session_id = ?", dbSessionID).
 		Order("sequence ASC").
 		Find(&messages).Error
 	return messages, err
+}
+
+// FindByDBSessionIDPaged 分页查询消息，按 sequence 升序。
+// limit<=0 时不分页（等价于全量加载）；offset 从 0 开始。
+func (r *MessageRepository) FindByDBSessionIDPaged(dbSessionID uint, limit, offset int) ([]models.Message, error) {
+	q := r.db.Where("db_session_id = ?", dbSessionID).Order("sequence ASC")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	if offset > 0 {
+		q = q.Offset(offset)
+	}
+	var messages []models.Message
+	return messages, q.Find(&messages).Error
+}
+
+// FindByDBSessionIDLastN 返回最近 n 条消息（按 sequence 降序取 n 条再反转为升序）。
+// n<=0 返回空切片，避免误用。用于注入历史上下文等仅需近期消息的场景。
+func (r *MessageRepository) FindByDBSessionIDLastN(dbSessionID uint, n int) ([]models.Message, error) {
+	if n <= 0 {
+		return []models.Message{}, nil
+	}
+	var desc []models.Message
+	if err := r.db.Where("db_session_id = ?", dbSessionID).
+		Order("sequence DESC").
+		Limit(n).
+		Find(&desc).Error; err != nil {
+		return nil, err
+	}
+	// 反转为升序，方便调用方按时间顺序消费
+	for i, j := 0, len(desc)-1; i < j; i, j = i+1, j-1 {
+		desc[i], desc[j] = desc[j], desc[i]
+	}
+	return desc, nil
+}
+
+// FindByKind 查询指定会话中给定 kind 的全部消息，按 sequence 升序。
+// 用于文件变更等只关心特定 kind 的场景，避免加载无关消息。
+func (r *MessageRepository) FindByKind(dbSessionID uint, kind string) ([]models.Message, error) {
+	var messages []models.Message
+	err := r.db.Where("db_session_id = ? AND kind = ?", dbSessionID, kind).
+		Order("sequence ASC").
+		Find(&messages).Error
+	return messages, err
+}
+
+// FindLastByKind 返回指定会话中给定 kind 的最新一条消息（sequence 最大）。
+// 无匹配时返回 nil, nil。
+func (r *MessageRepository) FindLastByKind(dbSessionID uint, kind string) (*models.Message, error) {
+	var msg models.Message
+	err := r.db.Where("db_session_id = ? AND kind = ?", dbSessionID, kind).
+		Order("sequence DESC").
+		First(&msg).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &msg, nil
 }
 
 // FindByDBSessionIDAfter 查询指定会话中 sequence 大于 afterSeq 的消息，按 sequence 升序排列。
