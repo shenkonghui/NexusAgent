@@ -1,4 +1,4 @@
-import { Code2, BookOpenText } from 'lucide-react'
+import { Code2, BookOpenText, Network } from 'lucide-react'
 import type { ModeDef, PanelDef, LayoutNode } from './types'
 import { leaf, split, tabs } from './types'
 import { PANELS } from './panels'
@@ -58,6 +58,15 @@ export const MODES: ModeDef[] = [
       // 右：AI 对话（生成 drawio）
       leaf('chat', 1),
     ]),
+  },
+  {
+    // 编排模式：layout 仅占位，实际由 ChatPage 拦截渲染 OrchestrationView（不走 LayoutRenderer）。
+    id: 'orchestration',
+    titleKey: 'taskMode.orchestration',
+    icon: <Network size={14} />,
+    sessionKind: 'primary',
+    configBar: 'none',
+    layout: leaf('chat'),
   },
 ]
 

@@ -118,7 +118,7 @@ export interface Session {
   workspace?: Workspace;
   last_prompt: string;
   title: string;
-  source: 'manual' | 'scheduled' | 'classify';
+  source: 'manual' | 'scheduled' | 'classify' | 'orchestration';
   created_at: string;
   closed_at: string | null;
   // 标签 JSON 数组字符串，如 '["后端","mysql"]'，由任务自动分类写入

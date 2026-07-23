@@ -11,7 +11,7 @@ import { getAgentPrefs, patchAgentPrefs } from '../api/agentPrefs'
 import { WORKSPACE_STORAGE_KEY, useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
 import { applyPrefsToConfigs, configsFromProbe, takeLegacyLocalAgentPrefs } from '../utils/agentPrefs'
 import { streamPrompt, subscribeStream, streamResumeTask, isTimeoutError } from '../api/sse'
-import { tasksUrl, newTaskUrl, sessionUrl, isNewTaskPath } from '../utils/routes'
+import { tasksUrl, newTaskUrl, sessionUrl, isNewTaskPath, isOrchestrationPath } from '../utils/routes'
 import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution, Agent, PermissionRequestPayload, RunningTask, AgentPrefs } from '../types'
 import { parsePermissionRequest } from '../utils/permission'
 import AppLayout, { SidebarToggleButton } from '../components/AppLayout'
@@ -21,6 +21,7 @@ import UserMenu from '../components/UserMenu'
 import WorkspaceSelector from '../components/WorkspaceSelector'
 import { type ConvState as ConvStatusState } from '../components/ConvStatusBar'
 import TaskModeSwitch, { type TaskMode } from '../components/TaskModeSwitch'
+import OrchestrationView from '../components/OrchestrationView'
 import { Plus } from 'lucide-react'
 import { useFileViewer } from '../context/FileViewerContext'
 import { saveLastDoc, loadDocFolders, loadDocSession, saveDocSession, clearDocSession, TASK_MODE_KEY, LAST_DOC_KEY_PREFIX, type DocTarget } from '../utils/docs'
@@ -32,7 +33,8 @@ import styles from './ChatPage.module.css'
 
 // navigate 时携带的 state：initialPrompt/createdSession 用于新建会话跳转；
 // doc 用于侧边栏点击文档时，切到文档模式并打开指定文档。
-type NavigateState = { initialPrompt?: string; createdSession?: Session; doc?: DocTarget }
+// taskMode 用于外部入口（如任务编排）强制指定顶层模式；draftPrompt 用于新建任务页预填输入框。
+type NavigateState = { initialPrompt?: string; createdSession?: Session; doc?: DocTarget; taskMode?: TaskMode; draftPrompt?: string }
 
 type ConvState = ConvStatusState
 
@@ -59,8 +61,10 @@ export default function ChatPage() {
 
   // 顶层 UI 模式（与 ACP SessionMode 正交）。localStorage 记忆，默认 coding。
   // 模式来自 registry；未识别的值回退到首个模式。
+  // navState.taskMode 优先：从任务编排等入口打开时强制指定（如“默认编程模式”）。
+  // 旧编排深链接（/orchestration）：检测路径初始化为编排模式。
   const [taskMode, setTaskMode] = useState<TaskMode>(
-    () => localStorage.getItem(TASK_MODE_KEY) || 'coding',
+    () => navState?.taskMode || (isOrchestrationPath(location.pathname) ? 'orchestration' : (localStorage.getItem(TASK_MODE_KEY) || 'coding')),
   )
   const handleTaskModeChange = useCallback((m: TaskMode) => {
     setTaskMode(m)
@@ -144,7 +148,21 @@ export default function ChatPage() {
   const [session, setSession] = useState<Session | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [restoreRefreshKey, setRestoreRefreshKey] = useState(0)
-  const [restoreInput, setRestoreInput] = useState<string | undefined>(undefined)
+  // navState.draftPrompt 优先：从任务编排打开未运行任务时，用任务详情预填新建任务输入框。
+  const [restoreInput, setRestoreInput] = useState<string | undefined>(() => navState?.draftPrompt)
+  // 侧边栏点击编排任务会 navigate 到新建任务页并带 taskMode/draftPrompt。当目标就是当前路由时
+  // （navigate 不重新挂载组件），仅靠上面的初始化不会生效，表现为“点击无反应”。这里以 location.key
+  // 为依赖响应每次跳转，重新应用模式与预填内容。
+  useEffect(() => {
+    if (navState?.taskMode) {
+      setTaskMode(navState.taskMode)
+      localStorage.setItem(TASK_MODE_KEY, navState.taskMode)
+    }
+    if (navState?.draftPrompt !== undefined) {
+      setRestoreInput(navState.draftPrompt)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key])
   const [commands, setCommands] = useState<AgentCommand[]>([])
   const [modes, setModes] = useState<SessionMode[]>([])
   const [skills, setSkills] = useState<AgentSkill[]>([])
@@ -556,6 +574,8 @@ export default function ChatPage() {
   // 等待 workspace 数据加载完成后再判断，避免在 sessions 尚未就绪时误跳到新建任务页。
   useEffect(() => {
     if (!user || hasSession || isCreateMode) return
+    // 编排模式在任务界面内渲染（不依赖会话），不触发任务列表页的自动跳转。
+    if (taskMode === 'orchestration') return
     if (wsLoading || !workspaceId) return
     // 切换工作区时新会话为异步加载：sessions 尚未与当前 workspace 匹配时暂不跳转，
     // 否则会用旧工作区的会话跳回原工作区，表现为“无法切换工作区”。
@@ -567,7 +587,7 @@ export default function ChatPage() {
     } else {
       navigate(newTaskUrl(workspaceId), { replace: true })
     }
-  }, [user, hasSession, isCreateMode, wsLoading, workspaceId, sessionsWorkspaceId, sessions, navigate])
+  }, [user, hasSession, isCreateMode, wsLoading, workspaceId, sessionsWorkspaceId, sessions, navigate, taskMode])
 
   // 当组件卸载或切换到不同会话时，中断旧的 SSE 流，防止内存泄漏和 React 警告
   useEffect(() => {
@@ -1254,6 +1274,33 @@ export default function ChatPage() {
 
   if (authLoading) return <LoadingSpinner text={t('common.loading')} />
   if (!user) return null
+
+  // ============ 编排模式：在任务界面内管理编排任务（不走 LayoutRenderer，与 docs 特判并列） ============
+  if (taskMode === 'orchestration') {
+    return (
+      <AppLayout sidebarProps={{ sessions, workspaceId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
+        <div className={styles.main}>
+          <div className={styles.header}>
+            <div className={styles.sysBar}>
+              <SidebarToggleButton />
+              <TaskModeSwitch value={taskMode} onChange={handleTaskModeChange} />
+              <div className={styles.actions}>
+                <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
+                <UserMenu />
+              </div>
+            </div>
+          </div>
+          <div className={styles.content}>
+            {error && <ErrorBanner message={error} onClose={() => setError('')} />}
+            <div className={styles.layoutBody}>
+              <OrchestrationView workspaceId={workspaceId} cwd={workspaceCwd} agents={agents} onError={setError} />
+            </div>
+          </div>
+        </div>
+      </AppLayout>
+    )
+  }
+
   if (hasSession && loading && !activeSession) return <LoadingSpinner text={t('common.loading')} />
 
   // ============ 统一模式渲染：编码 / 文档（数据驱动） ============
@@ -1516,6 +1563,9 @@ export default function ChatPage() {
       docTarget: null,
       docContent: '',
       onDocContentChange: () => {},
+      // 新建任务页的输入框采用受控值，支持从任务编排入口预填（draftPrompt）。
+      restoreInput,
+      onRestoreInputChange: setRestoreInput,
       // 统一配置栏：Agent + 模式 + 模型（与会话详情页共用同一套内置 configBar）
       ...({
         __chatConfig: {

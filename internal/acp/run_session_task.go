@@ -11,10 +11,11 @@ import (
 
 // SessionTaskResult 描述一次会话任务的执行结果。
 type SessionTaskResult struct {
-	SessionID string // 落库的稳定 session_id（UUID），可用于后续继续对话
-	Result    string // 收集到的 assistant 文本
-	Success   bool
-	Error     string // 失败原因（Success=true 时为空）
+	SessionID   string // 落库的稳定 session_id（UUID），可用于后续继续对话
+	DBSessionID uint   // 落库的 DB 主键 ID，前端路由 /sessions/:id 使用
+	Result      string // 收集到的 assistant 文本
+	Success     bool
+	Error       string // 失败原因（Success=true 时为空）
 }
 
 // SessionTaskConfig 描述一次会话任务的参数（用于 run_session_task MCP 工具）。
@@ -30,6 +31,10 @@ type SessionTaskConfig struct {
 	ParentSessionID *uint        // 非 nil 时创建子会话，关联父会话
 	Source         string        // 会话来源，空=manual
 	Timeout        time.Duration // 运行超时，0=默认 sessionTaskTimeout (300s)
+	Cwd            string        // 工作目录覆盖，非空时覆盖工作区 cwd（如编排任务的 git worktree 路径）
+	// OnSessionCreated 在会话落库后、发送 prompt 前立即回调，便于调用方尽早拿到 db_session_id
+	//（RunSessionTask 会阻塞到超时/完成才返回，故需此回调支持“启动后立即跳转会话”）。
+	OnSessionCreated func(dbSessionID uint, sessionID string)
 }
 
 // sessionTaskTimeout 是 RunSessionTask 的默认超时。
@@ -63,12 +68,17 @@ func (s *Service) RunSessionTask(ctx context.Context, cfg SessionTaskConfig) (Se
 	}
 
 	// 创建会话用调用方 ctx（感知取消）；发送 prompt 用 detached context（独立存活）。
-	session, err := s.createSessionFull(ctx, cfg.AgentType, cfg.WorkspaceID, cfg.UserID, source, cfg.ModelValue, cfg.ParentSessionID)
+	session, err := s.createSessionFull(ctx, cfg.AgentType, cfg.WorkspaceID, cfg.UserID, source, cfg.ModelValue, cfg.ParentSessionID, cfg.Cwd)
 	if err != nil {
 		return SessionTaskResult{}, fmt.Errorf("创建会话: %w", err)
 	}
 
-	result := SessionTaskResult{SessionID: session.SessionID}
+	result := SessionTaskResult{SessionID: session.SessionID, DBSessionID: session.ID}
+
+	// 会话已落库：尽早回调，供调用方（如编排引擎）立即记录 db_session_id 并跳转会话。
+	if cfg.OnSessionCreated != nil {
+		cfg.OnSessionCreated(session.ID, session.SessionID)
+	}
 
 	// 用 detached context 发送 prompt：持久会话的生命周期独立于 MCP 工具调用。
 	// 否则 MCP 工具返回（或超时取消 ctx）会取消 prompt 流，导致 agent 进程被终止、

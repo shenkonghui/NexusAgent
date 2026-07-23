@@ -8,10 +8,11 @@ const (
 	SessionStatusError   = "error"
 	SessionStatusPending = "pending"
 
-	// 会话来源：手动创建、定时任务或笔记自动分类
-	SessionSourceManual    = "manual"
-	SessionSourceScheduled = "scheduled"
-	SessionSourceClassify  = "classify"
+	// 会话来源：手动创建、定时任务、笔记自动分类或任务编排
+	SessionSourceManual        = "manual"
+	SessionSourceScheduled     = "scheduled"
+	SessionSourceClassify      = "classify"
+	SessionSourceOrchestration = "orchestration"
 )
 
 type Session struct {

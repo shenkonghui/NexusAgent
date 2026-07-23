@@ -81,7 +81,8 @@
     "login": "Login",
     "logout": "Logout",
     "scheduledTask": "Scheduled Task",
-    "recentRun": "Recent Run"
+    "recentRun": "Recent Run",
+    "orchestration": "Task Orchestration"
   },
   "auth": {
     "login": "Login",
@@ -383,6 +384,35 @@
     "statusFailed": "Failed",
     "statusCancelled": "Cancelled"
   },
+  "orchestration": {
+    "title": "Task Orchestration",
+    "groupTitle": "Task Orchestration",
+    "taskPrefix": "Orch-",
+    "manage": "Manage Orchestration",
+    "noTasks": "No orchestration tasks",
+    "taskNotRun": "Task not yet executed, no associated session",
+    "empty": "No orchestration tasks yet. Describe your needs in the AI Manage chat on the right to create tasks.",
+    "status_pending": "Pending",
+    "status_queued": "Queued",
+    "status_running": "Running",
+    "status_done": "Done",
+    "status_failed": "Failed",
+    "status_canceled": "Canceled",
+    "status_interrupt": "Interrupted",
+    "aiManageTitle": "Task Orchestration Assistant",
+    "aiTitle": "Task Orchestration Assistant",
+    "aiPlaceholder": "Describe your need, e.g.: add a task to refactor the login module; set concurrency to 5",
+    "aiHint": "Describe your needs in natural language; the agent manages tasks via orchestration tools (create/update/delete/start/stop/set concurrency)",
+    "cwd": "Working Dir",
+    "startedAt": "Started",
+    "finishedAt": "Finished",
+    "openChat": "Open Chat",
+    "openTask": "Open Task",
+    "gitRequiredTitle": "Git repository required",
+    "gitRequiredHint": "Task orchestration requires the current working directory to be a git repository, so each task gets its own worktree under .worktrees.",
+    "gitInit": "Initialize git repository",
+    "gitInitializing": "Initializing…"
+  },
   "chat": {
     "mode": "Mode",
     "noModes": "No modes available",
@@ -594,7 +624,8 @@
   },
   "taskMode": {
     "coding": "Coding",
-    "docs": "Docs"
+    "docs": "Docs",
+    "orchestration": "Orchestration"
   },
   "docMode": {
     "emptyTitle": "Docs Workspace",

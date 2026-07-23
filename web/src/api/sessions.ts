@@ -1,11 +1,21 @@
 import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution, RunningTask } from '../types'
 import { apiFetch } from './client'
 
-// 创建会话（可选 model_value 指定初始模型，可选 workspace_id）
-export function createSession(agentType: string, workspaceId?: number, modelValue?: string): Promise<{ data: Session }> {
+// 创建会话（可选 model_value 指定初始模型，可选 workspace_id，可选 source 标记来源）
+export function createSession(
+  agentType: string,
+  workspaceId?: number,
+  modelValue?: string,
+  source?: 'manual' | 'orchestration',
+): Promise<{ data: Session }> {
   return apiFetch('/sessions', {
     method: 'POST',
-    body: JSON.stringify({ agent_type: agentType, workspace_id: workspaceId || 0, model_value: modelValue || '' }),
+    body: JSON.stringify({
+      agent_type: agentType,
+      workspace_id: workspaceId || 0,
+      model_value: modelValue || '',
+      ...(source ? { source } : {}),
+    }),
   })
 }
 

@@ -23,6 +23,8 @@ import (
 // SessionStore 暴露会话相关业务能力（*agent.Router 实现该接口）。
 type SessionStore interface {
 	CreateSession(ctx context.Context, agentType string, workspaceID uint, userID uint, modelValue string) (*models.Session, error)
+	// CreateSessionWithSource 创建会话并指定来源（manual/orchestration 等）。
+	CreateSessionWithSource(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string) (*models.Session, error)
 	ListSessions(userID uint) ([]models.Session, error)
 	ListSessionsBySource(userID uint, source string) ([]models.Session, error)
 	GetSessionByDBID(id uint) (*models.Session, error)
@@ -127,6 +129,8 @@ type createSessionRequest struct {
 	AgentType   string `json:"agent_type" binding:"required"`
 	WorkspaceID uint   `json:"workspace_id"`
 	ModelValue  string `json:"model_value"`
+	// Source 会话来源；仅允许 manual/orchestration，空=manual。
+	Source string `json:"source"`
 }
 
 // Create POST /api/v1/sessions
@@ -141,7 +145,14 @@ func (h *SessionHandler) Create(c *gin.Context) {
 		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
 		return
 	}
-	sess, err := h.store.CreateSession(c.Request.Context(), req.AgentType, req.WorkspaceID, uid, req.ModelValue)
+	source := strings.TrimSpace(req.Source)
+	var sess *models.Session
+	var err error
+	if source == models.SessionSourceOrchestration {
+		sess, err = h.store.CreateSessionWithSource(c.Request.Context(), req.AgentType, req.WorkspaceID, uid, source, req.ModelValue)
+	} else {
+		sess, err = h.store.CreateSession(c.Request.Context(), req.AgentType, req.WorkspaceID, uid, req.ModelValue)
+	}
 	if err != nil {
 		writeSessionError(c, err)
 		return

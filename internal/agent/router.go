@@ -76,6 +76,16 @@ func (r *Router) ListAgents() []*AgentDescriptor {
 	return r.registry.List()
 }
 
+// DefaultAgentType 返回排序后首个已注册 agent 的类型（无已注册 agent 时返回空串）。
+// 供编排任务未显式指定 agent 时回退使用。
+func (r *Router) DefaultAgentType() string {
+	agents := r.registry.List()
+	if len(agents) == 0 {
+		return ""
+	}
+	return agents[0].Type
+}
+
 // ListCommands 返回会话缓存的可用 slash command 列表，委托 service。
 func (r *Router) ListCommands(sessionID string) ([]acpsdk.AvailableCommand, error) {
 	if r.service == nil {

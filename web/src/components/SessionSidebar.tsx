@@ -2,12 +2,13 @@ import { useState, useEffect, useMemo } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { formatTimeAgo } from '../utils/time'
-import { sessionUrl, tasksUrl, newTaskUrl, isTasksPath } from '../utils/routes'
+import { sessionUrl, tasksUrl, newTaskUrl, isTasksPath, orchestrationUrl } from '../utils/routes'
 import type { Session, ScheduledTask, AgentStatus } from '../types'
 import { listScheduledTasks } from '../api/scheduledTasks'
 import { listAgentStatus } from '../api/agents'
 import { listSessions, listRunningSessions } from '../api/sessions'
-import { PanelLeftClose, Star, Pencil, X, Check, SquarePlus, FileText, Calendar, ClipboardList, Timer, Settings, Zap, ScrollText, Loader2, CheckCircle2, XCircle, Clock3, CircleDashed } from 'lucide-react'
+import { getOrchestration, getOrchStatus, startOrchestration, type OrchestrationTask } from '../api/orchestration'
+import { PanelLeftClose, Star, Pencil, X, Check, SquarePlus, FileText, Calendar, ClipboardList, Timer, Settings, Zap, ScrollText, Loader2, CheckCircle2, XCircle, Clock3, CircleDashed, Network } from 'lucide-react'
 import styles from './SessionSidebar.module.css'
 import LogPanel from './LogPanel'
 
@@ -24,12 +25,15 @@ interface SessionSidebarProps {
 const STORAGE_KEY = 'opennexus.sidebar.collapsed'
 const FAVS_KEY = 'opennexus.favorites'
 
-function loadCollapsed(): { favorites: boolean; manual: boolean; scheduled: boolean } {
+function loadCollapsed(): { favorites: boolean; manual: boolean; scheduled: boolean; orchestration: boolean } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return JSON.parse(raw)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      return { favorites: false, manual: false, scheduled: false, orchestration: true, ...parsed }
+    }
   } catch { /* ignore */ }
-  return { favorites: false, manual: false, scheduled: false }
+  return { favorites: false, manual: false, scheduled: false, orchestration: true }
 }
 
 function loadFavorites(): number[] {
@@ -64,6 +68,17 @@ function SessionStatusIcon({ running, status }: { running: boolean; status: stri
   return <CheckCircle2 size={size} className={`${cls} ${styles.taskStatusIconIdle}`} />
 }
 
+// OrchStatusDot 编排任务的状态小圆点：running→蓝色旋转；queued→黄色；done→绿色；failed→红色；其余→灰色。
+function OrchStatusDot({ status }: { status: string }) {
+  const size = 13
+  const cls = styles.taskStatusIcon
+  if (status === 'running') return <Loader2 size={size} className={`${cls} ${styles.taskStatusIconSpin}`} />
+  if (status === 'queued') return <Clock3 size={size} className={`${cls} ${styles.taskStatusIconSkipped}`} />
+  if (status === 'done') return <CheckCircle2 size={size} className={`${cls} ${styles.taskStatusIconSuccess}`} />
+  if (status === 'failed') return <XCircle size={size} className={`${cls} ${styles.taskStatusIconFailed}`} />
+  return <CircleDashed size={size} className={`${cls} ${styles.taskStatusIconIdle}`} />
+}
+
 export default function SessionSidebar({ sessions, workspaceId, currentId, onDelete, onRename, onCollapse, onNewScheduledTask }: SessionSidebarProps) {
   const { t } = useTranslation()
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -78,6 +93,9 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
   const [agentStatuses, setAgentStatuses] = useState<AgentStatus[]>([])
   const [runningIds, setRunningIds] = useState<Set<number>>(() => new Set())
+  const [orchTasks, setOrchTasks] = useState<OrchestrationTask[]>([])
+  // 正在通过编排引擎启动的任务 id（点击未运行任务时置位），用于展示运行中状态并避免重复点击。
+  const [startingTaskId, setStartingTaskId] = useState<string | null>(null)
 
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(collapsed)) } catch { /* ignore */ }
@@ -90,6 +108,16 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
       .catch(() => { if (alive) setTasks([]) })
     return () => { alive = false }
   }, [location.pathname, workspaceId])
+
+  // 加载编排任务（侧边栏「任务编排」分组展开时显示）
+  useEffect(() => {
+    if (!workspaceId) { setOrchTasks([]); return }
+    let alive = true
+    getOrchestration(workspaceId)
+      .then((r) => { if (alive) setOrchTasks(r.data.tasks || []) })
+      .catch(() => { if (alive) setOrchTasks([]) })
+    return () => { alive = false }
+  }, [workspaceId, location.pathname])
 
   useEffect(() => {
     let alive = true
@@ -122,6 +150,8 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
     return () => { alive = false }
   }, [])
 
+  // 手动会话：编排会话(source=orchestration)不在此列，编排任务改由 orchTasks 以「编排-」前缀
+  // 合并进「任务」分组展示（见下方 groupList），避免与已运行任务的会话重复。
   const manualSessions = sessions.filter((s) => !s.source || s.source === 'manual')
   const favoriteSessions = useMemo(
     () => sessions.filter((s) => favorites.includes(s.id)),
@@ -131,7 +161,7 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
     .filter((t) => t.last_run_at)
     .sort((a, b) => (a.last_run_at! < b.last_run_at! ? 1 : -1))[0]
 
-  function toggleGroup(group: 'favorites' | 'manual' | 'scheduled') {
+  function toggleGroup(group: 'favorites' | 'manual' | 'scheduled' | 'orchestration') {
     setCollapsed((prev) => ({ ...prev, [group]: !prev[group] }))
   }
 
@@ -151,6 +181,39 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
       return
     }
     navigate('/scheduled-tasks', { state: { openCreate: true } })
+  }
+
+  // 点击编排任务：
+  // - 已有会话（db_session_id）：直接打开该会话。
+  // - 未运行任务：通过编排引擎启动（引擎会自动创建 git worktree 并在其中运行，
+  //   把 worktree 的 cwd 带入会话），随后轮询任务状态，拿到 db_session_id 后跳转到会话。
+  //   引擎对已在运行的任务是幂等的（跳过），故 pending/queued 均可安全触发。
+  async function openOrchTask(task: OrchestrationTask) {
+    if (task.db_session_id) {
+      navigate(sessionUrl(task.db_session_id, workspaceId), { state: { taskMode: 'coding' } })
+      return
+    }
+    if (!workspaceId || startingTaskId) return
+    setStartingTaskId(task.id)
+    try {
+      await startOrchestration(workspaceId, task.id)
+      const deadline = Date.now() + 20000
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 800))
+        const r = await getOrchStatus(workspaceId)
+        const list = r.data.tasks || []
+        setOrchTasks(list) // 顺带刷新侧边栏状态
+        const fresh = list.find((x) => x.id === task.id)
+        if (fresh?.db_session_id) {
+          navigate(sessionUrl(fresh.db_session_id, workspaceId), { state: { taskMode: 'coding' } })
+          return
+        }
+        if (fresh?.status === 'failed') break // 启动失败：停止轮询，状态点会显示失败
+      }
+    } catch { /* ignore：状态点仍会反映实际结果 */ }
+    finally {
+      setStartingTaskId(null)
+    }
   }
 
   return (
@@ -218,7 +281,27 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
           </button>
           {!collapsed.manual && (
             <div className={styles.groupList}>
-              {manualSessions.length === 0 ? (
+              {orchTasks.map((task) => (
+                <div key={`orch-${task.id}`} className={styles.item}>
+                  <div
+                    className={styles.itemLink}
+                    role="button"
+                    tabIndex={0}
+                    title={t('orchestration.openTask')}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => openOrchTask(task)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openOrchTask(task) } }}
+                  >
+                    <div className={styles.itemRow}>
+                      <span className={styles.itemTitle}>
+                        <OrchStatusDot status={startingTaskId === task.id ? 'running' : task.status} />
+                        {t('orchestration.taskPrefix')}{task.title}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {orchTasks.length === 0 && manualSessions.length === 0 ? (
                 <p className={styles.empty}>{t('session.noSessions')}</p>
               ) : (
                 manualSessions.map((session) => (
@@ -360,6 +443,10 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
         <Link to="/scheduled-tasks" className={`${styles.navItem} ${location.pathname === '/scheduled-tasks' ? styles.navItemActive : ''}`}>
           <span className={styles.navIcon}><Timer size={15} /></span>
           <span>{t('nav.scheduledTasks')}</span>
+        </Link>
+        <Link to={orchestrationUrl(workspaceId)} className={`${styles.navItem} ${location.pathname.endsWith('/orchestration') ? styles.navItemActive : ''}`}>
+          <span className={styles.navIcon}><Network size={15} /></span>
+          <span>{t('nav.orchestration')}</span>
         </Link>
         <Link to="/notes" className={`${styles.navItem} ${location.pathname === '/notes' ? styles.navItemActive : ''}`}>
           <span className={styles.navIcon}><FileText size={15} /></span>

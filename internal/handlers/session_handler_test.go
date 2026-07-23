@@ -63,6 +63,15 @@ func (f *fakeSessionStore) CreateSession(_ context.Context, agentType string, wo
 	return s, nil
 }
 
+func (f *fakeSessionStore) CreateSessionWithSource(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string) (*models.Session, error) {
+	s, err := f.CreateSession(ctx, agentType, workspaceID, userID, modelValue)
+	if err != nil {
+		return nil, err
+	}
+	s.Source = source
+	return s, nil
+}
+
 func (f *fakeSessionStore) ListSessions(userID uint) ([]models.Session, error) {
 	if f.listErr != nil {
 		return nil, f.listErr
@@ -553,6 +562,9 @@ type commandsFakeStore struct {
 }
 
 func (s *commandsFakeStore) CreateSession(context.Context, string, uint, uint, string) (*models.Session, error) {
+	return nil, nil
+}
+func (s *commandsFakeStore) CreateSessionWithSource(context.Context, string, uint, uint, string, string) (*models.Session, error) {
 	return nil, nil
 }
 func (s *commandsFakeStore) ListSessions(uint) ([]models.Session, error) { return nil, nil }

@@ -16,7 +16,7 @@ import (
 	"opennexus/internal/services"
 )
 
-func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, registryH *handlers.RegistryHandler, schedTaskH *handlers.ScheduledTaskHandler, noteH *handlers.NoteHandler, taskSettingsH *handlers.TaskSettingsHandler, agentPrefsH *handlers.AgentPrefsHandler, configH *handlers.ConfigHandler, mcpH *handlers.MCPHandler, logH *handlers.LogHandler, debugH *handlers.DebugHandler, subAgentH *handlers.SubAgentHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, rulesCfg config.RulesConfig, subAgentsCfg config.SubAgentsConfig, mode, webDist string, autoLogin bool) *gin.Engine {
+func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, registryH *handlers.RegistryHandler, schedTaskH *handlers.ScheduledTaskHandler, noteH *handlers.NoteHandler, taskSettingsH *handlers.TaskSettingsHandler, agentPrefsH *handlers.AgentPrefsHandler, configH *handlers.ConfigHandler, mcpH *handlers.MCPHandler, logH *handlers.LogHandler, debugH *handlers.DebugHandler, subAgentH *handlers.SubAgentHandler, orchH *handlers.OrchestrationHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, rulesCfg config.RulesConfig, subAgentsCfg config.SubAgentsConfig, mode, webDist string, autoLogin bool) *gin.Engine {
 	gin.SetMode(mode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -160,6 +160,24 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 				sched.DELETE("/:id", schedTaskH.Delete)
 				sched.POST("/:id/run", schedTaskH.Run)
 				sched.GET("/:id/executions", schedTaskH.Executions)
+			}
+
+			// 任务编排（基于 tasks.json + git worktree 隔离）
+			if orchH != nil {
+				orch := protected.Group("/orchestration")
+				{
+					orch.GET("", orchH.Get)
+					orch.PUT("", orchH.Save)
+					orch.GET("/status", orchH.Status)
+					orch.GET("/git-status", orchH.GitStatus)
+					orch.POST("/git-init", orchH.GitInit)
+					orch.POST("/start", orchH.Start)
+					orch.POST("/stop", orchH.Stop)
+					orch.PUT("/max-parallel", orchH.SetMaxParallel)
+					orch.PUT("/parent-session", orchH.SetParentSession)
+					orch.POST("/tasks", orchH.UpsertTask)
+					orch.DELETE("/tasks/:task_id", orchH.DeleteTask)
+				}
 			}
 
 			// 全局笔记

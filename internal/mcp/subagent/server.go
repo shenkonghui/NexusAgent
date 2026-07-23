@@ -3,10 +3,14 @@
 // subagent 定义来自 markdown 文件（~/.agents/agents/*.md 等，由 acp.ScanSubAgents 扫描），
 // 不再依赖数据库。frontmatter 含 name/description/model/tools，markdown 正文作为注入会话的 system_prompt。
 //
-// 暴露 3 个工具：
+// 暴露的工具：
 //   - list_subagents：列出所有 subagent 摘要
 //   - get_subagent：  查询单个 subagent 详情
 //   - run_subagent：  执行 subagent 任务（一次性模式，阻塞返回文本结果）
+//   - create_session：创建持久会话（可关联父会话）
+//   - run_session_task：创建持久会话并阻塞运行一次性任务
+//
+// 任务编排（tasks.json）相关工具已抽离到独立的 opennexus-orchestration MCP server。
 //
 // 鉴权复用 opennexus-notes 的 Bearer token 体系（用户级共享一个 token），用于解析"继承父 agent"。
 package subagentmcp
@@ -392,3 +396,4 @@ func handleRunSessionTask(ctx context.Context, prefsRepo *repository.UserAgentPr
 	}
 	return nil, out, nil
 }
+

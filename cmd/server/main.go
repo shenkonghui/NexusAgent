@@ -25,6 +25,7 @@ import (
 	"opennexus/internal/handlers"
 	"opennexus/internal/logging"
 	notesmcp "opennexus/internal/mcp/notes"
+	orchestrationmcp "opennexus/internal/mcp/orchestration"
 	subagentmcp "opennexus/internal/mcp/subagent"
 	"opennexus/internal/models"
 	"opennexus/internal/repository"
@@ -192,6 +193,11 @@ func main() {
 	}
 	schedTaskH := handlers.NewScheduledTaskHandler(schedTaskRepo, execRepo, schedulerSvc, agentRouter, agentRouter)
 
+	// 任务编排：基于工作区 cwd 下的 tasks.json 定义任务，按并发上限调度，
+	// 每个任务用 git worktree 隔离工作目录，复用 RunSessionTask 创建持久会话执行。
+	orchestratorSvc := services.NewOrchestratorService(agentRouter)
+	orchH := handlers.NewOrchestrationHandler(orchestratorSvc, agentRouter)
+
 	noteRepo := repository.NewNoteRepository(db)
 	noteSettingsRepo := repository.NewNoteSettingsRepository(db)
 	noteClassifier := services.NewNoteClassifier(noteSettingsRepo, noteRepo, agentRouter)
@@ -230,7 +236,7 @@ func main() {
 	// 启动自愈：把 opennexus-subagent 条目同步到全局 mcp.json（复用笔记 token 体系）。
 	subAgentH.SyncAllSubagentMCP()
 
-	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, registryH, schedTaskH, noteH, taskSettingsH, agentPrefsH, configH, mcpH, logH, debugH, subAgentH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Agents.SubAgents, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
+	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, registryH, schedTaskH, noteH, taskSettingsH, agentPrefsH, configH, mcpH, logH, debugH, subAgentH, orchH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Agents.SubAgents, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
 	engine.Any("/mcp/notes", gin.WrapH(notesmcp.Handler(noteRepo, noteSettingsRepo)))
 	engine.Any("/mcp/notes/*path", gin.WrapH(notesmcp.Handler(noteRepo, noteSettingsRepo)))
 	// subagent MCP server：主 agent 通过 tools/call 调起预定义的 subagent，或创建/运行持久会话。
@@ -238,6 +244,10 @@ func main() {
 	// agentRouter 同时实现 SessionCreator/SessionTaskRunner/SessionLookup，支撑 create_session / run_session_task 工具。
 	engine.Any("/mcp/subagent", gin.WrapH(subagentmcp.Handler(acpSvc, noteSettingsRepo, agentPrefsRepo, agentRouter, agentRouter, agentRouter, agentRouter)))
 	engine.Any("/mcp/subagent/*path", gin.WrapH(subagentmcp.Handler(acpSvc, noteSettingsRepo, agentPrefsRepo, agentRouter, agentRouter, agentRouter, agentRouter)))
+	// orchestration MCP server：主 agent 通过 MCP 工具管理工作区任务编排（tasks.json）。
+	// 从原 opennexus-subagent 抽离而来；agentRouter 作为 WorkspaceResolver，orchestratorSvc 执行增删改与启停。
+	engine.Any("/mcp/orchestration", gin.WrapH(orchestrationmcp.Handler(noteSettingsRepo, agentPrefsRepo, agentRouter, orchestratorSvc)))
+	engine.Any("/mcp/orchestration/*path", gin.WrapH(orchestrationmcp.Handler(noteSettingsRepo, agentPrefsRepo, agentRouter, orchestratorSvc)))
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	srv := &http.Server{Addr: addr, Handler: engine}

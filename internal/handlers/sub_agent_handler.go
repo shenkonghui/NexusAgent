@@ -16,6 +16,19 @@ import (
 // SubAgentMCPName 是 subagent MCP server 在 mcp.json 中的条目名。
 const SubAgentMCPName = "opennexus-subagent"
 
+// OrchestrationMCPName 是 orchestration MCP server 在 mcp.json 中的条目名。
+// 编排工具已从 opennexus-subagent 抽离为独立 server，需单独同步。
+const OrchestrationMCPName = "opennexus-orchestration"
+
+// builtinMCPServers 列出需要同步到 mcp.json 的内置 MCP server 及其挂载路径。
+var builtinMCPServers = []struct {
+	Name string
+	Path string
+}{
+	{SubAgentMCPName, "/mcp/subagent"},
+	{OrchestrationMCPName, "/mcp/orchestration"},
+}
+
 // SubAgentHandler 负责 subagent MCP 条目的同步自愈。
 //
 // subagent 的定义本身来自 markdown 文件（由 acp.ScanSubAgents 扫描，见 Service.ListSubAgents），
@@ -75,21 +88,26 @@ func (h *SubAgentHandler) SyncMCPServer(c *gin.Context) {
 	Success(c, http.StatusOK, gin.H{"synced": true})
 }
 
-// syncSubagentMCPServer 把 opennexus-subagent 条目写入全局 mcp.json。
+// syncSubagentMCPServer 把内置 MCP server（subagent + orchestration）条目写入全局 mcp.json。
 // 写入失败返回 error（启动自愈场景调用方决定是否仅记日志）。
 func (h *SubAgentHandler) syncSubagentMCPServer(token string) error {
 	if h.mcpConfigPath == "" || h.publicBaseURL == "" || token == "" {
 		return errors.New("mcp 配置缺失：mcpConfigPath / publicBaseURL / token 任一为空")
 	}
-	entry := acp.MCPServerEntry{
-		Type:    acp.MCPTypeHTTP,
-		Url:     h.publicBaseURL + "/mcp/subagent",
-		Headers: map[string]string{"Authorization": "Bearer " + token},
+	for _, s := range builtinMCPServers {
+		entry := acp.MCPServerEntry{
+			Type:    acp.MCPTypeHTTP,
+			Url:     h.publicBaseURL + s.Path,
+			Headers: map[string]string{"Authorization": "Bearer " + token},
+		}
+		if err := acp.UpsertMCPServerEntry(h.mcpConfigPath, s.Name, entry); err != nil {
+			return err
+		}
 	}
-	return acp.UpsertMCPServerEntry(h.mcpConfigPath, SubAgentMCPName, entry)
+	return nil
 }
 
-// SyncAllSubagentMCP 启动自愈：遍历有 token 的用户，确保 opennexus-subagent 条目存在于 mcp.json。
+// SyncAllSubagentMCP 启动自愈：遍历有 token 的用户，确保内置 MCP server 条目存在于 mcp.json。
 // 复用与 SyncAllNotesMCP 一致的全局共享 token 策略（取 list[0] 的 token）。
 func (h *SubAgentHandler) SyncAllSubagentMCP() {
 	if h.mcpConfigPath == "" || h.publicBaseURL == "" || h.settingsRepo == nil {
@@ -104,29 +122,31 @@ func (h *SubAgentHandler) SyncAllSubagentMCP() {
 		return
 	}
 	token := strings.TrimSpace(list[0].McpToken)
-	want := acp.MCPServerEntry{
-		Type:    acp.MCPTypeHTTP,
-		Url:     h.publicBaseURL + "/mcp/subagent",
-		Headers: map[string]string{"Authorization": "Bearer " + token},
+	for _, s := range builtinMCPServers {
+		want := acp.MCPServerEntry{
+			Type:    acp.MCPTypeHTTP,
+			Url:     h.publicBaseURL + s.Path,
+			Headers: map[string]string{"Authorization": "Bearer " + token},
+		}
+		if existing := h.findMCPEntry(s.Name); existing != nil && mcpEntryEqual(*existing, want) {
+			log.Printf("%s MCP 已存在于 %s 且配置一致，跳过更新", s.Name, h.mcpConfigPath)
+			continue
+		}
+		if err := acp.UpsertMCPServerEntry(h.mcpConfigPath, s.Name, want); err != nil {
+			log.Printf("写入 %s MCP 到 %s 失败: %v", s.Name, h.mcpConfigPath, err)
+			continue
+		}
+		log.Printf("已更新内置 MCP (%s) 到 %s", s.Name, h.mcpConfigPath)
 	}
-	if existing := h.findSubagentMCPEntry(); existing != nil && mcpEntryEqual(*existing, want) {
-		log.Printf("subagent MCP 已存在于 %s 且配置一致，跳过更新", h.mcpConfigPath)
-		return
-	}
-	if err := acp.UpsertMCPServerEntry(h.mcpConfigPath, SubAgentMCPName, want); err != nil {
-		log.Printf("写入 subagent MCP 到 %s 失败: %v", h.mcpConfigPath, err)
-		return
-	}
-	log.Printf("已更新 subagent MCP (%s) 到 %s", SubAgentMCPName, h.mcpConfigPath)
 }
 
-func (h *SubAgentHandler) findSubagentMCPEntry() *acp.MCPServerEntry {
+func (h *SubAgentHandler) findMCPEntry(name string) *acp.MCPServerEntry {
 	entries, err := acp.LoadMCPServerEntries(h.mcpConfigPath)
 	if err != nil {
 		return nil
 	}
 	for _, ne := range entries {
-		if ne.Name == SubAgentMCPName {
+		if ne.Name == name {
 			e := ne.Entry
 			return &e
 		}

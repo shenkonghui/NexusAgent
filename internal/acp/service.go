@@ -920,16 +920,16 @@ func (s *Service) CreateSession(ctx context.Context, agentType string, workspace
 // 为提升页面跳转速度，不再同步创建 ACP 会话，而是返回 pending 状态；
 // ACP 连接与会话创建延迟到首次 Prompt（PromptWithExecution）时完成。
 func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string) (*models.Session, error) {
-	return s.createSessionFull(ctx, agentType, workspaceID, userID, source, modelValue, nil)
+	return s.createSessionFull(ctx, agentType, workspaceID, userID, source, modelValue, nil, "")
 }
 
 // CreateSessionWithParent 创建会话并可指定父会话（用于 MCP 工具创建子会话/子任务）。
 // parentSessionID 非 nil 时记录父子关系；其余行为与 CreateSessionWithSource 一致。
 func (s *Service) CreateSessionWithParent(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string, parentSessionID *uint) (*models.Session, error) {
-	return s.createSessionFull(ctx, agentType, workspaceID, userID, source, modelValue, parentSessionID)
+	return s.createSessionFull(ctx, agentType, workspaceID, userID, source, modelValue, parentSessionID, "")
 }
 
-func (s *Service) createSessionFull(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string, parentSessionID *uint) (*models.Session, error) {
+func (s *Service) createSessionFull(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string, parentSessionID *uint, cwdOverride string) (*models.Session, error) {
 	if _, err := s.GetBackend(agentType); err != nil {
 		return nil, err
 	}
@@ -992,10 +992,16 @@ func (s *Service) createSessionFull(ctx context.Context, agentType string, works
 	// 生成稳定 SessionID，不创建 ACP 会话，快速返回 pending 状态
 	tempSessionID := uuid.New().String()
 	wid := dbWS.ID
+	// cwdOverride 非空时覆盖工作区 cwd（用于编排任务在其 git worktree 内运行）。
+	// 普通会话 cwdOverride 为空，保持 session.Cwd = ws.Cwd 的既有行为。
+	finalCwd := ws.Cwd
+	if cwdOverride != "" {
+		finalCwd = cwdOverride
+	}
 	session := &models.Session{
 		SessionID:       tempSessionID,
 		AgentType:       agentType,
-		Cwd:             ws.Cwd,
+		Cwd:             finalCwd,
 		Status:          models.SessionStatusPending,
 		UserID:          userID,
 		WorkspaceID:     &wid,
@@ -1009,7 +1015,7 @@ func (s *Service) createSessionFull(ctx context.Context, agentType string, works
 	}
 	session.Workspace = *dbWS
 
-	slog.Info("会话已创建（pending）", "agent", agentType, "session", tempSessionID, "cwd", ws.Cwd)
+	slog.Info("会话已创建（pending）", "agent", agentType, "session", tempSessionID, "cwd", finalCwd)
 	return session, nil
 }
 
@@ -1712,14 +1718,23 @@ func (s *Service) ListCommands(sessionID string) ([]acp.AvailableCommand, error)
 	return s.mergeCommands(agentCmds, cwd), nil
 }
 
+// sessionCwd 返回会话的工作目录。
+//
+// 编排任务（Source=orchestration）在其专属 git worktree 内运行，createSessionFull
+// 已将其 session.Cwd 设为 worktree 路径——此类会话优先使用 session.Cwd，不回退工作区 cwd。
+//
+// 普通会话（manual/scheduled/classify）的 cwd 始终跟随工作区：若工作区 cwd 被修改，
+// 已有会话应感知到新 cwd，因此这类会话实时从工作区重新读取（保留历史行为，避免回归）。
 func sessionCwd(session *models.Session, workspaces *repository.WorkspaceRepository) string {
-	cwd := session.Cwd
+	if session.Source == models.SessionSourceOrchestration && strings.TrimSpace(session.Cwd) != "" {
+		return session.Cwd
+	}
 	if session.WorkspaceID != nil {
 		if ws, err := workspaces.FindByID(*session.WorkspaceID); err == nil {
-			cwd = ws.Cwd
+			return ws.Cwd
 		}
 	}
-	return cwd
+	return session.Cwd
 }
 
 // sessionAdditionalDirs 返回 ACP 会话的 additionalDirectories：
