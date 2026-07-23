@@ -111,6 +111,10 @@ type Service struct {
 
 	// dbg 可选：ACP 协议调试捕获器。nil 或未启用时零开销。
 	dbg *ACPDebugger
+
+	// acpConnRepo 可选：acp_connections 心跳表仓库，与独立 watchdog 进程通信。
+	// 为 nil 时（测试环境）心跳与活动记录静默跳过，不影响核心连接逻辑。
+	acpConnRepo *repository.ACPConnectionRepository
 }
 
 // TaskMetaTrigger 由任务元数据服务实现，发起任务时异步调用以打标签和生成标题。
@@ -246,6 +250,54 @@ func (s *Service) SetDebugConfig(cfg config.DebugConfig) {
 // Debugger 返回 ACP 调试器（可能为 nil）。
 func (s *Service) Debugger() *ACPDebugger {
 	return s.dbg
+}
+
+// SetACPConnectionRepo 注入 acp_connections 心跳表仓库。
+// 主 server 启动时注入（与 watchdog 共享同一 SQLite）；测试环境可不注入，相关写表静默跳过。
+func (s *Service) SetACPConnectionRepo(repo *repository.ACPConnectionRepository) {
+	s.acpConnRepo = repo
+}
+
+// recordConnectionUpsert 写入/更新心跳表的一行（建连与续约时调用）。
+// repo 未注入时静默跳过。
+func (s *Service) recordConnectionUpsert(poolKey, agentType, cwd string, pid int) {
+	if s.acpConnRepo == nil {
+		return
+	}
+	if err := s.acpConnRepo.Upsert(poolKey, agentType, cwd, pid); err != nil {
+		slog.Warn("写 acp_connections 心跳失败", "poolKey", poolKey, "err", err)
+	}
+}
+
+// recordConnectionActivity 刷新指定连接的最后活动时间（发 prompt 时调用）。
+func (s *Service) recordConnectionActivity(poolKey string) {
+	if s.acpConnRepo == nil {
+		return
+	}
+	if err := s.acpConnRepo.TouchActivity(poolKey); err != nil {
+		slog.Warn("刷新 acp_connections 活动时间失败", "poolKey", poolKey, "err", err)
+	}
+}
+
+// recordConnectionDelete 进程退出/连接关闭后从心跳表删除一行。
+func (s *Service) recordConnectionDelete(poolKey string) {
+	if s.acpConnRepo == nil {
+		return
+	}
+	if err := s.acpConnRepo.Delete(poolKey); err != nil {
+		slog.Warn("删 acp_connections 心跳失败", "poolKey", poolKey, "err", err)
+	}
+}
+
+// heartbeatAllConnections 全表续约 server 心跳，供独立 watchdog 判定主程序存活。
+// repo 未注入时静默跳过。
+func (s *Service) heartbeatAllConnections() {
+	if s.acpConnRepo == nil {
+		return
+	}
+	if err := s.acpConnRepo.TouchHeartbeat(); err != nil {
+		slog.Warn("续约 acp_connections server 心跳失败", "err", err)
+	}
 }
 
 func (s *Service) debugLog(dbSessionID uint, event, acpSessionID string, detail any) {
@@ -488,6 +540,9 @@ func (s *Service) ensureConnection(ctx context.Context, agentType, cwd string) (
 	s.states[key] = connStateConnected
 	s.mu.Unlock()
 
+	// 记录心跳表：让独立 watchdog 知道此进程的存在与 PGID，供空闲回收与主程序死亡时清理
+	s.recordConnectionUpsert(key, agentType, cwd, conn.Pid())
+
 	go s.watchConnection(key, conn)
 	return conn, nil
 }
@@ -572,6 +627,8 @@ func (s *Service) watchConnection(poolKey string, conn *Connection) {
 		delete(s.probeCache, agentType)
 	}
 	s.mu.Unlock()
+	// 进程已退出，从心跳表删除该行（PGID 失效）；重连成功后 ensureConnection 会写入新 PID
+	s.recordConnectionDelete(poolKey)
 	// 健康检查 goroutine 会自动尝试重连
 }
 
@@ -631,20 +688,70 @@ func (s *Service) PreconnectAllAsync() {
 			}
 			slog.Info("预连接 agent 成功", "agent", at, "cwd", cwd)
 			s.prefetchProbeConfig(s.hcCtx, at)
+			// 探测用的 cwd (probeCwd) 是 session 根目录，与实际会话的 cwd（每次随机的
+			// nexus-XXX 子目录）永远不同，连接池无法复用这条连接。探测结果已缓存到
+			// probeCache[agentType]，连接本身留着只会白占一个进程。探测完立即释放。
+			s.releaseConnection(at, cwd)
 		}(agentType)
 	}
 }
+
+// releaseConnection 从连接池移除并关闭指定 agentType+cwd 的连接（杀进程组）。
+// 用于预连接探测后释放不会被实际会话复用的废连接。
+// watchConnection goroutine 会在 conn.Done() 后自动清理心跳表行。
+func (s *Service) releaseConnection(agentType, cwd string) {
+	key := connectionKey(agentType, cwd)
+	s.mu.Lock()
+	conn, ok := s.pool[key]
+	if ok {
+		delete(s.pool, key)
+		s.states[key] = connStateDisconnected
+	}
+	s.mu.Unlock()
+	if !ok {
+		return
+	}
+	slog.Info("释放预连接（探测完成，cwd 不会被实际会话复用）", "agent", agentType, "cwd", cwd, "pid", conn.Pid())
+	_ = conn.Close()
+}
+
+// heartbeatInterval 是主 server 向 acp_connections 心跳表全表续约的周期。
+// watchdog 据此判断主程序是否存活：若 heartbeat 持续超过 watchdogHBStale 未更新，视为主程序已死。
+const heartbeatInterval = 30 * time.Second
 
 // StartHealthCheck 启动后台健康检查与自动重连 goroutine。
 // 定期检查所有已注册 backend 的连接状态，断开的自动重连（带指数退避）。
 // 必须在所有 backend 注册完成后调用。
 // 幂等：多次调用仅启动一次健康检查循环，避免覆盖 hcCancel 造成旧 goroutine 永久泄漏。
+// 同时启动心跳续约 goroutine，向 acp_connections 表全表续约，供独立 watchdog 判定主程序存活。
 func (s *Service) StartHealthCheck() {
 	s.hcStartOnce.Do(func() {
 		s.hcCtx, s.hcCancel = context.WithCancel(context.Background())
 		s.hcWG.Add(1)
 		go s.healthCheckLoop()
+		// 独立的心跳续约 goroutine：供 watchdog 判活；与 healthCheckLoop 共享 hcCtx/hcWG 生命周期
+		s.hcWG.Add(1)
+		go s.heartbeatLoop()
 	})
+}
+
+// heartbeatLoop 周期性全表续约 server 心跳。
+// 主程序异常退出（崩溃/被 SIGKILL）后，此 goroutine 随之消亡，
+// 心跳不再更新；watchdog 据此判定主程序死亡并清理全部 acp 进程。
+func (s *Service) heartbeatLoop() {
+	defer s.hcWG.Done()
+	// 先立即续约一次，确保 watchdog 启动时能看到主程序存活
+	s.heartbeatAllConnections()
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.hcCtx.Done():
+			return
+		case <-ticker.C:
+			s.heartbeatAllConnections()
+		}
+	}
 }
 
 // StopHealthCheck 停止健康检查 goroutine 并关闭所有共享连接。
@@ -813,6 +920,16 @@ func (s *Service) CreateSession(ctx context.Context, agentType string, workspace
 // 为提升页面跳转速度，不再同步创建 ACP 会话，而是返回 pending 状态；
 // ACP 连接与会话创建延迟到首次 Prompt（PromptWithExecution）时完成。
 func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string) (*models.Session, error) {
+	return s.createSessionFull(ctx, agentType, workspaceID, userID, source, modelValue, nil)
+}
+
+// CreateSessionWithParent 创建会话并可指定父会话（用于 MCP 工具创建子会话/子任务）。
+// parentSessionID 非 nil 时记录父子关系；其余行为与 CreateSessionWithSource 一致。
+func (s *Service) CreateSessionWithParent(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string, parentSessionID *uint) (*models.Session, error) {
+	return s.createSessionFull(ctx, agentType, workspaceID, userID, source, modelValue, parentSessionID)
+}
+
+func (s *Service) createSessionFull(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string, parentSessionID *uint) (*models.Session, error) {
 	if _, err := s.GetBackend(agentType); err != nil {
 		return nil, err
 	}
@@ -876,14 +993,15 @@ func (s *Service) CreateSessionWithSource(ctx context.Context, agentType string,
 	tempSessionID := uuid.New().String()
 	wid := dbWS.ID
 	session := &models.Session{
-		SessionID:   tempSessionID,
-		AgentType:   agentType,
-		Cwd:         ws.Cwd,
-		Status:      models.SessionStatusPending,
-		UserID:      userID,
-		WorkspaceID: &wid,
-		Source:      source,
-		ModelValue:  modelValue,
+		SessionID:       tempSessionID,
+		AgentType:       agentType,
+		Cwd:             ws.Cwd,
+		Status:          models.SessionStatusPending,
+		UserID:          userID,
+		WorkspaceID:     &wid,
+		Source:          source,
+		ModelValue:      modelValue,
+		ParentSessionID: parentSessionID,
 	}
 	if err := s.sessions.Create(session); err != nil {
 		rollbackNewDefaultWS()
@@ -929,6 +1047,18 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 	session, err := s.GetSession(sessionID)
 	if err != nil {
 		return nil, err
+	}
+	// error/closed 会话：发送前尝试自动恢复（复用共享连接、重建 ACP 会话并注入最近历史），
+	// 成功后状态回到 active 继续发送；恢复失败才返回 ErrSessionNotActive。
+	if session.Status == models.SessionStatusError || session.Status == models.SessionStatusClosed {
+		slog.Warn("会话非活跃，发送前尝试自动恢复", "session", sessionID, "status", session.Status, "agent", session.AgentType)
+		if _, recErr := s.ResumeSession(ctx, sessionID); recErr != nil {
+			slog.Error("自动恢复非活跃会话失败", "session", sessionID, "err", recErr)
+			return nil, ErrSessionNotActive
+		}
+		if session, err = s.GetSession(sessionID); err != nil {
+			return nil, err
+		}
 	}
 	if session.Status != models.SessionStatusActive && session.Status != models.SessionStatusPending {
 		return nil, ErrSessionNotActive
@@ -1033,6 +1163,8 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 	}
 
 	_ = s.sessions.UpdateLastPrompt(session.ID, prompt)
+	// 刷新心跳表活动时间：让 watchdog 知道该连接刚被使用，不判为空闲
+	s.recordConnectionActivity(connectionKey(session.AgentType, sessionCwd(session, s.workspaces)))
 
 	// 首次对话时从 prompt 提取标题（仅当 title 为空时设置）
 	if session.Title == "" {

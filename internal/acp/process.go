@@ -126,6 +126,15 @@ func (p *Process) Stdin() io.WriteCloser {
 	return p.stdin
 }
 
+// Pid 返回直系子进程 PID。由于 setProcessGroup 使用 Setsid，PID 同时也是进程组 PGID，
+// watchdog 可用 kill(-pid) 杀掉整个进程组。进程未启动时返回 0。
+func (p *Process) Pid() int {
+	if p.cmd == nil || p.cmd.Process == nil {
+		return 0
+	}
+	return p.cmd.Process.Pid
+}
+
 // Stdout 返回子进程的 stdout 管道。
 func (p *Process) Stdout() io.ReadCloser {
 	return p.stdout

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -11,12 +12,31 @@ import (
 	"opennexus/internal/models"
 )
 
+// tuneDSN 为文件型 SQLite DSN 追加连接级 PRAGMA，显著降低写延迟与读写锁竞争：
+//   - _journal_mode=WAL：写不再阻塞读、读不再阻塞写，避免流式持久化被 5s 轮询读卡住
+//   - _busy_timeout=5000：锁竞争时最多等待 5s 而非立即返回 SQLITE_BUSY
+//   - _synchronous=NORMAL：WAL 下安全且比 FULL 少一次 fsync，写更快
+//   - _txlock=immediate：写事务开始即取写锁，避免升级死锁
+//   - _foreign_keys=on：保持外键约束启用
+//
+// 内存库（测试用 :memory: / mode=memory）不支持 WAL，原样返回。
+func tuneDSN(dsn string) string {
+	if strings.Contains(dsn, ":memory:") || strings.Contains(dsn, "mode=memory") {
+		return dsn
+	}
+	pragmas := "_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_txlock=immediate&_foreign_keys=on"
+	if strings.Contains(dsn, "?") {
+		return dsn + "&" + pragmas
+	}
+	return dsn + "?" + pragmas
+}
+
 func Connect(dsn string) (*gorm.DB, error) {
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(tuneDSN(dsn)), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("打开数据库: %w", err)
 	}
-	if err := db.AutoMigrate(&models.User{}, &models.RefreshToken{}, &models.Session{}, &models.Message{}, &models.AgentConfig{}, &models.ScheduledTask{}, &models.TaskExecution{}, &models.Workspace{}, &models.Note{}, &models.NoteSettings{}, &models.RunningTask{}, &models.TaskSettings{}, &models.UserAgentPrefs{}); err != nil {
+	if err := db.AutoMigrate(&models.User{}, &models.RefreshToken{}, &models.Session{}, &models.Message{}, &models.AgentConfig{}, &models.ScheduledTask{}, &models.TaskExecution{}, &models.Workspace{}, &models.Note{}, &models.NoteSettings{}, &models.RunningTask{}, &models.TaskSettings{}, &models.UserAgentPrefs{}, &models.ACPConnection{}); err != nil {
 		return nil, fmt.Errorf("迁移数据库: %w", err)
 	}
 	// 数据迁移：为旧 Session 创建对应 Workspace，填充 workspace_id

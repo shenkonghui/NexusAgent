@@ -25,6 +25,18 @@
     "enabled": "Enabled",
     "disabled": "Disabled"
   },
+  "warmup": {
+    "title": "Preparing agents",
+    "subtitle": "Connecting to ACP servers…",
+    "connecting": "Connecting",
+    "ready": "Ready",
+    "failed": "Failed",
+    "skip": "Skip",
+    "done": "All ready",
+    "progress": "{{ready}}/{{total}} ready",
+    "configCount": "{{count}} options",
+    "noAgents": "No agents configured"
+  },
   "prompt": {
     "send": "Send",
     "slashMenuTitle": "Filter commands / skills / modes (↑↓ select, Enter confirm)",

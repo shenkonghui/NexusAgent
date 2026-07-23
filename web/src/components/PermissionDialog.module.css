@@ -1,23 +1,27 @@
 /* 内联授权：嵌在 ConvStatusBar 状态栏内，无独立卡片背景 */
 .inline {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px 12px;
   min-width: 0;
+  width: 100%;
 }
 
 .desc {
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.4;
+  flex: 1 1 220px;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 280px;
 }
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   flex-shrink: 0;
   align-items: center;
   gap: 6px;

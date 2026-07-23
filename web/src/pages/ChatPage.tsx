@@ -43,7 +43,7 @@ export default function ChatPage() {
   const sessionId = sid ? Number(sid) : NaN
   const hasSession = !isNaN(sessionId)
   const { user, loading: authLoading } = useRequireAuth()
-  const { workspaceId: storedWorkspaceId, sessions, selectWorkspace, reload: reloadWorkspace, loading: wsLoading } = useCurrentWorkspace(!!user)
+  const { workspaceId: storedWorkspaceId, sessions, sessionsWorkspaceId, selectWorkspace, reload: reloadWorkspace, loading: wsLoading } = useCurrentWorkspace(!!user)
   const workspaceId = !isNaN(urlWorkspaceId) ? urlWorkspaceId : storedWorkspaceId
   const navigate = useNavigate()
   const location = useLocation()
@@ -166,6 +166,42 @@ export default function ChatPage() {
   const [permissionResponding, setPermissionResponding] = useState(false)
   const permissionQueueRef = useRef<PermissionRequestPayload[]>([])
   const waitingPermissionRef = useRef(false)
+
+  // ===== 流式消息按帧合并 =====
+  // 每个 SSE 分片直接 setMessages 会让整页（含头部按钮、面板树）按分片频率重渲染，
+  // 长对话时主线程被同步渲染饱和，导致头部按钮 / 任务切换点击「失效」。
+  // 这里把流入消息缓冲到 ref，用 requestAnimationFrame 每帧最多 flush 一次，
+  // 将重渲染频率钳制到 ≤60fps，与分片速率解耦。
+  const pendingMessagesRef = useRef<Message[]>([])
+  const flushRafRef = useRef<number | null>(null)
+
+  const flushMessages = useCallback(() => {
+    flushRafRef.current = null
+    const batch = pendingMessagesRef.current
+    if (batch.length === 0) return
+    pendingMessagesRef.current = []
+    setMessages((prev) => {
+      // 收到真实流式消息后，移除乐观占位（负 id）
+      const base = prev.some((m) => m.id < 0) ? prev.filter((m) => m.id >= 0) : prev
+      const seen = new Set(base.filter((m) => m.sequence > 0).map((m) => m.sequence))
+      const additions: Message[] = []
+      for (const msg of batch) {
+        if (msg.sequence > 0) {
+          if (seen.has(msg.sequence)) continue // 按 sequence 去重：避免轮询补齐与实时流重复
+          seen.add(msg.sequence)
+        }
+        additions.push(msg)
+      }
+      return additions.length > 0 ? [...base, ...additions] : base
+    })
+  }, [])
+
+  const enqueueMessage = useCallback((msg: Message) => {
+    pendingMessagesRef.current.push(msg)
+    if (flushRafRef.current == null) {
+      flushRafRef.current = requestAnimationFrame(flushMessages)
+    }
+  }, [flushMessages])
 
   function enqueuePermission(req: PermissionRequestPayload) {
     waitingPermissionRef.current = true
@@ -521,20 +557,28 @@ export default function ChatPage() {
   useEffect(() => {
     if (!user || hasSession || isCreateMode) return
     if (wsLoading || !workspaceId) return
-    const manualSessions = sessions.filter((s) => !s.source || s.source === 'manual')
+    // 切换工作区时新会话为异步加载：sessions 尚未与当前 workspace 匹配时暂不跳转，
+    // 否则会用旧工作区的会话跳回原工作区，表现为“无法切换工作区”。
+    if (sessionsWorkspaceId !== workspaceId) return
+    const manualSessions = sessions.filter((s) => (!s.source || s.source === 'manual') && s.workspace_id === workspaceId)
     if (manualSessions.length > 0) {
       const latest = manualSessions[0] // 后端按 created_at DESC 返回，首个即最近任务
       navigate(sessionUrl(latest.id, latest.workspace_id), { replace: true })
     } else {
       navigate(newTaskUrl(workspaceId), { replace: true })
     }
-  }, [user, hasSession, isCreateMode, wsLoading, workspaceId, sessions, navigate])
+  }, [user, hasSession, isCreateMode, wsLoading, workspaceId, sessionsWorkspaceId, sessions, navigate])
 
   // 当组件卸载或切换到不同会话时，中断旧的 SSE 流，防止内存泄漏和 React 警告
   useEffect(() => {
     mountedRef.current = true
     return () => {
       mountedRef.current = false
+      if (flushRafRef.current != null) {
+        cancelAnimationFrame(flushRafRef.current)
+        flushRafRef.current = null
+      }
+      pendingMessagesRef.current = []
       if (abortRef.current) {
         abortRef.current.abort()
         abortRef.current = null
@@ -599,10 +643,7 @@ export default function ChatPage() {
             const req = parsePermissionRequest(msg.raw_json)
             if (req) enqueuePermission(req)
           }
-          setMessages((prev) => {
-            if (prev.some((m) => m.sequence === msg.sequence)) return prev
-            return [...prev, msg]
-          })
+          enqueueMessage(msg)
           setConvState((s) => (s === 'waiting_permission' ? s : 'streaming'))
         },
         () => {
@@ -650,10 +691,7 @@ export default function ChatPage() {
           const req = parsePermissionRequest(msg.raw_json)
           if (req) enqueuePermission(req)
         }
-        setMessages((prev) => {
-          if (prev.some((m) => m.sequence === msg.sequence)) return prev
-          return [...prev, msg]
-        })
+        enqueueMessage(msg)
         setConvState((s) => (s === 'waiting_permission' ? s : 'streaming'))
       },
       () => {
@@ -760,12 +798,8 @@ export default function ChatPage() {
           const req = parsePermissionRequest(msg.raw_json)
           if (req) enqueuePermission(req)
         }
-        // 按 sequence 去重：避免轮询补齐与实时流重复
-        setMessages((prev) => {
-          const rest = prev.filter((m) => m.id === optimisticId || m.sequence < msg.sequence)
-          const noOptimistic = rest.filter((m) => m.id !== optimisticId)
-          return [...noOptimistic, msg]
-        })
+        // 缓冲追加：按帧合并，避免每个 SSE 分片触发整页重渲染
+        enqueueMessage(msg)
         setConvState((s) => (s === 'waiting_permission' ? s : 'streaming'))
       },
       () => {
@@ -969,6 +1003,25 @@ export default function ChatPage() {
     setDocConvState('idle')
   }
 
+  // 文档模式「新建」：清空当前工作区共享的文档会话与历史，下次发送时重建新会话。
+  // 与编码模式的新建任务对应，使顶部栏在不同任务下保持一致。
+  function handleNewDocSession() {
+    if (workspaceId) clearDocSession(workspaceId)
+    docAbortRef.current?.abort()
+    docAbortRef.current = null
+    clearDocPermissions()
+    setDocSession(null)
+    setDocMessages([])
+    setDocModes([])
+    setDocConfigOptions([])
+    setDocCurrentModeId('')
+    lastDocPathRef.current = ''
+    // 已恢复标记指向当前工作区，避免恢复 effect 又拉回旧会话
+    docRestoredWorkspaceRef.current = workspaceId ?? null
+    setDocConvState('idle')
+    setError('')
+  }
+
   // 文档对话框模式选择（编码对话框形式）：会话未创建时仅本地记录，已创建则下发。
   async function handleDocSetMode(modeId: string) {
     if (!modeId || modeId === docCurrentModeId) return
@@ -995,8 +1048,12 @@ export default function ChatPage() {
       }
       return
     }
-    const opt = docConfigOptions.find((o) => o.id === configId)
+    // docConfigOptions 为空时界面回退展示 probeConfigs（见 docEffectiveConfigOptions），
+    // 故在两处都查找 opt 并同步更新，确保回退态下用户的选择也能即时反映。
+    const opt = docConfigOptions.find((o) => o.id === configId) || probeConfigs.find((o) => o.id === configId)
     setDocConfigOptions((prev) => prev.map((o) => (o.id === configId ? { ...o, current_value: value } : o)))
+    setProbeConfigs((prev) => prev.map((o) => (o.id === configId ? { ...o, current_value: value } : o)))
+    if (opt?.category === 'model') setSelectedModel(value)
     try {
       await setConfigOption(docSession.id, configId, value)
       if (opt?.category && docSession.agent_type) {
@@ -1065,10 +1122,7 @@ export default function ChatPage() {
           const req = parsePermissionRequest(msg.raw_json)
           if (req) enqueuePermission(req)
         }
-        setMessages((prev) => {
-          if (prev.some((m) => m.sequence === msg.sequence)) return prev
-          return [...prev, msg]
-        })
+        enqueueMessage(msg)
         setConvState((s) => (s === 'waiting_permission' ? s : 'streaming'))
       },
       () => {
@@ -1211,6 +1265,12 @@ export default function ChatPage() {
   if (shouldRenderLayout) {
     // 构造 PanelCtx：按模式选择对应的会话生命周期
     const isDocs = modeDef.sessionKind === 'docs'
+    // 文档会话的模式/配置项按需从会话级缓存获取；服务重启或 agent 预探尚未完成时可能为空，
+    // 且该拉取仅在 docSession.id 变化时执行一次、不重试，会导致「文档任务下模式/模型选项出不来」。
+    // 这里回退到 agent 级的 homeModes/probeConfigs（其 effect 随 isDocMode 持续加载），保证选项稳定出现。
+    const docEffectiveModes = docSession && docModes.length > 0 ? docModes : homeModes
+    const docEffectiveConfigOptions = docSession && docConfigOptions.length > 0 ? docConfigOptions : probeConfigs
+    const docEffectiveModeId = docCurrentModeId || docEffectiveModes[0]?.id || ''
     const ctx: PanelCtx = isDocs
       ? {
           sessionKind: 'docs',
@@ -1222,11 +1282,11 @@ export default function ChatPage() {
           onSend: handleDocSend,
           onCancel: handleDocCancel,
           commands: homeCommands,
-          modes: docSession ? docModes : homeModes,
+          modes: docEffectiveModes,
           skills: homeSkills,
-          currentModeId: docCurrentModeId,
+          currentModeId: docEffectiveModeId,
           onSetMode: handleDocSetMode,
-          configOptions: docSession ? docConfigOptions : probeConfigs,
+          configOptions: docEffectiveConfigOptions,
           onSetConfigOption: handleDocSetConfigOption,
           agents: agents.map((a) => ({ type: a.type, display_name: a.display_name })),
           selectedAgent,
@@ -1330,11 +1390,13 @@ export default function ChatPage() {
               <TaskModeSwitch value={taskMode} onChange={handleTaskModeChange} />
               <div className={styles.actions}>
                 <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
-                {!isDocs && (
-                  <button type="button" className={styles.newTaskBtn} onClick={() => navigate(newTaskUrl(workspaceId))}>
-                    <Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('session.newSession')}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className={styles.newTaskBtn}
+                  onClick={() => (isDocs ? handleNewDocSession() : navigate(newTaskUrl(workspaceId)))}
+                >
+                  <Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('session.newSession')}
+                </button>
                 <UserMenu />
               </div>
             </div>

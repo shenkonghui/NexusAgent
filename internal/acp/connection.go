@@ -233,3 +233,8 @@ func (c *Connection) InspectFailure() string {
 func (c *Connection) Client() *Client {
 	return c.client
 }
+
+// Pid 返回 agent 子进程的直系 PID（同时是进程组 PGID）。进程未启动返回 0。
+func (c *Connection) Pid() int {
+	return c.process.Pid()
+}

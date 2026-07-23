@@ -4,6 +4,7 @@ import { PanelLeftOpen, PanelLeftClose, Menu, FolderTree } from 'lucide-react'
 import SessionSidebar from './SessionSidebar'
 import FileExplorer from './FileExplorer'
 import WorkspaceFileEditor from './WorkspaceFileEditor'
+import StartupWarmup from './StartupWarmup'
 import { getWorkspace } from '../api/workspaces'
 import { useFileViewer } from '../context/FileViewerContext'
 import styles from './AppLayout.module.css'
@@ -146,6 +147,7 @@ export default function AppLayout({ sidebarProps, children }: AppLayoutProps) {
 
   return (
     <SidebarContext.Provider value={{ collapsed, toggle }}>
+      <StartupWarmup />
       <div className={styles.layout}>
         {!collapsed && (
           <div className={styles.sidebarWrap} style={{ width }}>

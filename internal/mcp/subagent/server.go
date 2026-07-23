@@ -16,10 +16,12 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"opennexus/internal/acp"
+	"opennexus/internal/models"
 	"opennexus/internal/repository"
 )
 
@@ -35,12 +37,28 @@ type SubAgentRunner interface {
 	RunSubAgent(ctx context.Context, cfg acp.SubAgentRunConfig) (string, error)
 }
 
+// SessionCreator 由 *agent.Router 实现，用于创建持久会话（可关联父会话）。
+type SessionCreator interface {
+	CreateSessionWithParent(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string, parentSessionID *uint) (*models.Session, error)
+}
+
+// SessionTaskRunner 由 *agent.Router 实现，用于创建持久会话并阻塞运行一次性任务。
+type SessionTaskRunner interface {
+	RunSessionTask(ctx context.Context, cfg acp.SessionTaskConfig) (acp.SessionTaskResult, error)
+}
+
+// SessionLookup 由 *agent.Router 实现，用于校验父会话归属（按数据库主键查询）。
+type SessionLookup interface {
+	GetSessionByDBID(id uint) (*models.Session, error)
+}
+
 // Handler 返回带 Bearer 鉴权的 subagent MCP Streamable HTTP Handler。
 //
 // prefsRepo 用于解析"继承父 agent"：subagent 文件不指定 agent 后端，运行时取用户最近使用的 agent 类型。
-func Handler(catalog SubAgentCatalog, settings *repository.NoteSettingsRepository, prefsRepo *repository.UserAgentPrefsRepository, runner SubAgentRunner) http.Handler {
+// sessionCreator / sessionTaskRunner / sessionLookup 用于 create_session / run_session_task 工具（可传 nil 禁用）。
+func Handler(catalog SubAgentCatalog, settings *repository.NoteSettingsRepository, prefsRepo *repository.UserAgentPrefsRepository, runner SubAgentRunner, sessionCreator SessionCreator, sessionTaskRunner SessionTaskRunner, sessionLookup SessionLookup) http.Handler {
 	inner := mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server {
-		return newServer(catalog, prefsRepo, runner)
+		return newServer(catalog, prefsRepo, runner, sessionCreator, sessionTaskRunner, sessionLookup)
 	}, &mcp.StreamableHTTPOptions{Stateless: true})
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -53,7 +71,7 @@ func Handler(catalog SubAgentCatalog, settings *repository.NoteSettingsRepositor
 	})
 }
 
-func newServer(catalog SubAgentCatalog, prefsRepo *repository.UserAgentPrefsRepository, runner SubAgentRunner) *mcp.Server {
+func newServer(catalog SubAgentCatalog, prefsRepo *repository.UserAgentPrefsRepository, runner SubAgentRunner, sessionCreator SessionCreator, sessionTaskRunner SessionTaskRunner, sessionLookup SessionLookup) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "opennexus-subagent", Version: "1.0.0"}, nil)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -75,6 +93,20 @@ func newServer(catalog SubAgentCatalog, prefsRepo *repository.UserAgentPrefsRepo
 		Description: "执行指定 subagent 完成任务（一次性模式，阻塞返回文本结果）。name 来自 list_subagents，task 为具体任务描述",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runSubAgentIn) (*mcp.CallToolResult, runSubAgentOut, error) {
 		return handleRunSubAgent(ctx, catalog, prefsRepo, runner, in)
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "create_session",
+		Description: "创建一个新的持久会话（可作为独立会话，也可作为指定父会话的子会话/子任务）。仅创建不发送 prompt，返回 session_id 供后续对话使用。agent_type 为空时继承用户最近使用的 agent 类型。",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in createSessionIn) (*mcp.CallToolResult, createSessionOut, error) {
+		return handleCreateSession(ctx, prefsRepo, sessionCreator, sessionLookup, in)
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "run_session_task",
+		Description: "创建一个新的持久会话并阻塞运行一次性任务，收集 assistant 文本后返回。区别于 run_subagent：本工具创建的会话会持久化（可通过 UI 继续对话）。agent_type 为空时继承用户最近使用的 agent 类型。",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in runSessionTaskIn) (*mcp.CallToolResult, runSessionTaskOut, error) {
+		return handleRunSessionTask(ctx, prefsRepo, sessionTaskRunner, sessionLookup, in)
 	})
 
 	return srv
@@ -215,4 +247,148 @@ func resolveInheritedAgentType(prefsRepo *repository.UserAgentPrefsRepository, u
 		return "", fmt.Errorf("subagent 配置为继承父 agent，但用户尚未使用过任何 agent")
 	}
 	return last, nil
+}
+
+// ====== create_session / run_session_task 工具 ======
+
+// resolveAgentType 解析 agent 类型：显式指定优先，否则"继承父 agent"。
+func resolveAgentType(prefsRepo *repository.UserAgentPrefsRepository, uid uint, explicit string) (string, error) {
+	if at := strings.TrimSpace(explicit); at != "" {
+		return at, nil
+	}
+	return resolveInheritedAgentType(prefsRepo, uid)
+}
+
+// validateParentOwnership 校验 parent_session_id 归属当前用户。
+// 返回非 nil 的 *uint 表示合法的父会话主键；nil 表示无父级（独立会话）。
+func validateParentOwnership(sessionLookup SessionLookup, uid uint, parentDBID uint) (*uint, error) {
+	if parentDBID == 0 {
+		return nil, nil
+	}
+	if sessionLookup == nil {
+		return nil, fmt.Errorf("无法校验父会话归属：会话查询未配置")
+	}
+	parent, err := sessionLookup.GetSessionByDBID(parentDBID)
+	if err != nil || parent == nil {
+		return nil, fmt.Errorf("父会话不存在: %d", parentDBID)
+	}
+	if parent.UserID != uid {
+		// 不泄露存在性，统一报不存在
+		return nil, fmt.Errorf("父会话不存在: %d", parentDBID)
+	}
+	return &parent.ID, nil
+}
+
+// ---- create_session ----
+
+type createSessionIn struct {
+	AgentType      string `json:"agent_type,omitempty" jsonschema:"agent 类型，留空则继承用户最近使用的 agent"`
+	WorkspaceID    uint   `json:"workspace_id,omitempty" jsonschema:"工作区 ID，留空则使用默认工作区"`
+	ModelValue     string `json:"model_value,omitempty" jsonschema:"模型值，留空则用 agent 默认"`
+	ParentSessionID uint  `json:"parent_session_id,omitempty" jsonschema:"父会话的数据库主键 ID，指定则创建子会话；留空则创建独立会话"`
+}
+
+type createSessionOut struct {
+	SessionID       string `json:"session_id"`
+	Title           string `json:"title,omitempty"`
+	ParentSessionID uint   `json:"parent_session_id,omitempty"`
+}
+
+func handleCreateSession(ctx context.Context, prefsRepo *repository.UserAgentPrefsRepository, creator SessionCreator, sessionLookup SessionLookup, in createSessionIn) (*mcp.CallToolResult, createSessionOut, error) {
+	uid, ok := userIDFrom(ctx)
+	if !ok {
+		return nil, createSessionOut{}, fmt.Errorf("未认证")
+	}
+	if creator == nil {
+		return nil, createSessionOut{}, fmt.Errorf("会话创建未配置")
+	}
+
+	agentType, err := resolveAgentType(prefsRepo, uid, in.AgentType)
+	if err != nil {
+		return nil, createSessionOut{}, err
+	}
+
+	parentID, err := validateParentOwnership(sessionLookup, uid, in.ParentSessionID)
+	if err != nil {
+		return nil, createSessionOut{}, err
+	}
+
+	session, err := creator.CreateSessionWithParent(ctx, agentType, in.WorkspaceID, uid, models.SessionSourceManual, in.ModelValue, parentID)
+	if err != nil {
+		return nil, createSessionOut{}, err
+	}
+
+	out := createSessionOut{SessionID: session.SessionID, Title: session.Title}
+	if parentID != nil {
+		out.ParentSessionID = *parentID
+	}
+	return nil, out, nil
+}
+
+// ---- run_session_task ----
+
+type runSessionTaskIn struct {
+	AgentType       string `json:"agent_type,omitempty" jsonschema:"agent 类型，留空则继承用户最近使用的 agent"`
+	Task            string `json:"task" jsonschema:"具体任务描述，会作为首条 prompt 发送给新会话"`
+	WorkspaceID     uint   `json:"workspace_id,omitempty" jsonschema:"工作区 ID，留空则使用默认工作区"`
+	ModelValue      string `json:"model_value,omitempty" jsonschema:"模型值，留空则用 agent 默认"`
+	ParentSessionID uint   `json:"parent_session_id,omitempty" jsonschema:"父会话的数据库主键 ID，指定则创建子会话；留空则创建独立会话"`
+	TimeoutSeconds  int    `json:"timeout_seconds,omitempty" jsonschema:"运行超时秒数，留空则默认 300 秒"`
+}
+
+type runSessionTaskOut struct {
+	SessionID string `json:"session_id"`
+	Task      string `json:"task"`
+	Result    string `json:"result,omitempty"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+}
+
+func handleRunSessionTask(ctx context.Context, prefsRepo *repository.UserAgentPrefsRepository, runner SessionTaskRunner, sessionLookup SessionLookup, in runSessionTaskIn) (*mcp.CallToolResult, runSessionTaskOut, error) {
+	uid, ok := userIDFrom(ctx)
+	if !ok {
+		return nil, runSessionTaskOut{}, fmt.Errorf("未认证")
+	}
+	if runner == nil {
+		return nil, runSessionTaskOut{}, fmt.Errorf("会话任务运行未配置")
+	}
+	task := strings.TrimSpace(in.Task)
+	if task == "" {
+		return nil, runSessionTaskOut{}, fmt.Errorf("task 必填")
+	}
+
+	agentType, err := resolveAgentType(prefsRepo, uid, in.AgentType)
+	if err != nil {
+		return nil, runSessionTaskOut{}, err
+	}
+
+	parentID, err := validateParentOwnership(sessionLookup, uid, in.ParentSessionID)
+	if err != nil {
+		return nil, runSessionTaskOut{}, err
+	}
+
+	cfg := acp.SessionTaskConfig{
+		AgentType:       agentType,
+		ModelValue:      in.ModelValue,
+		Prompt:          task,
+		UserID:          uid,
+		WorkspaceID:     in.WorkspaceID,
+		ParentSessionID: parentID,
+	}
+	if in.TimeoutSeconds > 0 {
+		cfg.Timeout = time.Duration(in.TimeoutSeconds) * time.Second
+	}
+
+	res, runErr := runner.RunSessionTask(ctx, cfg)
+
+	out := runSessionTaskOut{SessionID: res.SessionID, Task: task}
+	if runErr != nil {
+		out.Success = false
+		out.Error = runErr.Error()
+	} else {
+		out.Success = res.Success
+		out.Result = res.Result
+		out.Error = res.Error
+	}
+	return nil, out, nil
 }

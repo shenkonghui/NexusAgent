@@ -29,3 +29,13 @@ func probeProcessState(pid int) procState {
 	// 此处简化处理：假定进程仍在运行，诊断依赖 stderr 尾部。
 	return procStateRunning
 }
+
+// KillProcessGroup 在 Windows 上暂不支持，返回 nil。
+// TODO: 如需 Windows 支持，改用 taskkill /T /F 或 Job Object 实现。
+func KillProcessGroup(pid int) error { return nil }
+
+// KillOrphanACPProcesses 在 Windows 上暂不支持，返回 0, nil。
+func KillOrphanACPProcesses() (int, error) { return 0, nil }
+
+// ProcessAlive 在 Windows 上简化为始终返回 true（精确判断需 OpenProcess，暂未实现）。
+func ProcessAlive(pid int) bool { return pid > 0 }

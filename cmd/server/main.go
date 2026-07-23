@@ -50,6 +50,14 @@ func stopWithTimeout(name string, timeout time.Duration, stop func()) {
 }
 
 func main() {
+	// 子命令分发：`opennexus watchdog ...` 作为独立守护进程运行（与主 server 解耦）。
+	// watchdog 由主 server 用 exec.Command + Setsid 拉起，负责在主程序退出/崩溃后清理 acp 进程，
+	// 以及回收空闲超过阈值的 acp 连接。必须在 flag.Parse 之前拦截，避免与 server flag 冲突。
+	if len(os.Args) > 1 && os.Args[1] == "watchdog" {
+		runWatchdog()
+		return
+	}
+
 	// 启动早期扩充 PATH：GUI/launchd 启动的进程 PATH 不含 nvm、Homebrew 等目录，
 	// 会导致通过 npm exec 启动的 agent 子进程找不到 npm/node。
 	// 必须早于任何 agent 进程拉起（含下方的 PreconnectAllAsync）。
@@ -114,6 +122,10 @@ func main() {
 	// P1: ACP 服务
 	acpSvc := acp.NewService(db, cfg.Agents.Workspace, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Agents.SubAgents)
 	acpSvc.SetDebugConfig(cfg.Debug)
+	// 注入 acp_connections 心跳表仓库：主 server 写入连接 PID/活动时间/心跳，
+	// 供独立 watchdog 进程读取判定空闲与主程序存活。
+	acpConnRepo := repository.NewACPConnectionRepository(db)
+	acpSvc.SetACPConnectionRepo(acpConnRepo)
 
 	// P2: Agent 注册表与路由
 	agentRegistry := agent.NewRegistry()
@@ -145,11 +157,31 @@ func main() {
 	// 用户可查看中断任务并手动重发。
 	acpSvc.RecoverActiveSessions()
 
+	// 启动兜底清理：扫杀上次崩溃/异常退出残留的 acp 孤儿进程，并清空心跳表脏行。
+	// 正常退出路径（shutdown）已由 KillOrphanACPProcesses 覆盖，此处覆盖崩溃场景：
+	// 主 server 被 SIGKILL 或 panic 退出时，shutdown 逻辑不会执行，残留的 agent 进程
+	// 由独立进程组存活（Setsid），若 watchdog 也一并死亡则无人清理。此处在新连接建立前扫杀，
+	// 既清除孤儿又避免误杀即将建立的新连接（此时 pool 尚空）。
+	if n, err := acp.KillOrphanACPProcesses(); err != nil {
+		log.Printf("启动清理 acp 孤儿进程失败: %v", err)
+	} else if n > 0 {
+		log.Printf("启动清理：已扫杀 %d 个残留 acp 孤儿进程", n)
+	}
+	if err := acpConnRepo.DeleteAll(); err != nil {
+		log.Printf("启动清理心跳表脏行失败: %v", err)
+	}
+
 	// 启动健康检查与自动重连 goroutine（定期检查连接状态，断开自动重连）。
+	// 同时启动心跳续约 goroutine，向 acp_connections 表续约，供 watchdog 判活。
 	acpSvc.StartHealthCheck()
 	// 异步为所有已注册 agent 预建立共享 ACP 连接（每类 agent 一个常驻进程）。
 	// 每个 agent 独立 goroutine 连接，不阻塞服务启动；连接失败由健康检查自动重连。
 	acpSvc.PreconnectAllAsync()
+
+	// 拉起独立 watchdog 进程：回收空闲 acp 连接，并在主程序退出/崩溃后清理全部 acp 进程。
+	// watchdog 以 Setsid 独立进程组运行，与主 server 解耦——主 server 崩溃后它仍存活完成清理。
+	// 若已有 watchdog 在运行（上次启动残留），先杀旧再起新（满足「已运行则重启一次」）。
+	spawnWatchdog(cfg.Database.Path)
 
 	// P7: 定时任务调度器
 	schedTaskRepo := repository.NewScheduledTaskRepository(db)
@@ -201,10 +233,11 @@ func main() {
 	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, registryH, schedTaskH, noteH, taskSettingsH, agentPrefsH, configH, mcpH, logH, debugH, subAgentH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Agents.SubAgents, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
 	engine.Any("/mcp/notes", gin.WrapH(notesmcp.Handler(noteRepo, noteSettingsRepo)))
 	engine.Any("/mcp/notes/*path", gin.WrapH(notesmcp.Handler(noteRepo, noteSettingsRepo)))
-	// subagent MCP server：主 agent 通过 tools/call 调起预定义的 subagent。
+	// subagent MCP server：主 agent 通过 tools/call 调起预定义的 subagent，或创建/运行持久会话。
 	// 数据源是文件扫描（acpSvc.ListSubAgents）；agentPrefsRepo 用于解析"继承父 agent"（用户最近使用的 agent）。
-	engine.Any("/mcp/subagent", gin.WrapH(subagentmcp.Handler(acpSvc, noteSettingsRepo, agentPrefsRepo, agentRouter)))
-	engine.Any("/mcp/subagent/*path", gin.WrapH(subagentmcp.Handler(acpSvc, noteSettingsRepo, agentPrefsRepo, agentRouter)))
+	// agentRouter 同时实现 SessionCreator/SessionTaskRunner/SessionLookup，支撑 create_session / run_session_task 工具。
+	engine.Any("/mcp/subagent", gin.WrapH(subagentmcp.Handler(acpSvc, noteSettingsRepo, agentPrefsRepo, agentRouter, agentRouter, agentRouter, agentRouter)))
+	engine.Any("/mcp/subagent/*path", gin.WrapH(subagentmcp.Handler(acpSvc, noteSettingsRepo, agentPrefsRepo, agentRouter, agentRouter, agentRouter, agentRouter)))
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
 	srv := &http.Server{Addr: addr, Handler: engine}
@@ -244,7 +277,87 @@ func main() {
 	acpSvc.StopHealthCheck()
 	noteClassifyWorker.Stop()
 	stopWithTimeout("定时任务调度器", 3*time.Second, schedulerSvc.Stop)
+	// 兜底清理：扫杀可能残留的 acp 孤儿进程（正常退出已由 StopHealthCheck 关闭内存连接，
+	// 此处覆盖崩溃恢复遗留或未被 pool 跟踪的进程）。
+	if n, err := acp.KillOrphanACPProcesses(); err != nil {
+		log.Printf("清理 acp 孤儿进程失败: %v", err)
+	} else if n > 0 {
+		log.Printf("已清理 %d 个 acp 孤儿进程", n)
+	}
 	os.Exit(0)
+}
+
+// watchdogPIDFile 返回 watchdog 进程 PID 文件路径（与 DB 同目录）。
+func watchdogPIDFile(dbPath string) string {
+	return dbPath + ".watchdog.pid"
+}
+
+// spawnWatchdog 拉起独立 watchdog 进程。
+// 若已有 watchdog 在运行（PID 文件存在且进程存活），先杀旧再起新。
+// watchdog 以独立进程组（Setpgid）运行，与主 server 生命周期解耦：
+// 主 server 正常退出时由退出逻辑兜底清理 acp 进程；
+// 主 server 崩溃时 watchdog 仍存活，通过心跳超时检测主程序死亡并完成清理。
+func spawnWatchdog(dbPath string) {
+	pidFile := watchdogPIDFile(dbPath)
+
+	// 若已有 watchdog 在运行，终止旧实例（满足「已运行则重启一次」）
+	if old := readAlivePID(pidFile); old > 0 {
+		log.Printf("检测到已有 watchdog 进程 (pid=%d)，先终止旧实例", old)
+		killProcessByPID(old)
+		removePIDFile(pidFile)
+		// 给旧进程退出留点时间
+		time.Sleep(300 * time.Millisecond)
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		log.Printf("获取可执行文件路径失败，跳过 watchdog: %v", err)
+		return
+	}
+	cmd := exec.Command(exe, "watchdog", "--db", dbPath)
+	applyWatchdogDetach(cmd) // 独立进程组，脱离父进程
+	// 重定向 stdin/stdout/stderr 到/dev/null 或日志文件，避免 watchdog 依赖主 server 的标准流
+	if devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0); err == nil {
+		cmd.Stdin = devNull
+		cmd.Stdout = devNull
+		cmd.Stderr = devNull
+	}
+	if err := cmd.Start(); err != nil {
+		log.Printf("启动 watchdog 失败（不影响主服务）: %v", err)
+		return
+	}
+	// 写入 PID 文件供下次启动检测；释放句柄，让 watchdog 由 init/launchd 接管
+	if err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0o644); err != nil {
+		log.Printf("写 watchdog PID 文件失败: %v", err)
+	}
+	_ = cmd.Process.Release()
+	log.Printf("已启动 watchdog 进程 (pid=%d)", cmd.Process.Pid)
+}
+
+// readAlivePID 读取 PID 文件，若进程已不存在则返回 0 并删除失效文件。
+func readAlivePID(pidFile string) int {
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return 0
+	}
+	pid := 0
+	for _, b := range data {
+		if b >= '0' && b <= '9' {
+			pid = pid*10 + int(b-'0')
+		}
+	}
+	if pid <= 0 {
+		return 0
+	}
+	if !processAliveByPID(pid) {
+		removePIDFile(pidFile)
+		return 0
+	}
+	return pid
+}
+
+func removePIDFile(pidFile string) {
+	_ = os.Remove(pidFile)
 }
 
 // openBrowserAfterDelay 延迟后用系统默认浏览器打开 URL（开发模式快速预览）。

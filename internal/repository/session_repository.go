@@ -121,3 +121,11 @@ func (r *SessionRepository) FindByWorkspaceID(workspaceID uint) ([]models.Sessio
 func (r *SessionRepository) Delete(id uint) error {
 	return r.db.Delete(&models.Session{}, id).Error
 }
+
+// FindChildSessions 返回指定父会话下的所有子会话（按创建时间降序）。
+// 用于 MCP 工具创建的子会话分组查询与前端展示。
+func (r *SessionRepository) FindChildSessions(parentID uint) ([]models.Session, error) {
+	var sessions []models.Session
+	err := r.db.Where("parent_session_id = ?", parentID).Order("created_at DESC").Find(&sessions).Error
+	return sessions, err
+}

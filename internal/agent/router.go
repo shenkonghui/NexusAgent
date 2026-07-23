@@ -43,6 +43,18 @@ func (r *Router) CreateSessionWithSource(ctx context.Context, agentType string, 
 	return r.service.CreateSessionWithSource(ctx, agentType, workspaceID, userID, source, modelValue)
 }
 
+// CreateSessionWithParent 创建会话并可指定父会话（用于 MCP 工具创建子会话/子任务）。
+// parentSessionID 非 nil 时记录父子关系。
+func (r *Router) CreateSessionWithParent(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string, parentSessionID *uint) (*models.Session, error) {
+	if _, err := r.registry.Get(agentType); err != nil {
+		return nil, err
+	}
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.CreateSessionWithParent(ctx, agentType, workspaceID, userID, source, modelValue, parentSessionID)
+}
+
 // ResumeSession 恢复或重开会话，委托 service。
 func (r *Router) ResumeSession(ctx context.Context, sessionID string) (*models.Session, error) {
 	if r.service == nil {
@@ -224,6 +236,18 @@ func (r *Router) RunSubAgent(ctx context.Context, cfg acp.SubAgentRunConfig) (st
 		return "", err
 	}
 	return r.service.RunSubAgent(ctx, cfg)
+}
+
+// RunSessionTask 创建持久会话并阻塞运行一次性任务，收集 assistant 文本后返回（落库）。
+// 用于 MCP run_session_task 工具：发起一个需要持久化、可追溯、可继续的子任务。
+func (r *Router) RunSessionTask(ctx context.Context, cfg acp.SessionTaskConfig) (acp.SessionTaskResult, error) {
+	if r.service == nil {
+		return acp.SessionTaskResult{}, errors.New("service 未配置")
+	}
+	if _, err := r.registry.Get(cfg.AgentType); err != nil {
+		return acp.SessionTaskResult{}, err
+	}
+	return r.service.RunSessionTask(ctx, cfg)
 }
 
 func (r *Router) PromptWithExecution(ctx context.Context, sessionID, prompt string, executionID *uint) (<-chan models.Message, error) {

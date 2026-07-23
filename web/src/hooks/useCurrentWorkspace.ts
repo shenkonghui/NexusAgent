@@ -20,6 +20,9 @@ export function useCurrentWorkspace(enabled = true) {
   const [workspaces, setWorkspaces] = useState<(Workspace & { session_count?: number })[]>([])
   const [workspaceId, setWorkspaceIdState] = useState(0)
   const [sessions, setSessions] = useState<Session[]>([])
+  // sessions 当前归属的 workspace id。切换工作区时新会话为异步加载，
+  // 该值用于让消费方判断 sessions 是否已与目标 workspace 匹配，避免用旧数据误判。
+  const [sessionsWorkspaceId, setSessionsWorkspaceId] = useState(0)
   const [loading, setLoading] = useState(true)
 
   const persistId = useCallback((id: number) => {
@@ -28,9 +31,10 @@ export function useCurrentWorkspace(enabled = true) {
   }, [])
 
   const loadSessions = useCallback(async (id: number) => {
-    if (!id) { setSessions([]); return }
+    if (!id) { setSessions([]); setSessionsWorkspaceId(id); return }
     const detail = await getWorkspace(id)
     setSessions(detail.data.sessions || [])
+    setSessionsWorkspaceId(id)
   }, [])
 
   const reload = useCallback(async () => {
@@ -61,5 +65,5 @@ export function useCurrentWorkspace(enabled = true) {
     await loadSessions(id)
   }, [loadSessions, persistId])
 
-  return { workspaces, workspaceId, sessions, loading, reload, selectWorkspace }
+  return { workspaces, workspaceId, sessions, sessionsWorkspaceId, loading, reload, selectWorkspace }
 }

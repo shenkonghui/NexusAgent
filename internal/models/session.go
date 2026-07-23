@@ -36,7 +36,10 @@ type Session struct {
 	// Tags 是会话标签 JSON 数组，如 ["后端","mysql"]，由任务自动分类写入。
 	Tags string `gorm:"type:text" json:"tags"`
 	ModelValue string     `gorm:"size:128" json:"-"` // 用户选择的模型，在激活会话时应用
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
-	ClosedAt  *time.Time `gorm:"index" json:"closed_at"`
+	// ParentSessionID 指向父会话的主键，用于表达父子（主/子任务）关系。
+	// nil 表示顶级独立会话。由 MCP create_session/run_session_task 工具按需写入。
+	ParentSessionID *uint     `gorm:"index" json:"parent_session_id,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	ClosedAt        *time.Time `gorm:"index" json:"closed_at"`
 }

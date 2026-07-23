@@ -1,0 +1,131 @@
+package acp
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"opennexus/internal/models"
+)
+
+// SessionTaskResult 描述一次会话任务的执行结果。
+type SessionTaskResult struct {
+	SessionID string // 落库的稳定 session_id（UUID），可用于后续继续对话
+	Result    string // 收集到的 assistant 文本
+	Success   bool
+	Error     string // 失败原因（Success=true 时为空）
+}
+
+// SessionTaskConfig 描述一次会话任务的参数（用于 run_session_task MCP 工具）。
+//
+// 与 SubAgentRunConfig 的差异：本方法创建持久 DB 会话（落库），可通过 UI 继续对话；
+// SubAgentRunConfig 创建临时 ACP 会话，不落库，仅返回文本。
+type SessionTaskConfig struct {
+	AgentType      string        // 已注册的 agent type，必填
+	ModelValue     string        // 模型值，空=用 agent 默认
+	Prompt         string        // 用户任务文本（由 MCP 工具传入）
+	UserID         uint          // 会话归属用户，必填
+	WorkspaceID    uint          // 0=查找/创建默认工作区
+	ParentSessionID *uint        // 非 nil 时创建子会话，关联父会话
+	Source         string        // 会话来源，空=manual
+	Timeout        time.Duration // 运行超时，0=默认 sessionTaskTimeout (300s)
+}
+
+// sessionTaskTimeout 是 RunSessionTask 的默认超时。
+// 比 promptOnceTimeout (60s) 更长，因为持久会话可能执行较重的多步任务。
+const sessionTaskTimeout = 5 * time.Minute
+
+// RunSessionTask 创建一个持久会话（落库），阻塞运行一次性任务并收集 assistant 文本后返回。
+//
+// 与 RunSubAgent 的差异：
+//   - 创建持久 DB 会话（可通过 UI 继续对话），而非临时 ACP 会话
+//   - 首次 Prompt 时延迟激活会话（建立 ACP 连接 + NewSession），消息正常落库
+//   - 权限请求走会话级权限通道（UI 可响应），而非自动拒绝
+//
+// 上下文生命周期：prompt 使用 detached context (context.Background) 发送，
+// 使持久会话独立于本次 MCP 工具调用存活——即使 MCP 调用超时或 ctx 被取消，
+// 会话的 prompt 流仍继续运行，用户可在 UI 中响应权限请求、查看后续消息。
+// 本方法仅在 timeout 内阻塞收集结果；超时后返回已收集的部分文本，会话继续运行。
+//
+// 该方法适用于：主 agent 通过 MCP 工具发起一个需要持久化、可追溯、可继续的子任务。
+func (s *Service) RunSessionTask(ctx context.Context, cfg SessionTaskConfig) (SessionTaskResult, error) {
+	if strings.TrimSpace(cfg.Prompt) == "" {
+		return SessionTaskResult{}, fmt.Errorf("prompt 不能为空")
+	}
+	if _, err := s.GetBackend(cfg.AgentType); err != nil {
+		return SessionTaskResult{}, err
+	}
+
+	source := strings.TrimSpace(cfg.Source)
+	if source == "" {
+		source = models.SessionSourceManual
+	}
+
+	// 创建会话用调用方 ctx（感知取消）；发送 prompt 用 detached context（独立存活）。
+	session, err := s.createSessionFull(ctx, cfg.AgentType, cfg.WorkspaceID, cfg.UserID, source, cfg.ModelValue, cfg.ParentSessionID)
+	if err != nil {
+		return SessionTaskResult{}, fmt.Errorf("创建会话: %w", err)
+	}
+
+	result := SessionTaskResult{SessionID: session.SessionID}
+
+	// 用 detached context 发送 prompt：持久会话的生命周期独立于 MCP 工具调用。
+	// 否则 MCP 工具返回（或超时取消 ctx）会取消 prompt 流，导致 agent 进程被终止、
+	// 权限请求被移除——用户在 UI 响应权限时报"权限请求不存在或已过期"。
+	// 用 detached context 后，会话继续运行，用户可在 UI 正常交互。
+	// 注意：不 cancel 此 context——prompt 自然结束后 SDK goroutine 自行退出，
+	// context 被回收；提前 cancel 会再次杀死持久会话。
+	promptCtx := context.Background()
+
+	updates, err := s.PromptWithExecution(promptCtx, session.SessionID, cfg.Prompt, nil)
+	if err != nil {
+		result.Success = false
+		result.Error = fmt.Sprintf("发送任务失败: %v", err)
+		return result, nil
+	}
+
+	// 阻塞消费消息流，收集 assistant 文本；超时后返回已收集的部分，会话继续运行。
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = sessionTaskTimeout
+	}
+	runCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	var sb strings.Builder
+consume:
+	for {
+		select {
+		case msg, ok := <-updates:
+			if !ok {
+				break consume
+			}
+			if msg.Kind == models.MessageKindAgentMessageChunk {
+				sb.WriteString(msg.Content)
+			}
+		case <-runCtx.Done():
+			// 超时：返回已收集的部分文本。会话仍在后台运行（detached context 未取消），
+			// 用户可在 UI 继续对话、响应权限。
+			result.Success = sb.Len() > 0
+			result.Result = strings.TrimSpace(sb.String())
+			if sb.Len() == 0 {
+				result.Error = "agent 响应超时，任务仍在后台运行"
+			}
+			return result, nil
+		case <-ctx.Done():
+			// MCP 调用方取消（如父 agent 放弃工具调用）：同样返回已收集的部分，
+			// 会话继续在后台运行（promptCtx 未被取消）。
+			result.Success = sb.Len() > 0
+			result.Result = strings.TrimSpace(sb.String())
+			if sb.Len() == 0 {
+				result.Error = "调用已取消，任务仍在后台运行"
+			}
+			return result, nil
+		}
+	}
+
+	result.Success = true
+	result.Result = strings.TrimSpace(sb.String())
+	return result, nil
+}

@@ -1,5 +1,6 @@
 .bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 8px 20px;
@@ -36,14 +37,16 @@
   flex-shrink: 0;
 }
 
-/* children 容器：占满剩余空间，内容靠右 */
+/* children 容器：权限请求等交互内容。占满整行并允许换行，
+   避免与状态文案挤在一行导致按钮溢出被裁剪（显示不全/显示不下）。 */
 .content {
-  flex: 1;
+  flex: 1 1 100%;
   min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
+  justify-content: flex-start;
+  gap: 8px 10px;
 }
 
 @keyframes spin {
