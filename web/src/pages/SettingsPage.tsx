@@ -81,6 +81,11 @@ export default function SettingsPage() {
   const [agents, setAgents] = useState<Agent[]>([])
   const { workspaceId, sessions } = useCurrentWorkspace(!!user)
   const [defaultAgent, setDefaultAgent] = useState('')
+  // 默认 agent 的默认模型（存入 agent-prefs 的 prefs[agent].model，新建任务时自动应用）
+  const [defaultModel, setDefaultModel] = useState('')
+  const [defaultModelOptions, setDefaultModelOptions] = useState<ModelOption[]>([])
+  const [defaultModelProbing, setDefaultModelProbing] = useState(false)
+  const [agentPrefsMap, setAgentPrefsMap] = useState<Record<string, Record<string, string>>>({})
   const [noteAgent, setNoteAgent] = useState('')
   const [noteModel, setNoteModel] = useState('')
   const [noteInterval, setNoteInterval] = useState(5)
@@ -157,6 +162,45 @@ export default function SettingsPage() {
     return () => { alive = false }
   }, [tab, noteAgent, t])
 
+  // 进入 agent 页且选中默认 agent 时，加载其可用模型列表（供默认模型下拉选择）。
+  useEffect(() => {
+    if (tab !== 'agent' || !defaultAgent) {
+      setDefaultModelOptions([])
+      return
+    }
+    let alive = true
+    setDefaultModelProbing(true)
+
+    async function loadDefaultModels() {
+      try {
+        const cached = await getAgentModels(defaultAgent)
+        if (!alive) return
+        const fromSession = cached.data.model_options || []
+        if (fromSession.length > 0 && fromSession[0].options.length > 0) {
+          setDefaultModelOptions(fromSession)
+          return
+        }
+        const probed = await probeAgentConfigs(defaultAgent)
+        if (!alive) return
+        const modelOpt = findModelConfigOption(probed.data.config_options || [])
+        if (modelOpt && modelOpt.options.length > 0) {
+          setDefaultModelOptions([modelOptFromConfig(modelOpt)])
+        } else {
+          setDefaultModelOptions([])
+        }
+      } catch (err) {
+        if (!alive) return
+        setDefaultModelOptions([])
+        setError(err instanceof Error ? err.message : t('common.failed'))
+      } finally {
+        if (alive) setDefaultModelProbing(false)
+      }
+    }
+
+    loadDefaultModels()
+    return () => { alive = false }
+  }, [tab, defaultAgent, t])
+
   async function loadData() {
     setLoading(true); setError('')
     try {
@@ -165,8 +209,12 @@ export default function SettingsPage() {
       ])
       setConfigs(cfgResp.data.agent_configs || [])
       setAgents(agentsResp.data.agents || [])
-      const prefsResp = await getAgentPrefs().catch(() => ({ data: { last_agent_type: '' } }))
-      setDefaultAgent(prefsResp.data.last_agent_type || '')
+      const prefsResp = await getAgentPrefs().catch(() => ({ data: { last_agent_type: '', prefs: {} } }))
+      const prefsMap: Record<string, Record<string, string>> = prefsResp.data.prefs || {}
+      const lastAgent = prefsResp.data.last_agent_type || ''
+      setDefaultAgent(lastAgent)
+      setAgentPrefsMap(prefsMap)
+      setDefaultModel(prefsMap[lastAgent]?.model || '')
       setNoteAgent(noteSettingsResp.data.agent_type || '')
       setNoteModel(noteSettingsResp.data.model_value || '')
       setNoteInterval(noteSettingsResp.data.classify_interval_minutes || 5)
@@ -194,10 +242,53 @@ export default function SettingsPage() {
 
   async function handleSetDefault(agentType: string) {
     setDefaultAgent(agentType)
+    // 切换 agent 后，默认模型回到该 agent 已保存的选择（无则置空，使用 agent 自身默认）。
+    setDefaultModel(agentPrefsMap[agentType]?.model || '')
     try {
       await patchAgentPrefs({ last_agent_type: agentType })
     } catch (err) {
       setError(err instanceof Error ? err.message : t('common.failed'))
+    }
+  }
+
+  // 保存默认 agent 的默认模型（写入 prefs[agent].model；空值则清除，回退 agent 自身默认）。
+  async function handleSetDefaultModel(model: string) {
+    if (!defaultAgent) return
+    setDefaultModel(model)
+    setAgentPrefsMap((prev) => {
+      const next = { ...prev }
+      const cur = { ...(next[defaultAgent] || {}) }
+      if (model) cur.model = model
+      else delete cur.model
+      next[defaultAgent] = cur
+      return next
+    })
+    try {
+      await patchAgentPrefs({ agent_type: defaultAgent, configs: { model } })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.failed'))
+    }
+  }
+
+  // 手动重新探测默认 agent 的可用模型列表。
+  async function handleProbeDefaultModel() {
+    if (!defaultAgent) return
+    setDefaultModelProbing(true); setError('')
+    try {
+      clearAgentProbeCache(defaultAgent)
+      const r = await probeAgentConfigs(defaultAgent, { force: true })
+      const modelOpt = findModelConfigOption(r.data.config_options || [])
+      if (modelOpt && modelOpt.options.length > 0) {
+        setDefaultModelOptions([modelOptFromConfig(modelOpt)])
+      } else {
+        setDefaultModelOptions([])
+        setError(t('scheduledTask.probeHint'))
+      }
+    } catch (err) {
+      setDefaultModelOptions([])
+      setError(err instanceof Error ? err.message : t('common.failed'))
+    } finally {
+      setDefaultModelProbing(false)
     }
   }
 
@@ -544,12 +635,45 @@ export default function SettingsPage() {
                         <button type="button" className={styles.clearDefaultBtn}
                           onClick={async () => {
                             setDefaultAgent('')
+                            setDefaultModel('')
+                            setDefaultModelOptions([])
                             try { await patchAgentPrefs({ last_agent_type: '' }) }
                             catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) }
                           }}
                         >{t('common.cancel')}</button>
                       )}
                     </div>
+                    {defaultAgent && (
+                      <>
+                        <label className={styles.label}>{t('settings.defaultModel')}</label>
+                        <div className={styles.inlineRow}>
+                          {defaultModelOptions.length > 0 && defaultModelOptions[0].options.length > 0 ? (
+                            <select className={styles.input} value={defaultModel}
+                              onChange={(e) => handleSetDefaultModel(e.target.value)}
+                            >
+                              <option value="">{t('scheduledTask.defaultModel')}</option>
+                              {defaultModelOptions[0].options.map((o) => (
+                                <option key={o.value} value={o.value}>
+                                  {o.name !== o.value ? `${o.name} (${o.value})` : o.value}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input className={styles.input} type="text" value={defaultModel}
+                              onChange={(e) => setDefaultModel(e.target.value)}
+                              onBlur={(e) => handleSetDefaultModel(e.target.value)}
+                              placeholder={t('scheduledTask.modelValuePlaceholder')}
+                            />
+                          )}
+                          <button type="button" className={styles.secondaryBtn}
+                            onClick={handleProbeDefaultModel}
+                            disabled={defaultModelProbing}
+                            title={t('scheduledTask.probeTitle')}
+                          >{defaultModelProbing ? t('common.loading') : t('scheduledTask.probeConfig')}</button>
+                        </div>
+                        <p className={styles.sectionHint}>{t('settings.defaultModelHint')}</p>
+                      </>
+                    )}
                   </div>
                   <div className={styles.configList}>
                     <div className={styles.configListHeader}>

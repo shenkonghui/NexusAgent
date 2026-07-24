@@ -12,7 +12,7 @@ import LoadingSpinner from './LoadingSpinner'
 import OrchestrationChatPanel from './OrchestrationChatPanel'
 import SplitPane from './SplitPane'
 import styles from './OrchestrationView.module.css'
-import { ChevronRight, ChevronDown, MessagesSquare, GitBranch, Plus, FileJson, List, Play, Square, Trash2 } from 'lucide-react'
+import { ChevronRight, ChevronDown, MessagesSquare, GitBranch, Plus, FileJson, List, Play, PlayCircle, Square, Trash2 } from 'lucide-react'
 
 const ACTIVE_STATUSES = new Set(['queued', 'running'])
 
@@ -164,6 +164,20 @@ export default function OrchestrationView({ workspaceId, cwd, agents, restoreSes
     }
   }
 
+  // 启动全部待执行任务（不传 task_id，由后端启动所有待执行任务）。
+  async function handleStartAll() {
+    if (!workspaceId || busy) return
+    setBusy(true)
+    try {
+      await startOrchestration(workspaceId)
+      await reloadStatus()
+    } catch (e) {
+      onError(String((e as Error)?.message || e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   // 停止单个运行中的任务。
   async function handleStopTask(task: OrchestrationTask) {
     if (!workspaceId || busy) return
@@ -265,6 +279,17 @@ export default function OrchestrationView({ workspaceId, cwd, agents, restoreSes
           <div className={styles.toolbar}>
             <span className={styles.toolbarTitle}>{t('orchestration.groupTitle')}</span>
             <div className={styles.toolbarActions}>
+              {!jsonMode && def.tasks.some((tk) => !ACTIVE_STATUSES.has(tk.status)) && (
+                <button
+                  type="button"
+                  className={styles.toolbarBtn}
+                  onClick={handleStartAll}
+                  disabled={busy}
+                  title={t('orchestration.startAll')}
+                >
+                  <PlayCircle size={14} /> {t('orchestration.startAll')}
+                </button>
+              )}
               {!jsonMode && (
                 <button
                   type="button"
