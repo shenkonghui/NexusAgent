@@ -1,0 +1,47 @@
+{
+  "max_parallel": 3,
+  "tasks": [
+    {
+      "id": "task-001",
+      "title": "代码审查：检查 src 目录下的安全问题",
+      "detail": "请审查 src 目录下所有 TypeScript/JavaScript 文件，重点关注以下安全问题：1) SQL 注入风险 2) XSS 漏洞 3) 未处理的异常 4) 敏感信息泄露。输出一个包含文件路径、问题描述、风险等级的结构化报告。",
+      "agent_type": "codebuddy-code",
+      "session_id": "5589a3ac-1790-45f0-82a2-61e46a139bd3",
+      "db_session_id": 97,
+      "status": "done",
+      "branch": "task-task-001",
+      "worktree_path": "/Users/shenkonghui/src/mywork/NexusAgent/.worktrees/task-001",
+      "started_at": "2026-07-24T09:06:40.36143+08:00",
+      "finished_at": "2026-07-24T09:11:43.48081+08:00"
+    },
+    {
+      "id": "task-002",
+      "title": "重构建议：提取公共工具函数",
+      "detail": "扫描整个项目中重复出现的代码模式（相似度 \u003e= 80% 的代码块），建议可以提取为公共工具函数的部分。对于每个建议，说明复用的文件列表、建议的函数签名和存放位置。",
+      "agent_type": "",
+      "status": "pending"
+    },
+    {
+      "id": "task-003",
+      "title": "文档生成：为 src 目录生成API接口文档",
+      "detail": "扫描 src 目录下所有 API 路由/接口定义文件，理解每个接口的请求方法、路径、请求参数、响应格式和错误码，生成一份结构化的 API 接口文档（Markdown 格式）。",
+      "agent_type": "",
+      "status": "pending"
+    },
+    {
+      "id": "task-004",
+      "title": "测试覆盖率分析",
+      "detail": "运行项目的测试套件并收集覆盖率数据，识别覆盖率低于 60% 的模块/文件。对每个低覆盖率模块，建议需要补充的测试场景列表（边界条件、异常路径、并发场景等）。",
+      "agent_type": "",
+      "status": "pending"
+    },
+    {
+      "id": "task-005",
+      "title": "依赖审计与升级建议",
+      "detail": "检查 package.json 中的所有依赖项，标识：1) 存在已知安全漏洞的包 2) 已弃用或不再维护的包 3) 有 major 版本升级可用的包。对每个问题包给出推荐操作（升级/替换/保持）。",
+      "agent_type": "",
+      "status": "pending"
+    }
+  ],
+  "parent_session_id": 95
+}

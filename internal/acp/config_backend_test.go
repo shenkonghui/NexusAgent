@@ -2,6 +2,8 @@ package acp
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,7 +15,7 @@ func TestConfigBackend_BasicFields(t *testing.T) {
 	cfg := models.AgentConfig{
 		Type:      "codebuddy",
 		Command:   "codebuddy",
-		Args:       `["--acp","--port","8080"]`,
+		Args:      `["--acp","--port","8080"]`,
 		APIKeyEnv: "CODEBUDDY_API_KEY",
 		Timeout:   "120s",
 		Enabled:   &enabled,
@@ -155,5 +157,46 @@ func TestConfigBackend_EnvEmpty(t *testing.T) {
 	b := NewConfigBackend(models.AgentConfig{Type: "x", Command: "x", Env: ""})
 	if got := b.Env(); len(got) != 0 {
 		t.Errorf("空 Env 应返回空切片, 实际 %+v", got)
+	}
+}
+
+// TestFindBinaryInPath 验证 binary agent 优先从 PATH 查找同名二进制：
+//   - PATH 中存在 → 返回解析后的绝对路径（免下载）
+//   - PATH 中不存在 → 返回空串（调用方据此降级为下载）
+//   - 带子目录的 cmd（如 ./bin/devin）取 basename（devin）查找
+func TestFindBinaryInPath(t *testing.T) {
+	// 构造临时目录并放入一个可执行文件，加入 PATH
+	tmp := t.TempDir()
+	binPath := filepath.Join(tmp, "fake-cli-x")
+	if err := os.WriteFile(binPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("写入临时二进制失败: %v", err)
+	}
+	oldPath := os.Getenv("PATH")
+	t.Setenv("PATH", tmp+string(os.PathListSeparator)+oldPath)
+	defer t.Setenv("PATH", oldPath)
+
+	// PATH 命中：basename 匹配
+	if got := findBinaryInPath("./fake-cli-x"); got == "" {
+		t.Errorf("PATH 中存在 fake-cli-x，期望返回路径，实际空串")
+	} else if filepath.Base(got) != "fake-cli-x" {
+		t.Errorf("期望 basename=fake-cli-x，实际 %s", got)
+	}
+
+	// 带子目录的 cmd 取 basename 查找
+	if got := findBinaryInPath("./dist-package/fake-cli-x"); got == "" {
+		t.Errorf("带子目录的 cmd 应取 basename 查找，期望命中，实际空串")
+	}
+
+	// PATH 不存在 → 空串
+	if got := findBinaryInPath("./this-definitely-not-exists-12345"); got != "" {
+		t.Errorf("PATH 中不存在的二进制，期望空串，实际 %s", got)
+	}
+
+	// 空/无效 cmd → 空串
+	if got := findBinaryInPath(""); got != "" {
+		t.Errorf("空 cmd 应返回空串，实际 %s", got)
+	}
+	if got := findBinaryInPath("./"); got != "" {
+		t.Errorf("无效 cmd ./ 应返回空串，实际 %s", got)
 	}
 }

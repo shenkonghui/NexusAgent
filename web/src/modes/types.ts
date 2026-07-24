@@ -90,6 +90,9 @@ export interface PanelCtx {
   // 路由/工作区上下文
   workspaceId: number | undefined
   cwd: string
+  // 新建任务页：用户选择的自定义工作目录（如已存在的 git worktree），为空则跟随工作区 cwd。
+  selectedCwd?: string
+  onSelectCwd?: (path: string) => void
   onRestored?: (promptText: string) => void
   // 清理会话上下文成功后回调（重新拉取消息，刷新 token 占用）
   onContextCleared?: () => void

@@ -45,6 +45,11 @@ const (
 	reconnectMaxDelay   = 60 * time.Second // 重连最大退避
 )
 
+// defaultPromptMaxDuration 是单轮 prompt 的默认最大存活时间。
+// prompt 的生命周期独立于 HTTP/SSE 请求（解耦后用 context.Background 派生），
+// 此超时兜底防止 agent 卡死导致 goroutine 永久泄漏。超时后标记 interrupted。
+const defaultPromptMaxDuration = 30 * time.Minute
+
 // Service 是 ACP 客户端高层服务，串联后端、连接、工作区与持久化。
 //
 // 连接池模型：每个 agent 类型 + 工作目录共享一条 ACP 连接（一个 agent 进程），
@@ -115,6 +120,18 @@ type Service struct {
 	// acpConnRepo 可选：acp_connections 心跳表仓库，与独立 watchdog 进程通信。
 	// 为 nil 时（测试环境）心跳与活动记录静默跳过，不影响核心连接逻辑。
 	acpConnRepo *repository.ACPConnectionRepository
+
+	// promptMaxDuration 单轮 prompt 最大存活时间。prompt 的 ctx 用 context.Background 派生
+	// 并挂此超时，使 prompt 生命周期独立于发起它的 HTTP/SSE 请求（SSE 断开不再误杀 agent），
+	// 同时兜底防 agent 卡死导致 goroutine 永久泄漏。SetPromptMaxDuration 注入；0=默认 30min。
+	promptMaxDuration time.Duration
+
+	// permSettings 可选：全局权限规则（yolo/白名单/黑名单）配置仓库。
+	// 为 nil（测试环境）时规则功能静默禁用，行为同旧（全部询问）。
+	permSettings *repository.PermissionSettingsRepository
+	// activePermRules 当前生效的全局权限规则（全局下发到所有连接的 broker）。
+	// ReloadPermissionRules 读取 DB 更新此值并下发。nil=无规则。
+	activePermRules atomic.Pointer[PermissionRules]
 }
 
 // TaskMetaTrigger 由任务元数据服务实现，发起任务时异步调用以打标签和生成标题。
@@ -256,6 +273,123 @@ func (s *Service) Debugger() *ACPDebugger {
 // 主 server 启动时注入（与 watchdog 共享同一 SQLite）；测试环境可不注入，相关写表静默跳过。
 func (s *Service) SetACPConnectionRepo(repo *repository.ACPConnectionRepository) {
 	s.acpConnRepo = repo
+}
+
+// SetPromptMaxDuration 注入单轮 prompt 最大存活时间。d<=0 时恢复默认 30min。
+// prompt 的生命周期独立于 HTTP/SSE 请求，此超时兜底防 agent 卡死导致 goroutine 永久泄漏。
+func (s *Service) SetPromptMaxDuration(d time.Duration) {
+	if d > 0 {
+		s.promptMaxDuration = d
+	} else {
+		// 0/负值=恢复默认（让 effectivePromptMaxDuration 返回 defaultPromptMaxDuration）
+		s.promptMaxDuration = 0
+	}
+}
+
+// effectivePromptMaxDuration 返回生效的 prompt 最大存活时间（未设置时取默认）。
+func (s *Service) effectivePromptMaxDuration() time.Duration {
+	if s.promptMaxDuration > 0 {
+		return s.promptMaxDuration
+	}
+	return defaultPromptMaxDuration
+}
+
+// SetPermissionSettings 注入全局权限规则配置仓库。
+// 主 server 启动时注入；测试环境可不注入，规则功能静默禁用。
+func (s *Service) SetPermissionSettings(repo *repository.PermissionSettingsRepository) {
+	s.permSettings = repo
+}
+
+// applyRulesToConnection 把当前生效的权限规则下发到指定连接的 broker。
+func (s *Service) applyRulesToConnection(conn *Connection) {
+	if conn == nil {
+		return
+	}
+	conn.Client().perm.setRules(s.activePermRules.Load())
+}
+
+// applyRulesToAllConnections 把当前生效的权限规则下发到所有活跃连接的 broker。
+func (s *Service) applyRulesToAllConnections() {
+	rules := s.activePermRules.Load()
+	s.mu.RLock()
+	conns := make([]*Connection, 0, len(s.pool))
+	for _, conn := range s.pool {
+		conns = append(conns, conn)
+	}
+	s.mu.RUnlock()
+	for _, conn := range conns {
+		conn.Client().perm.setRules(rules)
+	}
+}
+
+// ReloadPermissionRules 重新从 DB 读取用户权限规则，更新生效规则并下发到所有连接的 broker。
+// settings 仓库未注入或读取失败时静默跳过（保留旧规则）。userID 用于多用户场景取对应用户规则。
+func (s *Service) ReloadPermissionRules(userID uint) {
+	if s.permSettings == nil {
+		return
+	}
+	st, err := s.permSettings.FindByUserID(userID)
+	if err != nil {
+		slog.Warn("读取权限规则失败，保留旧规则", "user", userID, "err", err)
+		return
+	}
+	rules := buildPermissionRules(st)
+	s.activePermRules.Store(rules)
+	s.applyRulesToAllConnections()
+}
+
+// LoadPermissionRulesAtStartup 启动时恢复已保存的权限规则（取任意一条记录，单用户场景）。
+// 无记录时不设置规则（activePermRules 保持 nil，行为同旧）。应在连接建立前调用，
+// 之后 ensureConnection 会把生效规则下发给每个新连接。
+func (s *Service) LoadPermissionRulesAtStartup() {
+	if s.permSettings == nil {
+		return
+	}
+	st, err := s.permSettings.FindFirst()
+	if err != nil {
+		slog.Warn("启动恢复权限规则失败", "err", err)
+		return
+	}
+	if st == nil {
+		return // 无记录，不设置规则
+	}
+	s.activePermRules.Store(buildPermissionRules(st))
+}
+
+// buildPermissionRules 从持久化模型构造运行时规则（列表 JSON 解码）。
+func buildPermissionRules(st *models.PermissionSettings) *PermissionRules {
+	r := &PermissionRules{
+		Mode:  st.Mode,
+		Allow: decodeRuleList(st.Allow),
+		Ask:   decodeRuleList(st.Ask),
+		Deny:  decodeRuleList(st.Deny),
+	}
+	if r.Mode == "" {
+		r.Mode = models.PermissionModeNormal
+	}
+	return r
+}
+
+// decodeRuleList 解码 JSON 编码的规则列表；空/非法返回 nil。
+func decodeRuleList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal([]byte(raw), &arr); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, a := range arr {
+		if a = strings.TrimSpace(a); a != "" {
+			out = append(out, a)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // recordConnectionUpsert 写入/更新心跳表的一行（建连与续约时调用）。
@@ -505,7 +639,7 @@ func (s *Service) ensureConnection(ctx context.Context, agentType, cwd string) (
 	// 清理已断开的旧连接
 	if oldConn, ok2 := s.pool[key]; ok2 {
 		delete(s.pool, key)
-		s.markSessionsErrorForPoolKeyLocked(key)
+		s.markSessionsErrorForPoolKeyLocked(key, oldConn)
 		_ = oldConn.Close()
 	}
 	s.mu.Unlock()
@@ -542,6 +676,8 @@ func (s *Service) ensureConnection(ctx context.Context, agentType, cwd string) (
 
 	// 记录心跳表：让独立 watchdog 知道此进程的存在与 PGID，供空闲回收与主程序死亡时清理
 	s.recordConnectionUpsert(key, agentType, cwd, conn.Pid())
+	// 下发当前生效的全局权限规则到新连接的 broker
+	s.applyRulesToConnection(conn)
 
 	go s.watchConnection(key, conn)
 	return conn, nil
@@ -633,8 +769,9 @@ func (s *Service) watchConnection(poolKey string, conn *Connection) {
 }
 
 // markSessionsErrorForPoolKeyLocked 将指定连接池键下所有活跃会话标记为 error，
-// 并清理对应的 sessionPoolKey 路由。调用方需持有 s.mu 写锁。
-func (s *Service) markSessionsErrorForPoolKeyLocked(poolKey string) {
+// 并清理对应的 sessionPoolKey 路由。oldConn 非空时同步清掉旧连接上各会话的挂起权限，
+// 避免残留死权限（接收方 agent 进程已退出，respond 永远无意义）。调用方需持有 s.mu 写锁。
+func (s *Service) markSessionsErrorForPoolKeyLocked(poolKey string, oldConn *Connection) {
 	for sid, key := range s.sessionPoolKey {
 		if key != poolKey {
 			continue
@@ -644,6 +781,10 @@ func (s *Service) markSessionsErrorForPoolKeyLocked(poolKey string) {
 		delete(s.configs, sid)
 		delete(s.modes, sid)
 		if sess, err := s.sessions.FindBySessionID(sid); err == nil {
+			// 清掉旧 agent 会话的挂起权限（按 acpSID 索引），避免死权限残留
+			if oldConn != nil && sess.AgentSessionID != "" {
+				oldConn.Client().CancelPermissions(acp.SessionId(sess.AgentSessionID))
+			}
 			_ = s.sessions.UpdateStatus(sess.ID, models.SessionStatusError, nil)
 		}
 	}
@@ -929,6 +1070,12 @@ func (s *Service) CreateSessionWithParent(ctx context.Context, agentType string,
 	return s.createSessionFull(ctx, agentType, workspaceID, userID, source, modelValue, parentSessionID, "")
 }
 
+// CreateSessionWithCwd 创建会话并将 cwd 固定为用户指定的目录（如已存在的 git worktree）。
+// cwd 非空时覆盖工作区 cwd；空字符串时等价于 CreateSessionWithSource（跟随工作区）。
+func (s *Service) CreateSessionWithCwd(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue, cwd string) (*models.Session, error) {
+	return s.createSessionFull(ctx, agentType, workspaceID, userID, source, modelValue, nil, cwd)
+}
+
 func (s *Service) createSessionFull(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string, parentSessionID *uint, cwdOverride string) (*models.Session, error) {
 	if _, err := s.GetBackend(agentType); err != nil {
 		return nil, err
@@ -1040,6 +1187,26 @@ func (s *Service) connForSession(sessionID string) (*Connection, bool) {
 	}
 }
 
+// connForSessionOrResume 查找会话所属连接；内存路由丢失（如服务重启后 DB 状态仍为 active，
+// 但连接池已清空）时自动走 ResumeSession 重建连接再返回。恢复失败返回 ErrSessionNotActive。
+// 供切换模式 / 切换模型等配置类操作复用，使其与发送 prompt 一样具备自动重连能力。
+func (s *Service) connForSessionOrResume(ctx context.Context, sessionID string) (*Connection, error) {
+	if conn, ok := s.connForSession(sessionID); ok {
+		return conn, nil
+	}
+	slog.Warn("会话连接丢失，尝试自动恢复", "session", sessionID)
+	if _, err := s.ResumeSession(ctx, sessionID); err != nil {
+		slog.Error("自动恢复会话失败", "session", sessionID, "err", err)
+		return nil, ErrSessionNotActive
+	}
+	conn, ok := s.connForSession(sessionID)
+	if !ok {
+		slog.Error("ResumeSession 后仍无法找到连接", "session", sessionID)
+		return nil, ErrSessionNotActive
+	}
+	return conn, nil
+}
+
 // Prompt 向会话发送 prompt，返回流式 Message channel。
 // 每条 SessionUpdate 会被映射为 models.Message 并持久化到数据库后转发给调用方。
 func (s *Service) Prompt(ctx context.Context, sessionID, prompt string) (<-chan models.Message, error) {
@@ -1056,12 +1223,15 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 	}
 	// error/closed 会话：发送前尝试自动恢复（复用共享连接、重建 ACP 会话并注入最近历史），
 	// 成功后状态回到 active 继续发送；恢复失败才返回 ErrSessionNotActive。
+	reconnected := false
 	if session.Status == models.SessionStatusError || session.Status == models.SessionStatusClosed {
 		slog.Warn("会话非活跃，发送前尝试自动恢复", "session", sessionID, "status", session.Status, "agent", session.AgentType)
 		if _, recErr := s.ResumeSession(ctx, sessionID); recErr != nil {
 			slog.Error("自动恢复非活跃会话失败", "session", sessionID, "err", recErr)
 			return nil, ErrSessionNotActive
 		}
+		slog.Info("会话重连成功", "session", sessionID, "status", session.Status, "agent", session.AgentType)
+		reconnected = true
 		if session, err = s.GetSession(sessionID); err != nil {
 			return nil, err
 		}
@@ -1133,6 +1303,8 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 			slog.Error("自动恢复会话失败", "session", sessionID, "err", recErr)
 			return nil, ErrSessionNotActive
 		}
+		slog.Info("会话连接丢失-重连成功", "session", sessionID, "agent", session.AgentType)
+		reconnected = true
 		// ResumeSession 已更新 agent_session_id 与 sessionPoolKey，重新读取
 		session, err = s.GetSession(sessionID)
 		if err != nil {
@@ -1163,8 +1335,15 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 	s.debugLog(session.ID, "prompt", acpSID, map[string]any{
 		"chars": len(prompt), "preview": logging.Preview(prompt, 80),
 	})
-	updates, err := conn.Prompt(ctx, acpSID, agentPrompt)
+	// prompt 用独立 ctx：生命周期脱离发起它的 HTTP/SSE 请求。
+	// SSE 断开（c.Request.Context cancel）不再误杀 agent 本轮；agent 继续，
+	// 用户经断点续传（subscribeStream）重连接上。超时兜底防 agent 卡死致 goroutine 泄漏。
+	// 注意：promptCancel 由消费 goroutine 的 defer 调用——PromptWithExecution 在启动 goroutine
+	// 后立即返回（返回 out channel），若在此处 defer cancel 会在返回瞬间即取消 prompt。
+	promptCtx, promptCancel := context.WithTimeout(context.Background(), s.effectivePromptMaxDuration())
+	updates, err := conn.Prompt(promptCtx, acpSID, agentPrompt)
 	if err != nil {
+		promptCancel()
 		return nil, err
 	}
 
@@ -1224,8 +1403,16 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 	out := make(chan models.Message, 256)
 	go func() {
 		seq := startSeq
+		// finalStatus 控制 defer 收尾：正常完成=done，进程崩溃且不可恢复=interrupted
+		finalStatus := models.RunningTaskStatusDone
 
 		defer func() {
+			// prompt 超时兜底：若因 promptCtx 超时退出（agent 卡死），标记 interrupted 而非 done，
+			// 让前端提示"任务超时，可重发"。正常完成时 promptCtx 尚未到期，Err()==nil。
+			if finalStatus == models.RunningTaskStatusDone && promptCtx.Err() == context.DeadlineExceeded {
+				slog.Warn("prompt 超时，标记为 interrupted", "session", sessionID, "timeout", s.effectivePromptMaxDuration())
+				finalStatus = models.RunningTaskStatusInterrupted
+			}
 			// prompt 结束后快照对比，生成文件改动摘要消息
 			snapshotAfter := takeSnapshot(snapshotCwd)
 			diffs := compareSnapshots(snapshotBefore, snapshotAfter)
@@ -1246,14 +1433,11 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 			close(out)
 			bc.close()
 			s.unregisterBroadcaster(sessionID)
-			finishTask(models.RunningTaskStatusDone)
+			finishTask(finalStatus)
+			// 最后释放 prompt ctx（goroutine 退出即本 prompt 终结）。放在末尾确保上面
+			// 的 promptCtx.Err() 超时检查已完成。
+			promptCancel()
 		}()
-
-		sid := acp.SessionId(acpSID)
-		permCh := conn.Client().RegisterPermissionWaiter(sid)
-		defer conn.Client().UnregisterPermissionWaiter(sid)
-		fileCh := conn.Client().RegisterFileWaiter(sid)
-		defer conn.Client().UnregisterFileWaiter(sid)
 
 		// persistMsg 持久化消息并广播，同步更新 running_task 的 LastSeq。
 		persistMsg := func(msg models.Message) {
@@ -1265,6 +1449,24 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 			if task.ID != 0 {
 				_ = s.runningTasks.UpdateLastSeq(task.ID, msg.Sequence)
 			}
+		}
+
+		// 若本次发送触发了会话重连（非活跃/连接丢失），先推送一条临时状态帧
+		// 提示前端进入“重新连接中”。该帧不落库、sequence=0（不占用正式序号，
+		// 不影响断点续传游标），前端拦截后设 convState('reconnecting') 并过滤不入队。
+		if reconnected {
+			reconnMsg := models.Message{
+				SessionID:   sessionID,
+				DBSessionID: session.ID,
+				Role:        models.MessageRoleAssistant,
+				Kind:        models.MessageKindReconnecting,
+				Content:     "检测到会话断开，正在重新连接...",
+				Sequence:    0,
+				ExecutionID: executionID,
+				CreatedAt:   time.Now(),
+			}
+			bc.broadcast(reconnMsg)
+			out <- reconnMsg
 		}
 
 		// 持久化用户发送的 prompt 作为 user_message_chunk
@@ -1281,37 +1483,136 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 		userMsg.ExecutionID = executionID
 		persistMsg(userMsg)
 
-		// 读取 agent 返回的 update 流与权限请求，逐条持久化并转发
-		for {
-			select {
-			case u, ok := <-updates:
-				if !ok {
-					slog.Debug("agent prompt 流结束", "session", sessionID)
+		// consumeStream 消费单次 prompt 的 update 流与权限/文件事件，直到流关闭。
+		// 返回 true 表示 agent 进程在该轮运行中崩溃（conn.Done() 已关闭），调用方据此决定是否重连。
+		consumeStream := func(conn *Connection, acpSID string, updates <-chan acp.SessionUpdate) bool {
+			sid := acp.SessionId(acpSID)
+			permCh := conn.Client().RegisterPermissionWaiter(sid)
+			defer conn.Client().UnregisterPermissionWaiter(sid)
+			fileCh := conn.Client().RegisterFileWaiter(sid)
+			defer conn.Client().UnregisterFileWaiter(sid)
+
+			// thought_chunk 攒批降频：agent 思考过程是高频 token delta，
+			// 逐条同步落库会拖慢消费循环导致订阅者 buffer 满丢消息。
+			// 思考片段照常实时广播/流出（保证 token-by-token 流式 UX），
+			// 仅 DB 写入合并为一行：拼接相邻 delta 文本，RawJSON 用 \n 连接
+			// （与前端 groupMessages 合并格式一致）。前端本就合并相邻 thought，
+			// 故落库粒度变粗对展示零影响；也无任何代码按 thought 单条回查。
+			var thoughtBatch []models.Message
+			flushThoughts := func() {
+				if len(thoughtBatch) == 0 {
 					return
 				}
-				s.captureCommands(sessionID, u)
-				seq++
-				msg := MapUpdate(sessionID, session.ID, seq, u)
-				msg.ExecutionID = executionID
-				persistMsg(msg)
-			case pn, ok := <-permCh:
-				if !ok {
-					continue
+				// 取批末尾作为合并记录：断线续传（sequence > lastSeq）即便落在批次中间，
+				// 也能取回这批的完整合并文本（重复优于缺口，thought 可折叠且重复无副作用）。
+				merged := thoughtBatch[len(thoughtBatch)-1]
+				var sb strings.Builder
+				raws := make([]string, 0, len(thoughtBatch))
+				for _, m := range thoughtBatch {
+					sb.WriteString(m.Content)
+					if m.RawJSON != "" {
+						raws = append(raws, m.RawJSON)
+					}
 				}
-				slog.Debug("agent 权限请求", "session", sessionID, "request_id", pn.RequestID)
-				seq++
-				msg := MapPermissionRequest(sessionID, session.ID, seq, pn)
-				msg.ExecutionID = executionID
-				persistMsg(msg)
-			case fw, ok := <-fileCh:
-				if !ok {
-					continue
+				merged.Content = sb.String()
+				merged.RawJSON = strings.Join(raws, "\n")
+				// 仅落库（广播/流出已在收到时实时完成，这里不重复）
+				if err := s.messages.Create(&merged); err != nil {
+					slog.Error("持久化合并 thought 失败", "session", sessionID, "sequence", merged.Sequence, "err", err)
 				}
-				seq++
-				fileMsg := MapFileWrite(sessionID, session.ID, seq, fw)
-				fileMsg.ExecutionID = executionID
-				persistMsg(fileMsg)
+				if task.ID != 0 {
+					_ = s.runningTasks.UpdateLastSeq(task.ID, merged.Sequence)
+				}
+				thoughtBatch = nil
 			}
+
+			for {
+				select {
+				case u, ok := <-updates:
+					if !ok {
+						// 流关闭：先 flush 攒批的 thought，再判断是正常结束还是进程崩溃
+						flushThoughts()
+						select {
+						case <-conn.Done():
+							return true // 进程崩溃
+						default:
+							return false // 正常结束
+						}
+					}
+					s.captureCommands(sessionID, u)
+					seq++
+					msg := MapUpdate(sessionID, session.ID, seq, u)
+					msg.ExecutionID = executionID
+					if msg.Kind == models.MessageKindAgentThoughtChunk {
+						// 实时流式（内存，快），攒批延迟落库（降频）
+						bc.broadcast(msg)
+						out <- msg
+						thoughtBatch = append(thoughtBatch, msg)
+					} else {
+						// 非 thought：先 flush 攒批的 thought，再同步落库本条
+						flushThoughts()
+						persistMsg(msg)
+					}
+				case pn, ok := <-permCh:
+					if !ok {
+						continue
+					}
+					slog.Debug("agent 权限请求", "session", sessionID, "request_id", pn.RequestID)
+					flushThoughts()
+					seq++
+					msg := MapPermissionRequest(sessionID, session.ID, seq, pn)
+					msg.ExecutionID = executionID
+					persistMsg(msg)
+				case fw, ok := <-fileCh:
+					if !ok {
+						continue
+					}
+					flushThoughts()
+					seq++
+					fileMsg := MapFileWrite(sessionID, session.ID, seq, fw)
+					fileMsg.ExecutionID = executionID
+					persistMsg(fileMsg)
+				}
+			}
+		}
+
+		// 消费首轮 prompt 流；返回 true 表示 agent 进程运行中崩溃
+		if !consumeStream(conn, acpSID, updates) {
+			return // 正常结束
+		}
+
+		// 运行中崩溃：单次自动重连（重建 ACP 会话 + 注入历史），再重发同一 prompt。
+		// 单次重连，避免崩溃 prompt 无限循环烧 token。用 promptCtx（独立于 HTTP 请求）。
+		slog.Warn("agent 进程运行中崩溃，自动重连重发", "session", sessionID, "agent", session.AgentType)
+		if _, err := s.ResumeSession(promptCtx, sessionID); err != nil {
+			slog.Error("自动重连-恢复会话失败，标记为 interrupted", "session", sessionID, "err", err)
+			finalStatus = models.RunningTaskStatusInterrupted
+			return
+		}
+		// ResumeSession 已更新 agent_session_id 与连接池路由，重新解析连接与会话
+		newConn, ok := s.connForSession(sessionID)
+		if !ok {
+			slog.Error("自动重连-重连后仍找不到连接，标记为 interrupted", "session", sessionID)
+			finalStatus = models.RunningTaskStatusInterrupted
+			return
+		}
+		refreshed, err := s.GetSession(sessionID)
+		if err != nil {
+			slog.Error("自动重连-重读会话失败，标记为 interrupted", "session", sessionID, "err", err)
+			finalStatus = models.RunningTaskStatusInterrupted
+			return
+		}
+		newAcpSID := agentSessionID(refreshed)
+		newUpdates, err := newConn.Prompt(promptCtx, newAcpSID, agentPrompt)
+		if err != nil {
+			slog.Error("自动重连-重发 prompt 失败，标记为 interrupted", "session", sessionID, "err", err)
+			finalStatus = models.RunningTaskStatusInterrupted
+			return
+		}
+		// 消费重连后的流；二次崩溃则标记 interrupted
+		if consumeStream(newConn, newAcpSID, newUpdates) {
+			slog.Warn("agent 进程重连后再次崩溃，标记为 interrupted", "session", sessionID)
+			finalStatus = models.RunningTaskStatusInterrupted
 		}
 	}()
 
@@ -1723,7 +2024,8 @@ func (s *Service) ListCommands(sessionID string) ([]acp.AvailableCommand, error)
 // 编排任务（Source=orchestration）在其专属 git worktree 内运行，createSessionFull
 // 已将其 session.Cwd 设为 worktree 路径——此类会话优先使用 session.Cwd，不回退工作区 cwd。
 //
-// 普通会话（manual/scheduled/classify）的 cwd 始终跟随工作区：若工作区 cwd 被修改，
+// 普通会话若被固定到自定义目录（创建时用户选择了 worktree/目录，使 session.Cwd 与工作区
+// cwd 不同），同样优先使用 session.Cwd；否则 cwd 跟随工作区：若工作区 cwd 被修改，
 // 已有会话应感知到新 cwd，因此这类会话实时从工作区重新读取（保留历史行为，避免回归）。
 func sessionCwd(session *models.Session, workspaces *repository.WorkspaceRepository) string {
 	if session.Source == models.SessionSourceOrchestration && strings.TrimSpace(session.Cwd) != "" {
@@ -1731,6 +2033,10 @@ func sessionCwd(session *models.Session, workspaces *repository.WorkspaceReposit
 	}
 	if session.WorkspaceID != nil {
 		if ws, err := workspaces.FindByID(*session.WorkspaceID); err == nil {
+			// 会话被固定到自定义目录（cwd 与工作区 cwd 不同）时优先使用会话自身 cwd。
+			if c := strings.TrimSpace(session.Cwd); c != "" && c != ws.Cwd {
+				return session.Cwd
+			}
 			return ws.Cwd
 		}
 	}
@@ -2073,14 +2379,16 @@ func (s *Service) ResolveSubAgent(name string) *SubAgentDef {
 }
 
 // SetConfigOption 设置会话的 config option 值（如切换模型）。
+// 连接丢失时自动恢复会话，避免服务重启后切换模型直接报「会话不在活跃状态」。
 func (s *Service) SetConfigOption(ctx context.Context, sessionID, configID, value string) error {
-	sess, err := s.GetSession(sessionID)
+	conn, err := s.connForSessionOrResume(ctx, sessionID)
 	if err != nil {
 		return err
 	}
-	conn, ok := s.connForSession(sessionID)
-	if !ok {
-		return ErrSessionNotActive
+	// 恢复后 agent_session_id 可能已刷新，须在拿到连接之后再读取会话。
+	sess, err := s.GetSession(sessionID)
+	if err != nil {
+		return err
 	}
 	acpSID := agentSessionID(sess)
 	s.debugLog(sess.ID, "set_config", acpSID, map[string]any{"config_id": configID, "value": value})
@@ -2113,14 +2421,16 @@ func (s *Service) isModelConfigOption(sessionID, configID string) bool {
 }
 
 // SetSessionMode 切换会话模式（如 ask / agent / edit）。
+// 连接丢失时自动恢复会话，避免服务重启后切换模式直接报「会话不在活跃状态」。
 func (s *Service) SetSessionMode(ctx context.Context, sessionID, modeID string) error {
-	sess, err := s.GetSession(sessionID)
+	conn, err := s.connForSessionOrResume(ctx, sessionID)
 	if err != nil {
 		return err
 	}
-	conn, ok := s.connForSession(sessionID)
-	if !ok {
-		return ErrSessionNotActive
+	// 恢复后 agent_session_id 可能已刷新，须在拿到连接之后再读取会话。
+	sess, err := s.GetSession(sessionID)
+	if err != nil {
+		return err
 	}
 	acpSID := agentSessionID(sess)
 	s.debugLog(sess.ID, "set_mode", acpSID, map[string]any{"mode_id": modeID})
@@ -2183,6 +2493,11 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 	}
 
 	oldAgentSID := session.AgentSessionID
+	// 重开会话前清掉旧 agent 会话的挂起权限：旧 agent 进程的权限请求 requestID 已失效，
+	// 新会话的权限是新 requestID。不清则残留死权限（respond 永远无意义）。
+	if oldAgentSID != "" {
+		conn.Client().CancelPermissions(acp.SessionId(oldAgentSID))
+	}
 	s.debugBindPending(session.AgentType, session.ID)
 	newAgentSID, configOptions, modes, err := conn.NewSession(ctx, cwd, s.sessionAdditionalDirs(session, cwd), s.sessionMCPServers(session.UserID), s.rulesSystemPrompt(cwd))
 	s.debugClearPending(session.AgentType)

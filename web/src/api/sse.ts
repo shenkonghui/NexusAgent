@@ -39,6 +39,17 @@ export function isTimeoutError(err: Error): boolean {
   )
 }
 
+// 判断错误是否为"会话不在活跃状态"——agent 进程退出/重连失败等使会话进入 error/closed。
+// 此类错误下挂起权限的接收方已失效，调用方应清除死权限栏而非保留。
+export function isSessionInactiveError(errOrMsg: Error | string): boolean {
+  const msg = (typeof errOrMsg === 'string' ? errOrMsg : errOrMsg.message).toLowerCase()
+  return (
+    msg.includes('不在活跃状态') ||
+    msg.includes('not active') ||
+    msg.includes('session_not_active')
+  )
+}
+
 function readWithTimeout(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   timeoutMs: number,

@@ -554,3 +554,30 @@ func TestRunningTaskRepository_CRUD(t *testing.T) {
 		t.Errorf("标记 done 后期望 0 个 interrupted，实际 %d", len(interrupted2))
 	}
 }
+
+// TestService_PromptMaxDuration 验证 prompt 最大存活时间的配置解析逻辑：
+// 未设置/0/负值取默认 30min；正值原样使用。
+func TestService_PromptMaxDuration(t *testing.T) {
+	svc := newTestService(t)
+
+	// 默认：未 SetPromptMaxDuration 时取 defaultPromptMaxDuration (30m)
+	if got := svc.effectivePromptMaxDuration(); got != defaultPromptMaxDuration {
+		t.Errorf("默认期望 %v，实际 %v", defaultPromptMaxDuration, got)
+	}
+
+	// 显式设置正值生效
+	svc.SetPromptMaxDuration(5 * time.Minute)
+	if got := svc.effectivePromptMaxDuration(); got != 5*time.Minute {
+		t.Errorf("设置 5m 后期望 5m，实际 %v", got)
+	}
+
+	// 0/负值回落默认
+	svc.SetPromptMaxDuration(0)
+	if got := svc.effectivePromptMaxDuration(); got != defaultPromptMaxDuration {
+		t.Errorf("设置 0 后期望默认 %v，实际 %v", defaultPromptMaxDuration, got)
+	}
+	svc.SetPromptMaxDuration(-time.Second)
+	if got := svc.effectivePromptMaxDuration(); got != defaultPromptMaxDuration {
+		t.Errorf("设置负值后期望默认 %v，实际 %v", defaultPromptMaxDuration, got)
+	}
+}

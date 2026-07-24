@@ -162,6 +162,102 @@ func (h *FileSystemHandler) ListDirs(c *gin.Context) {
 	})
 }
 
+// ListWorktrees GET /api/v1/filesystem/worktrees?path=<仓库内任意路径>
+// 返回 path 所在 git 仓库的全部 worktree（来自 git worktree list）。
+// path 必填：前端新建任务页选择 worktree 时，以当前工作区 cwd 定位仓库。
+func (h *FileSystemHandler) ListWorktrees(c *gin.Context) {
+	reqPath := strings.TrimSpace(c.Query("path"))
+	if reqPath == "" {
+		Fail(c, http.StatusBadRequest, "MISSING_PATH", "缺少 path 参数")
+		return
+	}
+	absPath, err := filepath.Abs(reqPath)
+	if err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_PATH", "路径无效")
+		return
+	}
+	info, err := os.Stat(absPath)
+	if err != nil || !info.IsDir() {
+		Fail(c, http.StatusNotFound, "PATH_NOT_FOUND", "目录不存在")
+		return
+	}
+	worktrees, err := acplocal.ListWorktrees(absPath)
+	if err != nil {
+		Fail(c, http.StatusBadRequest, "NOT_A_GIT_REPO", "当前目录不是 git 仓库，无法列出 worktree")
+		return
+	}
+	Success(c, http.StatusOK, gin.H{
+		"repo_root": func() string {
+			root, err := acplocal.GitRoot(absPath)
+			if err != nil {
+				return absPath
+			}
+			return root
+		}(),
+		"worktrees": worktrees,
+	})
+}
+
+// CreateWorktree POST /api/v1/filesystem/worktrees
+// Body: { "path": "<仓库内路径>", "branch": "<新分支名>", "base": "<可选基准引用>" }
+// 在仓库根的 .worktrees/<分支名> 下创建新 worktree（分支名中的 / 替换为 -）。
+// 创建成功后返回该 worktree 信息；目录已存在返回 409。
+func (h *FileSystemHandler) CreateWorktree(c *gin.Context) {
+	var req struct {
+		Path   string `json:"path" binding:"required"`
+		Branch string `json:"branch" binding:"required"`
+		Base   string `json:"base"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_JSON", "请求参数格式错误")
+		return
+	}
+	branch := strings.TrimSpace(req.Branch)
+	if branch == "" {
+		Fail(c, http.StatusBadRequest, "INVALID_BRANCH", "分支名不能为空")
+		return
+	}
+	absPath, err := filepath.Abs(strings.TrimSpace(req.Path))
+	if err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_PATH", "路径无效")
+		return
+	}
+	repoRoot, err := acplocal.GitRoot(absPath)
+	if err != nil {
+		Fail(c, http.StatusBadRequest, "NOT_A_GIT_REPO", "当前目录不是 git 仓库，无法创建 worktree")
+		return
+	}
+	if err := acplocal.EnsureWorktreesDir(repoRoot); err != nil {
+		Fail(c, http.StatusInternalServerError, "MKDIR_FAILED", "创建 .worktrees 目录失败")
+		return
+	}
+	// worktree 目录名：分支名中的路径分隔符替换为 -（如 feature/x -> feature-x）
+	dirName := strings.NewReplacer("/", "-", "\\", "-").Replace(branch)
+	destPath := acplocal.WorktreePath(repoRoot, dirName)
+	if err := acplocal.CreateWorktree(repoRoot, branch, destPath, strings.TrimSpace(req.Base)); err != nil {
+		if strings.Contains(err.Error(), "已存在") {
+			Fail(c, http.StatusConflict, "WORKTREE_EXISTS", err.Error())
+			return
+		}
+		Fail(c, http.StatusBadRequest, "CREATE_WORKTREE_FAILED", err.Error())
+		return
+	}
+	// 重新列出，返回与 ListWorktrees 一致的条目结构
+	var created *acplocal.WorktreeInfo
+	if list, err := acplocal.ListWorktrees(repoRoot); err == nil {
+		for i := range list {
+			if list[i].Path == destPath {
+				created = &list[i]
+				break
+			}
+		}
+	}
+	if created == nil {
+		created = &acplocal.WorktreeInfo{Path: destPath, Branch: branch}
+	}
+	Success(c, http.StatusOK, gin.H{"worktree": created})
+}
+
 // ListFiles GET /api/v1/filesystem/list?path=...&query=...
 // 返回指定目录下的文件和目录列表，支持 query 过滤文件名。
 // 用于 @ 文件引用的自动补全。目录排前、文件排后，跳过隐藏文件和常见忽略目录。

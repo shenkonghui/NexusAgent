@@ -34,6 +34,36 @@ export function listDirs(path?: string): Promise<{ data: DirListResponse }> {
   return apiFetch(`/filesystem/dirs${query}`)
 }
 
+// git worktree 项（来自 git worktree list）
+export interface WorktreeEntry {
+  path: string
+  branch: string
+  head: string
+  is_main: boolean
+  detached: boolean
+  bare: boolean
+}
+
+// worktree 列表响应
+export interface WorktreeListResponse {
+  repo_root: string
+  worktrees: WorktreeEntry[]
+}
+
+// 列出 path 所在 git 仓库的全部 worktree（path 为仓库内任意目录，通常是工作区 cwd）
+export function listWorktrees(path: string): Promise<{ data: WorktreeListResponse }> {
+  return apiFetch(`/filesystem/worktrees?path=${encodeURIComponent(path)}`)
+}
+
+// 在 path 所在仓库创建新 worktree：新分支 branch 检出到 <repoRoot>/.worktrees/<branch>
+// base 为空时从当前 HEAD 创建。返回新建的 worktree 项。
+export function createWorktree(path: string, branch: string, base?: string): Promise<{ data: { worktree: WorktreeEntry } }> {
+  return apiFetch(`/filesystem/worktrees`, {
+    method: 'POST',
+    body: JSON.stringify({ path, branch, base }),
+  })
+}
+
 // 上传文件项（拖拽接入对话 —— 远程运行场景）
 export interface UploadedFile {
   name: string // 原始文件名

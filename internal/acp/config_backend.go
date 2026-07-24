@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -106,9 +109,9 @@ type Preparable interface {
 // 下载失败时允许后续调用重试（配合健康检查重连）。
 type BinaryBackend struct {
 	*ConfigBackend
-	info    BinaryInstallInfo
-	mu      sync.Mutex
-	cmdPath string
+	info       BinaryInstallInfo
+	mu         sync.Mutex
+	cmdPath    string
 	prepareErr error // 上次 Prepare() 的错误，供未调用 Prepare 时 Command() 返回有意义信息
 }
 
@@ -120,8 +123,25 @@ func NewBinaryBackend(cfg models.AgentConfig, info BinaryInstallInfo) *BinaryBac
 	}
 }
 
-// Prepare 下载并解压二进制文件到缓存目录，成功后缓存路径供 Command() 使用。
-// 并发安全：多次调用时，已成功则跳过，已失败则重新下载。
+// findBinaryInPath 尝试在 PATH 中查找二进制 agent 的可执行文件。
+// binaryCmd 是 registry 中的相对路径（如 "./crow-cli"、"./bin/devin"），取其 basename
+// （如 "crow-cli"、"devin"）用 exec.LookPath 查找——用户可能已通过 npm install -g / brew 等全局安装。
+// 找到返回解析后的绝对路径；找不到返回空串（调用方据此降级为下载）。
+func findBinaryInPath(binaryCmd string) string {
+	base := filepath.Base(strings.TrimPrefix(binaryCmd, "./"))
+	base = strings.TrimSuffix(base, ".exe") // Windows: LookPath 自动处理 PATHEXT，去掉 .exe 更稳
+	if base == "" || base == "." {
+		return ""
+	}
+	if path, err := exec.LookPath(base); err == nil {
+		return path
+	}
+	return ""
+}
+
+// Prepare 确保二进制 agent 可启动：优先复用 PATH 中已安装的同名二进制，
+// 找不到才下载解压到缓存目录。成功后缓存路径供 Command() 使用。
+// 并发安全：多次调用时，已成功则跳过，已失败则重新解析/下载。
 func (b *BinaryBackend) Prepare() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -134,7 +154,16 @@ func (b *BinaryBackend) Prepare() error {
 		b.cmdPath = ""
 	}
 
-	slog.Info("开始安装 binary agent", "agent", b.cfg.Type, "url", b.info.ArchiveURL)
+	// 优先复用 PATH 中已全局安装的同名二进制（如 npm install -g / brew 装的），
+	// 免下载。这是 binary 分发 agent 的首选启动方式。
+	if path := findBinaryInPath(b.info.BinaryCmd); path != "" {
+		slog.Info("binary agent 命中 PATH，免下载", "agent", b.cfg.Type, "cmd", b.info.BinaryCmd, "path", path)
+		b.cmdPath = path
+		b.prepareErr = nil
+		return nil
+	}
+
+	slog.Info("PATH 未找到 binary agent，开始下载", "agent", b.cfg.Type, "url", b.info.ArchiveURL)
 	path, err := ensureBinaryInstalled(b.cfg.Type, b.info.Version, b.info.ArchiveURL, b.info.BinaryCmd)
 	if err != nil {
 		b.prepareErr = err

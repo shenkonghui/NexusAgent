@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/coder/acp-go-sdk"
 	"github.com/gin-gonic/gin"
@@ -69,6 +70,15 @@ func (f *fakeSessionStore) CreateSessionWithSource(ctx context.Context, agentTyp
 		return nil, err
 	}
 	s.Source = source
+	return s, nil
+}
+
+func (f *fakeSessionStore) CreateSessionWithCwd(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue, cwd string) (*models.Session, error) {
+	s, err := f.CreateSessionWithSource(ctx, agentType, workspaceID, userID, source, modelValue)
+	if err != nil {
+		return nil, err
+	}
+	s.Cwd = cwd
 	return s, nil
 }
 
@@ -567,6 +577,9 @@ func (s *commandsFakeStore) CreateSession(context.Context, string, uint, uint, s
 func (s *commandsFakeStore) CreateSessionWithSource(context.Context, string, uint, uint, string, string) (*models.Session, error) {
 	return nil, nil
 }
+func (s *commandsFakeStore) CreateSessionWithCwd(context.Context, string, uint, uint, string, string, string) (*models.Session, error) {
+	return nil, nil
+}
 func (s *commandsFakeStore) ListSessions(uint) ([]models.Session, error) { return nil, nil }
 func (s *commandsFakeStore) ListSessionsBySource(uint, string) ([]models.Session, error) {
 	return nil, nil
@@ -709,5 +722,86 @@ func TestSessionHandler_Prompt_SSE_Success(t *testing.T) {
 	}
 	if !strings.Contains(body, `"kind":"tool_call"`) {
 		t.Errorf("响应体缺少第二条消息\n%s", body)
+	}
+}
+
+// TestDrainInBackground_ConsumesUntilClose 验证 drainInBackground 持续排空 channel 直至其关闭，
+// 防止服务端 prompt goroutine 写满缓冲后阻塞。写入者（模拟服务端产出）不应阻塞。
+func TestDrainInBackground_ConsumesUntilClose(t *testing.T) {
+	ch := make(chan models.Message, 1)
+	drainInBackground(ch)
+
+	// 连续写入不应阻塞（排空 goroutine 在消费）
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 100; i++ {
+			ch <- models.Message{Sequence: i}
+		}
+		close(ch) // 模拟 prompt goroutine 结束、关闭 channel
+	}()
+	select {
+	case <-done:
+		// 预期：写入 + 关闭均完成
+	case <-time.After(2 * time.Second):
+		t.Fatal("drainInBackground 未排空 channel，写入阻塞")
+	}
+}
+
+// TestSessionHandler_Prompt_ClientDisconnect_DrainsChannel 验证 SSE 客户端断开（请求 ctx 取消）后，
+// handler 立即返回而非永久阻塞，且后台继续排空消息 channel——
+// 否则服务端 prompt goroutine 写满 256 缓冲后会阻塞，导致 running_task 卡在 running（goroutine 泄漏）。
+//
+// 这一项是 prompt 生命周期解耦 HTTP ctx 后的必要善后：prompt 独立于 SSE 存活，
+// SSE 断开只能"停止观看"，不可卡住服务端。
+func TestSessionHandler_Prompt_ClientDisconnect_DrainsChannel(t *testing.T) {
+	store := newFakeSessionStore()
+	store.sessions[1] = &models.Session{ID: 1, SessionID: "acp-1", UserID: 100, Status: models.SessionStatusActive}
+
+	// 一个不会自行关闭的 channel（模拟 agent 仍在后台运行）
+	ch := make(chan models.Message, 1)
+	store.promptCh = ch
+
+	r := newSessionTestRouter(store, 100)
+
+	// 用可取消的 request ctx 模拟客户端断开
+	ctx, cancel := context.WithCancel(context.Background())
+	var buf bytes.Buffer
+	_ = json.NewEncoder(&buf).Encode(gin.H{"prompt": "hi"})
+	req := httptest.NewRequestWithContext(ctx, "POST", "/api/v1/sessions/1/prompt", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		r.ServeHTTP(rec, req)
+		close(done)
+	}()
+
+	// 触发"客户端断开"：取消 request ctx
+	cancel()
+
+	// handler 必须在 2s 内返回（说明 streamSSELoop 的 ctx.Done 分支命中、未阻塞）
+	select {
+	case <-done:
+		// 预期：及时返回
+	case <-time.After(2 * time.Second):
+		t.Fatal("SSE 客户端断开后 handler 未及时返回，疑似 goroutine 阻塞")
+	}
+
+	// 断开后继续向 channel 写消息：后台排空 goroutine 应能消费，不阻塞写入者
+	// （模拟服务端 prompt goroutine 继续产出消息）。drainInBackground 使这些写入不阻塞。
+	drainDone := make(chan struct{})
+	go func() {
+		defer close(drainDone)
+		for i := 0; i < 10; i++ {
+			ch <- models.Message{Sequence: i}
+		}
+	}()
+	select {
+	case <-drainDone:
+		// 预期：排空 goroutine 消费了所有消息，写入者未阻塞
+	case <-time.After(2 * time.Second):
+		t.Fatal("断开后向消息 channel 写入阻塞——后台排空 goroutine 未生效")
 	}
 }

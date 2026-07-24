@@ -25,6 +25,8 @@ interface Props {
   workspaceId: number | undefined
   cwd: string
   agents: Agent[]
+  /** 从侧边栏点击编排对话记录进入时，指定需恢复的管理会话 DB 主键。 */
+  restoreSessionId?: number
   onError: (message: string) => void
 }
 
@@ -33,7 +35,7 @@ interface Props {
  * 左栏任务列表（含 git 检测/初始化提示、轮询），右栏 AI 管理对话（OrchestrationChatPanel）。
  * 逻辑与原独立编排页一致：点击任务打开其子会话；未运行任务则打开新建任务页预填详情。
  */
-export default function OrchestrationView({ workspaceId, cwd, agents, onError }: Props) {
+export default function OrchestrationView({ workspaceId, cwd, agents, restoreSessionId, onError }: Props) {
   const { t } = useTranslation()
   const navigate = useNavigate()
 
@@ -229,6 +231,7 @@ export default function OrchestrationView({ workspaceId, cwd, agents, onError }:
               agents={agents}
               workspaceId={workspaceId}
               cwd={cwd}
+              restoreSessionId={restoreSessionId}
               onTaskChanged={reloadStatus}
             />
           </div>

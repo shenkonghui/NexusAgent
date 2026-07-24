@@ -43,6 +43,18 @@ func (r *Router) CreateSessionWithSource(ctx context.Context, agentType string, 
 	return r.service.CreateSessionWithSource(ctx, agentType, workspaceID, userID, source, modelValue)
 }
 
+// CreateSessionWithCwd 创建会话并将 cwd 固定为用户指定的目录（如已存在的 git worktree）。
+// cwd 非空时覆盖工作区 cwd；空字符串时行为与 CreateSessionWithSource 一致。
+func (r *Router) CreateSessionWithCwd(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue, cwd string) (*models.Session, error) {
+	if _, err := r.registry.Get(agentType); err != nil {
+		return nil, err
+	}
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.CreateSessionWithCwd(ctx, agentType, workspaceID, userID, source, modelValue, cwd)
+}
+
 // CreateSessionWithParent 创建会话并可指定父会话（用于 MCP 工具创建子会话/子任务）。
 // parentSessionID 非 nil 时记录父子关系。
 func (r *Router) CreateSessionWithParent(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string, parentSessionID *uint) (*models.Session, error) {
@@ -450,6 +462,14 @@ func (r *Router) HasActivePrompt(sessionID string) bool {
 		return false
 	}
 	return r.service.HasActivePrompt(sessionID)
+}
+
+// ReloadPermissionRules 重新从 DB 读取用户权限规则并下发到所有连接（热更新）。
+func (r *Router) ReloadPermissionRules(userID uint) {
+	if r.service == nil {
+		return
+	}
+	r.service.ReloadPermissionRules(userID)
 }
 
 // ListInterruptedTasks 返回指定会话下因服务重启而中断的任务。

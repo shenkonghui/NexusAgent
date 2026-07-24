@@ -153,6 +153,10 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
   // 手动会话：编排会话(source=orchestration)不在此列，编排任务改由 orchTasks 以「编排-」前缀
   // 合并进「任务」分组展示（见下方 groupList），避免与已运行任务的会话重复。
   const manualSessions = sessions.filter((s) => !s.source || s.source === 'manual')
+  // 编排管理会话（AI 编排面板对话）：source=orchestration 且无父会话（顶级）。
+  // 作为「编排对话」记录展示在「任务」分组，点击回到编排页恢复其历史；
+  // 编排子任务会话带 parent_session_id，不在此列（已由 orchTasks 以「编排-」前缀展示）。
+  const orchSessions = sessions.filter((s) => s.source === 'orchestration' && !s.parent_session_id)
   const favoriteSessions = useMemo(
     () => sessions.filter((s) => favorites.includes(s.id)),
     [sessions, favorites],
@@ -281,6 +285,41 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
           </button>
           {!collapsed.manual && (
             <div className={styles.groupList}>
+              {orchSessions.map((session) => {
+                const goOrch = () => navigate(orchestrationUrl(session.workspace_id ?? workspaceId), { state: { taskMode: 'orchestration', orchSessionId: session.id } })
+                return (
+                  <div key={`orchsess-${session.id}`} className={styles.item}>
+                    <div
+                      className={styles.itemLink}
+                      role="button"
+                      tabIndex={0}
+                      title={t('orchestration.openConversation')}
+                      style={{ cursor: 'pointer' }}
+                      onClick={goOrch}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goOrch() } }}
+                    >
+                      <div className={styles.itemRow}>
+                        <span className={styles.itemTitle}>
+                          <Network size={13} className={styles.taskStatusIcon} style={{ marginRight: 2 }} />
+                          {session.title || t('orchestration.aiTitle')}
+                        </span>
+                        <span className={styles.itemTime}>{formatTimeAgo(session.created_at, t)}</span>
+                      </div>
+                    </div>
+                    {onDelete && (
+                      <div className={styles.itemActions}>
+                        <button type="button" className={styles.deleteBtn}
+                          title={t('common.delete')} aria-label={t('common.delete')}
+                          onClick={(e) => {
+                            e.preventDefault(); e.stopPropagation()
+                            if (window.confirm(t('session.deleteConfirm'))) onDelete(session.id)
+                          }}
+                        ><X size={13} /></button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
               {orchTasks.map((task) => (
                 <div key={`orch-${task.id}`} className={styles.item}>
                   <div
@@ -301,7 +340,7 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
                   </div>
                 </div>
               ))}
-              {orchTasks.length === 0 && manualSessions.length === 0 ? (
+              {orchTasks.length === 0 && orchSessions.length === 0 && manualSessions.length === 0 ? (
                 <p className={styles.empty}>{t('session.noSessions')}</p>
               ) : (
                 manualSessions.map((session) => (

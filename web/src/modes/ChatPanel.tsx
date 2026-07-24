@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import MessageList from '../components/MessageList'
 import PromptInput from '../components/PromptInput'
@@ -7,7 +8,8 @@ import PermissionDialog from '../components/PermissionDialog'
 import ModelSelector from '../components/ModelSelector'
 import SessionModeSelector from '../components/SessionModeSelector'
 import ContextStats from '../components/ContextStats'
-import { BookOpenText } from 'lucide-react'
+import WorktreePicker from '../components/WorktreePicker'
+import { BookOpenText, FolderGit2 } from 'lucide-react'
 import type { PanelCtx, ConfigBarKind } from './types'
 import styles from './ChatPanel.module.css'
 
@@ -20,6 +22,16 @@ interface ChatPanelProps {
   selectDocFirstKey?: string
   /** 外部注入的自定义配置栏节点，渲染在 PromptInput 下方（优先于内置 configBar） */
   configBarNode?: ReactNode
+}
+
+/**
+ * 取路径最后一段作为紧凑显示（如 /a/b/.worktrees/task-1 -> task-1）。
+ * 空路径返回空字符串。
+ */
+function cwdBaseName(path?: string): string {
+  if (!path) return ''
+  const parts = path.replace(/\/+$/, '').split('/')
+  return parts[parts.length - 1] || path
 }
 
 /**
@@ -39,6 +51,8 @@ export default function ChatPanel({
   const isEmpty = ctx.messages.length === 0
   const conv = ctx.convState
   const disabled = ctx.sessionKind === 'docs' && !ctx.docTarget
+  // 新建任务页的工作目录选择器弹窗开关
+  const [showDirPicker, setShowDirPicker] = useState(false)
 
   const placeholder = disabled && selectDocFirstKey
     ? t(selectDocFirstKey)
@@ -96,6 +110,22 @@ export default function ChatPanel({
             onApply={onApplyCfg}
             disabled={ctx.sending || ctx.probing}
           />
+
+          {/* 工作目录：仅新建任务页（无会话）可选，可选择已存在的 worktree/目录作为本次任务 cwd */}
+          {ctx.session === null && ctx.onSelectCwd && (
+            <button
+              type="button"
+              className={styles.cwdBtn}
+              onClick={() => setShowDirPicker(true)}
+              disabled={ctx.sending || ctx.probing}
+              title={ctx.selectedCwd || ctx.cwd || t('session.selectWorktree')}
+            >
+              <FolderGit2 size={13} />
+              <span className={styles.cwdBtnLabel}>
+                {cwdBaseName(ctx.selectedCwd || ctx.cwd) || t('session.selectWorktree')}
+              </span>
+            </button>
+          )}
         </div>
         {ctx.session && (
           <div className={styles.statsArea}>
@@ -108,6 +138,17 @@ export default function ChatPanel({
 
   return (
     <div className={styles.chat}>
+      {showDirPicker && ctx.onSelectCwd && (
+        <WorktreePicker
+          repoPath={ctx.selectedCwd || ctx.cwd || ''}
+          selectedPath={ctx.selectedCwd || ctx.cwd || undefined}
+          onSelect={(path) => {
+            ctx.onSelectCwd?.(path)
+            setShowDirPicker(false)
+          }}
+          onClose={() => setShowDirPicker(false)}
+        />
+      )}
       {isEmpty && emptyTitleKey ? (
         <div className={styles.empty}>
           <BookOpenText size={36} className={styles.emptyIcon} />

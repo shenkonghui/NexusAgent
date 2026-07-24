@@ -33,6 +33,8 @@ type permissionBroker struct {
 	seq     atomic.Uint64
 	waiters map[acp.SessionId]chan PermissionNotify
 	pending map[string]pendingPermission
+	// rules 全局权限规则（yolo/白名单/黑名单）。nil=无规则，行为同旧（全部询问）。
+	rules atomic.Pointer[PermissionRules]
 }
 
 func newPermissionBroker() *permissionBroker {
@@ -40,6 +42,16 @@ func newPermissionBroker() *permissionBroker {
 		waiters: make(map[acp.SessionId]chan PermissionNotify),
 		pending: make(map[string]pendingPermission),
 	}
+}
+
+// setRules 设置全局权限规则（热更新）。传 nil 清除规则（回到全部询问）。
+func (b *permissionBroker) setRules(rules *PermissionRules) {
+	if rules == nil {
+		b.rules.Store(nil)
+		return
+	}
+	cp := *rules
+	b.rules.Store(&cp)
 }
 
 func (b *permissionBroker) registerWaiter(sessionID acp.SessionId) chan PermissionNotify {
@@ -84,6 +96,17 @@ func (b *permissionBroker) request(ctx context.Context, params acp.RequestPermis
 	// 内置 opennexus-notes MCP 由本服务注入，自动放行，避免并行 list_notes 把 UI 卡死。
 	if isTrustedMCPTool(params) {
 		return autoApprovePermission(params), nil
+	}
+
+	// 全局权限规则匹配（yolo / 白名单 / 黑名单）：在入队 UI 之前裁决，
+	// 命中 allow/yolo→自动放行，命中 deny→自动拒绝，命中 ask 或 normal 未命中→继续走 UI 询问。
+	if rules := b.rules.Load(); rules != nil {
+		switch rules.Decide(toolCallTitle(params)) {
+		case DecisionAllow:
+			return autoApprovePermission(params), nil
+		case DecisionDeny:
+			return autoRejectPermission(params), nil
+		}
 	}
 
 	requestID := fmt.Sprintf("perm-%d", b.seq.Add(1))
@@ -167,6 +190,14 @@ func isTrustedMCPTool(params acp.RequestPermissionRequest) bool {
 	return strings.HasPrefix(*params.ToolCall.Title, "opennexus-notes")
 }
 
+// toolCallTitle 返回权限请求的工具调用标题（用于权限规则匹配）。无标题返回空串。
+func toolCallTitle(params acp.RequestPermissionRequest) string {
+	if params.ToolCall.Title == nil {
+		return ""
+	}
+	return *params.ToolCall.Title
+}
+
 func (b *permissionBroker) removePending(requestID string) {
 	b.mu.Lock()
 	delete(b.pending, requestID)
@@ -188,6 +219,23 @@ func autoApprovePermission(params acp.RequestPermissionRequest) acp.RequestPermi
 			Outcome: acp.RequestPermissionOutcome{
 				Selected: &acp.RequestPermissionOutcomeSelected{OptionId: params.Options[0].OptionId},
 			},
+		}
+	}
+	return acp.RequestPermissionResponse{
+		Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}},
+	}
+}
+
+// autoRejectPermission 生成自动拒绝响应：优先选 reject 选项，没有则标记 Cancelled。
+// 用于黑名单命中或显式拒绝。
+func autoRejectPermission(params acp.RequestPermissionRequest) acp.RequestPermissionResponse {
+	for _, o := range params.Options {
+		if o.Kind == acp.PermissionOptionKindRejectOnce || o.Kind == acp.PermissionOptionKindRejectAlways {
+			return acp.RequestPermissionResponse{
+				Outcome: acp.RequestPermissionOutcome{
+					Selected: &acp.RequestPermissionOutcomeSelected{OptionId: o.OptionId},
+				},
+			}
 		}
 	}
 	return acp.RequestPermissionResponse{

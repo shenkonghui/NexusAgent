@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { createSession, updateSessionTitle, setConfigOption, listSkills, respondPermission } from '../api/sessions'
-import { setOrchParentSession } from '../api/orchestration'
+import { createSession, updateSessionTitle, setConfigOption, listSkills, respondPermission, getSession, listMessages } from '../api/sessions'
+import { setOrchParentSession, getOrchestration } from '../api/orchestration'
 import { probeAgentConfigs, listAgentCommands, listAgentModes } from '../api/agents'
 import { streamPrompt, isTimeoutError } from '../api/sse'
 import { parsePermissionRequest } from '../utils/permission'
@@ -17,6 +17,9 @@ interface Props {
   cwd: string
   /** 首选 agent 类型；为空则取 agents[0] */
   defaultAgentType?: string
+  /** 指定需恢复的编排管理会话 DB 主键（从侧边栏点击编排记录进入时传入）；
+   *  缺省时回退到 tasks.json 登记的 parent_session_id。 */
+  restoreSessionId?: number
   /** Agent 改动 tasks.json 后触发（通常刷新编排页任务列表） */
   onTaskChanged: () => void
 }
@@ -51,7 +54,7 @@ function buildSystemPrelude(): string {
  * 直接复用任务页的 ChatPanel（含配置栏/状态条/权限弹窗），构造最小 PanelCtx。
  */
 export default function OrchestrationChatPanel({
-  agents, workspaceId, cwd, defaultAgentType, onTaskChanged,
+  agents, workspaceId, cwd, defaultAgentType, restoreSessionId, onTaskChanged,
 }: Props) {
   const { t } = useTranslation()
 
@@ -178,6 +181,36 @@ export default function OrchestrationChatPanel({
       abortRef.current?.abort()
     }
   }, [])
+
+  // 恢复已有的编排管理会话：优先用侧边栏点击传入的 restoreSessionId，否则回退到
+  // tasks.json 登记的 parent_session_id。使编排对话在重新进入编排页时可见历史记录，
+  // 而非每次都新建会话导致旧对话“丢失”（旧对话虽已落库，但此前 UI 从不回读）。
+  const restoredKeyRef = useRef<string>('')
+  useEffect(() => {
+    if (!workspaceId) return
+    const key = `${workspaceId}:${restoreSessionId ?? ''}`
+    if (restoredKeyRef.current === key) return
+    restoredKeyRef.current = key
+    let alive = true
+    ;(async () => {
+      try {
+        let targetId = restoreSessionId
+        if (!targetId) {
+          const def = await getOrchestration(workspaceId)
+          targetId = def.data.parent_session_id || undefined
+        }
+        if (!targetId) return
+        const [sResp, mResp] = await Promise.all([getSession(targetId), listMessages(targetId)])
+        if (!alive) return
+        setSession(sResp.data)
+        setMessages(mResp.data.messages || [])
+        setSelectedAgent(sResp.data.agent_type)
+        // 侧边栏显式指定会话时，重新登记为父会话，使后续任务子会话关联到当前查看的编排对话。
+        if (restoreSessionId) setOrchParentSession(workspaceId, restoreSessionId).catch(() => {})
+      } catch { /* 会话可能已删除：忽略，保持空会话，允许重新新建 */ }
+    })()
+    return () => { alive = false }
+  }, [workspaceId, restoreSessionId])
 
   // ===== 发送 =====
   async function handleSend(prompt: string) {

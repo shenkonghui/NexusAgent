@@ -10,7 +10,7 @@ import { listSkillsByPath } from '../api/filesystem'
 import { getAgentPrefs, patchAgentPrefs } from '../api/agentPrefs'
 import { WORKSPACE_STORAGE_KEY, useCurrentWorkspace } from '../hooks/useCurrentWorkspace'
 import { applyPrefsToConfigs, configsFromProbe, takeLegacyLocalAgentPrefs } from '../utils/agentPrefs'
-import { streamPrompt, subscribeStream, streamResumeTask, isTimeoutError } from '../api/sse'
+import { streamPrompt, subscribeStream, streamResumeTask, isTimeoutError, isSessionInactiveError } from '../api/sse'
 import { tasksUrl, newTaskUrl, sessionUrl, isNewTaskPath, isOrchestrationPath } from '../utils/routes'
 import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution, Agent, PermissionRequestPayload, RunningTask, AgentPrefs } from '../types'
 import { parsePermissionRequest } from '../utils/permission'
@@ -34,7 +34,7 @@ import styles from './ChatPage.module.css'
 // navigate 时携带的 state：initialPrompt/createdSession 用于新建会话跳转；
 // doc 用于侧边栏点击文档时，切到文档模式并打开指定文档。
 // taskMode 用于外部入口（如任务编排）强制指定顶层模式；draftPrompt 用于新建任务页预填输入框。
-type NavigateState = { initialPrompt?: string; createdSession?: Session; doc?: DocTarget; taskMode?: TaskMode; draftPrompt?: string }
+type NavigateState = { initialPrompt?: string; createdSession?: Session; doc?: DocTarget; taskMode?: TaskMode; draftPrompt?: string; orchSessionId?: number }
 
 type ConvState = ConvStatusState
 
@@ -259,6 +259,8 @@ export default function ChatPage() {
   const [homeModes, setHomeModes] = useState<SessionMode[]>([])
   const [homeSkills, setHomeSkills] = useState<AgentSkill[]>([])
   const [workspaceCwd, setWorkspaceCwd] = useState('')
+  // 新建任务页：用户选择的自定义工作目录（如已存在的 git worktree）；为空则跟随工作区 cwd。
+  const [taskCwd, setTaskCwd] = useState('')
   const [agentPrefs, setAgentPrefs] = useState<AgentPrefs>({ last_agent_type: '', prefs: {} })
   const prefsSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const agentPrefsRef = useRef(agentPrefs)
@@ -426,6 +428,8 @@ export default function ChatPage() {
   }
 
   function handleWorkspaceChange(id: number) {
+    // 切换工作区时重置自定义工作目录，回退到新工作区的默认 cwd。
+    setTaskCwd('')
     if (hasSession) {
       localStorage.setItem(WORKSPACE_STORAGE_KEY, String(id))
       navigate(tasksUrl(id))
@@ -513,6 +517,16 @@ export default function ChatPage() {
     listConfigOptions(id).then((r) => setDocConfigOptions(r.data.config_options || [])).catch(() => setDocConfigOptions([]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docSession?.id])
+
+  // 文档模式：会话进入非活跃态时清除挂起权限（与编码模式同因——接收方已失效，避免死权限栏）。
+  useEffect(() => {
+    if (!docSession) return
+    if (docSession.status === 'active' || docSession.status === 'pending') return
+    if (docWaitingPermissionRef.current || docPendingPermission) {
+      clearDocPermissions()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docSession?.status])
 
   // 工作区共享会话恢复：进入文档模式 / 切换工作区时，加载该工作区持久化的
   // 文档会话及其历史，使同一工作区的文档对话可跨文档 / 跨刷新恢复。
@@ -629,6 +643,17 @@ export default function ChatPage() {
 
     return () => clearInterval(interval)
   }, [hasSession, session?.id, session?.status, session?.source, loadData])
+
+  // 会话进入非活跃态（agent 进程退出/重连失败等被标 error/closed）时，挂起权限的接收方已失效，
+  // 清除权限栏，避免「等待操作确认」与「不在活跃状态」同时存在的死锁状态——否则权限栏永远无法消除、会话无法恢复。
+  useEffect(() => {
+    if (!session) return
+    if (session.status === 'active' || session.status === 'pending') return
+    if (waitingPermissionRef.current || pendingPermission) {
+      clearPermissions()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.status])
 
   useEffect(() => {
     if (loading && !bootstrapSession) return // 新建会话有 bootstrap 数据时不等待 loadData
@@ -754,7 +779,7 @@ export default function ChatPage() {
     if (!selectedAgent || creating) return
     setCreating(true); setError('')
     try {
-      const resp = await createSession(selectedAgent, workspaceId || 0, selectedModel || undefined)
+      const resp = await createSession(selectedAgent, workspaceId || 0, selectedModel || undefined, undefined, taskCwd || undefined)
       const extras = probeConfigs.filter((o) => o.type === 'select' && o.category !== 'model' && o.current_value)
       for (const o of extras) {
         try { await setConfigOption(resp.data.id, o.id, o.current_value) } catch { /* 部分失败可接受 */ }
@@ -813,6 +838,12 @@ export default function ChatPage() {
       prompt,
       (msg) => {
         if (!mountedRef.current) return
+        // 后端会话重连提示：进入"重新连接中"状态，不入队、不算 agent 回复。
+        // 后续 agent 消息会把状态推进到 streaming，状态栏自动消失。
+        if (msg.kind === 'reconnecting') {
+          setConvState('reconnecting')
+          return
+        }
         if (msg.role !== 'user') gotAgentReply = true
         if (msg.kind === 'permission_request') {
           const req = parsePermissionRequest(msg.raw_json)
@@ -900,7 +931,9 @@ export default function ChatPage() {
         advanceDocPermissionQueue()
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('common.failed'))
+      const msg = err instanceof Error ? err.message : t('common.failed')
+      if (isSessionInactiveError(msg)) clearDocPermissions()
+      setError(msg)
     } finally {
       setDocPermissionResponding(false)
     }
@@ -914,7 +947,9 @@ export default function ChatPage() {
       await respondPermission(docSession.id, docPendingPermission.request_id, '', true)
       advanceDocPermissionQueue()
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('common.failed'))
+      const msg = err instanceof Error ? err.message : t('common.failed')
+      if (isSessionInactiveError(msg)) clearDocPermissions()
+      setError(msg)
     } finally {
       setDocPermissionResponding(false)
     }
@@ -1209,7 +1244,11 @@ export default function ChatPage() {
         advancePermissionQueue()
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('common.failed'))
+      const msg = err instanceof Error ? err.message : t('common.failed')
+      // 会话已不活跃（agent 进程退出/重连失败）：挂起权限的接收方已失效，清掉死权限栏，
+      // 避免权限栏与"不在活跃状态"提示同时存在、点击无响应的死锁。
+      if (isSessionInactiveError(msg)) clearPermissions()
+      setError(msg)
     } finally {
       setPermissionResponding(false)
     }
@@ -1223,7 +1262,9 @@ export default function ChatPage() {
       await respondPermission(sessionId, pendingPermission.request_id, '', true)
       advancePermissionQueue()
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('common.failed'))
+      const msg = err instanceof Error ? err.message : t('common.failed')
+      if (isSessionInactiveError(msg)) clearPermissions()
+      setError(msg)
     } finally {
       setPermissionResponding(false)
     }
@@ -1293,7 +1334,7 @@ export default function ChatPage() {
           <div className={styles.content}>
             {error && <ErrorBanner message={error} onClose={() => setError('')} />}
             <div className={styles.layoutBody}>
-              <OrchestrationView workspaceId={workspaceId} cwd={workspaceCwd} agents={agents} onError={setError} />
+              <OrchestrationView workspaceId={workspaceId} cwd={workspaceCwd} agents={agents} restoreSessionId={navState?.orchSessionId} onError={setError} />
             </div>
           </div>
         </div>
@@ -1560,6 +1601,9 @@ export default function ChatPage() {
       executions: [],
       workspaceId,
       cwd: workspaceCwd,
+      // 新建任务页的工作目录选择：默认显示工作区 cwd，用户可选已存在的 worktree/目录。
+      selectedCwd: taskCwd || workspaceCwd,
+      onSelectCwd: setTaskCwd,
       docTarget: null,
       docContent: '',
       onDocContentChange: () => {},

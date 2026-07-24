@@ -119,6 +119,8 @@ export interface Session {
   last_prompt: string;
   title: string;
   source: 'manual' | 'scheduled' | 'classify' | 'orchestration';
+  /** 父会话主键；编排管理会话为 null，编排子任务会话指向管理会话 */
+  parent_session_id?: number | null;
   created_at: string;
   closed_at: string | null;
   // 标签 JSON 数组字符串，如 '["后端","mysql"]'，由任务自动分类写入
@@ -265,6 +267,17 @@ export interface TaskSettings {
   tags: string[];
   tag_prompt: string;
   title_prompt: string;
+}
+
+// 全局权限规则配置（yolo / 白名单 / 黑名单）。
+// mode=normal：按列表匹配，未命中→询问；mode=yolo：全部放行（deny 命中除外）。
+// 规则按 agent 上报的工具调用标题匹配，支持 `*` 通配符（如 "Bash(git status *)"）。
+// 优先级：deny > allow > ask。
+export interface PermissionSettings {
+  mode: 'normal' | 'yolo';
+  allow: string[];
+  ask: string[];
+  deny: string[];
 }
 
 // ===== 日志查看器 =====

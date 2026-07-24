@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/coder/acp-go-sdk"
 	"github.com/gin-gonic/gin"
@@ -25,6 +27,8 @@ type SessionStore interface {
 	CreateSession(ctx context.Context, agentType string, workspaceID uint, userID uint, modelValue string) (*models.Session, error)
 	// CreateSessionWithSource 创建会话并指定来源（manual/orchestration 等）。
 	CreateSessionWithSource(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue string) (*models.Session, error)
+	// CreateSessionWithCwd 创建会话并将 cwd 固定为用户指定目录（如已存在的 git worktree）。
+	CreateSessionWithCwd(ctx context.Context, agentType string, workspaceID uint, userID uint, source, modelValue, cwd string) (*models.Session, error)
 	ListSessions(userID uint) ([]models.Session, error)
 	ListSessionsBySource(userID uint, source string) ([]models.Session, error)
 	GetSessionByDBID(id uint) (*models.Session, error)
@@ -131,6 +135,8 @@ type createSessionRequest struct {
 	ModelValue  string `json:"model_value"`
 	// Source 会话来源；仅允许 manual/orchestration，空=manual。
 	Source string `json:"source"`
+	// Cwd 可选的自定义工作目录（如用户选择的已存在 worktree 目录）；空=跟随工作区 cwd。
+	Cwd string `json:"cwd"`
 }
 
 // Create POST /api/v1/sessions
@@ -146,11 +152,24 @@ func (h *SessionHandler) Create(c *gin.Context) {
 		return
 	}
 	source := strings.TrimSpace(req.Source)
+	cwd := strings.TrimSpace(req.Cwd)
 	var sess *models.Session
 	var err error
-	if source == models.SessionSourceOrchestration {
+	switch {
+	case cwd != "":
+		// 用户选择了自定义工作目录：校验目录存在后将 cwd 固定到会话。
+		info, statErr := os.Stat(cwd)
+		if statErr != nil || !info.IsDir() {
+			Fail(c, http.StatusBadRequest, "CWD_NOT_FOUND", "目录不存在: "+cwd)
+			return
+		}
+		if source == "" {
+			source = models.SessionSourceManual
+		}
+		sess, err = h.store.CreateSessionWithCwd(c.Request.Context(), req.AgentType, req.WorkspaceID, uid, source, req.ModelValue, cwd)
+	case source == models.SessionSourceOrchestration:
 		sess, err = h.store.CreateSessionWithSource(c.Request.Context(), req.AgentType, req.WorkspaceID, uid, source, req.ModelValue)
-	} else {
+	default:
 		sess, err = h.store.CreateSession(c.Request.Context(), req.AgentType, req.WorkspaceID, uid, req.ModelValue)
 	}
 	if err != nil {
@@ -550,8 +569,11 @@ func (h *SessionHandler) SetMode(c *gin.Context) {
 		return
 	}
 	if sess.Status != models.SessionStatusActive {
-		Fail(c, http.StatusConflict, "SESSION_NOT_ACTIVE", "会话不在活跃状态")
-		return
+		// error/closed 会话：切换模式前先自动恢复连接，与发送 prompt 行为一致。
+		if _, err := h.store.ResumeSession(c.Request.Context(), sess.SessionID); err != nil {
+			writeSessionError(c, err)
+			return
+		}
 	}
 	if err := h.store.SetSessionMode(c.Request.Context(), sess.SessionID, req.ModeID); err != nil {
 		writeSessionError(c, err)
@@ -600,6 +622,79 @@ type promptRequest struct {
 	Prompt string `json:"prompt" binding:"required"`
 }
 
+// sseKeepaliveInterval 是 agent 静默期向客户端发送 SSE 心跳的周期。
+// 心跳为 SSE 注释行（": keepalive\n\n"），前端 reader 收到任意字节即重置空闲超时计时器，
+// 防止长任务（跑测试、大目录搜索等）期间因无数据触发前端 120s 空闲超时误判 agent 卡死。
+const sseKeepaliveInterval = 30 * time.Second
+
+// streamSSEMessages 设置 SSE 响应头并以 SSE 格式写入消息流。
+// 适用于发起新 prompt / 恢复任务的端点。返回后本次响应结束。
+func streamSSEMessages(c *gin.Context, ch <-chan models.Message) {
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+	streamSSELoop(c, ch)
+}
+
+// streamSSELoop 执行 SSE 消息流写入的核心循环（不设置响应头）。
+// 供 streamSSEMessages 与已自行写入响应头/补发遗漏消息的 Stream 端点共用。
+//
+// 与裸 c.Stream 的差异（解决 prompt 生命周期解耦 HTTP 后的善后问题）：
+//   - 周期发送心跳注释行保活，防前端空闲超时；
+//   - 客户端断开（c.Request.Context 取消）时立即返回，但后台继续排空 ch，
+//     直到服务端 prompt goroutine 关闭 ch——否则 prompt goroutine 写满 256 缓冲后阻塞，
+//     导致 running_task 卡在 running、activePrompts 永不释放（等于换种方式卡死）。
+//     排空丢弃的消息对正确性无影响：消息已落库 + 经广播器分发给断点续传订阅者。
+func streamSSELoop(c *gin.Context, ch <-chan models.Message) {
+	ctx := c.Request.Context()
+	flusher, _ := c.Writer.(http.Flusher)
+	keepalive := time.NewTicker(sseKeepaliveInterval)
+	defer keepalive.Stop()
+
+	for {
+		select {
+		case msg, ok := <-ch:
+			if !ok {
+				_, _ = fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+				if flusher != nil {
+					flusher.Flush()
+				}
+				return
+			}
+			b, _ := json.Marshal(msg)
+			// 每条消息附带 id: <sequence>，供客户端断点续传（Last-Event-ID）
+			_, _ = fmt.Fprintf(c.Writer, "id: %d\ndata: %s\n\n", msg.Sequence, b)
+			if flusher != nil {
+				flusher.Flush()
+			}
+		case <-keepalive.C:
+			// 心跳注释行：无 data: 行，前端 parseSSEEvents 忽略；reader 收到字节即重置空闲计时器
+			_, _ = fmt.Fprintf(c.Writer, ": keepalive\n\n")
+			if flusher != nil {
+				flusher.Flush()
+			}
+		case <-ctx.Done():
+			// 客户端断开（页面关闭/网络中断/前端空闲超时 abort）。
+			// prompt 已与 HTTP ctx 解耦、仍在后台运行，故不可关闭 ch；改为后台排空防 goroutine 阻塞。
+			slog.Debug("SSE 客户端断开，后台排空消息流", "path", c.Request.URL.Path)
+			drainInBackground(ch)
+			return
+		}
+	}
+}
+
+// drainInBackground 在后台排空 ch 直至其关闭。用于 SSE 客户端断开后，
+// 避免服务端 prompt goroutine 因向 ch 写入无人消费的消息而阻塞。
+// 调用方应在确认客户端已断开、不再读取 ch 时调用。
+func drainInBackground(ch <-chan models.Message) {
+	go func() {
+		for range ch {
+		}
+	}()
+}
+
 // Prompt POST /api/v1/sessions/:id/prompt （SSE 流）
 func (h *SessionHandler) Prompt(c *gin.Context) {
 	sess, ok := h.loadOwnedSession(c)
@@ -624,23 +719,7 @@ func (h *SessionHandler) Prompt(c *gin.Context) {
 		return
 	}
 
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
-	c.Status(http.StatusOK)
-
-	c.Stream(func(w io.Writer) bool {
-		msg, ok := <-ch
-		if !ok {
-			_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
-			return false
-		}
-		b, _ := json.Marshal(msg)
-		// 每条消息附带 id: <sequence>，供客户端断点续传（Last-Event-ID）
-		_, _ = fmt.Fprintf(w, "id: %d\ndata: %s\n\n", msg.Sequence, b)
-		return true
-	})
+	streamSSEMessages(c, ch)
 }
 
 // Stream GET /api/v1/sessions/:id/stream
@@ -685,16 +764,8 @@ func (h *SessionHandler) Stream(c *gin.Context) {
 		return
 	}
 
-	c.Stream(func(w io.Writer) bool {
-		msg, ok := <-ch
-		if !ok {
-			_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
-			return false
-		}
-		b, _ := json.Marshal(msg)
-		_, _ = fmt.Fprintf(w, "id: %d\ndata: %s\n\n", msg.Sequence, b)
-		return true
-	})
+	// 复用 keepalive + 断开排空逻辑（headers 与遗漏消息已写入）
+	streamSSELoop(c, ch)
 }
 
 // InterruptedTasks GET /api/v1/sessions/:id/interrupted-tasks
@@ -728,20 +799,5 @@ func (h *SessionHandler) ResumeInterruptedTask(c *gin.Context) {
 		return
 	}
 
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
-	c.Status(http.StatusOK)
-
-	c.Stream(func(w io.Writer) bool {
-		msg, ok := <-ch
-		if !ok {
-			_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
-			return false
-		}
-		b, _ := json.Marshal(msg)
-		_, _ = fmt.Fprintf(w, "id: %d\ndata: %s\n\n", msg.Sequence, b)
-		return true
-	})
+	streamSSEMessages(c, ch)
 }

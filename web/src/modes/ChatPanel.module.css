@@ -125,6 +125,39 @@
   white-space: nowrap;
 }
 
+/* 工作目录（worktree）选择按钮：与 configBar 其它控件风格一致的幽灵按钮 */
+.cwdBtn {
+  height: var(--config-control-height);
+  max-width: 180px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--config-control-font);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.cwdBtn:hover:not(:disabled) {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+
+.cwdBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.cwdBtnLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .bottomArea {
   flex-shrink: 0;
 }

@@ -72,6 +72,9 @@ type AgentsConfig struct {
 	SubAgents  SubAgentsConfig  `yaml:"subagents"`
 	MCP        MCPConfig        `yaml:"mcp"`
 	ClaudeCode ClaudeCodeConfig `yaml:"claude_code"`
+	// PromptMaxDuration 单轮 prompt 的最大存活时间，超时强制结束并标记 interrupted，
+	// 防 agent 卡死导致 goroutine 永久泄漏。0 或负值=默认 30min。
+	PromptMaxDuration time.Duration `yaml:"prompt_max_duration"`
 }
 
 // SubAgentsConfig 配置 subagent 扫描目录（markdown 文件：frontmatter 含 name/description/model/tools，正文当 system_prompt）。

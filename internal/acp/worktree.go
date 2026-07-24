@@ -112,6 +112,72 @@ func WorktreePath(repoRoot, name string) string {
 	return filepath.Join(repoRoot, WorktreesDir, name)
 }
 
+// WorktreeInfo 描述一个 git worktree（来自 `git worktree list --porcelain`）。
+type WorktreeInfo struct {
+	Path     string `json:"path"`      // worktree 绝对路径
+	Branch   string `json:"branch"`    // 分支短名（如 feature-x）；detached/bare 时为空
+	HEAD     string `json:"head"`      // 提交 SHA
+	IsMain   bool   `json:"is_main"`   // 是否主 worktree（列表第一条）
+	Detached bool   `json:"detached"`  // HEAD 游离（未在分支上）
+	Bare     bool   `json:"bare"`      // 裸仓库
+}
+
+// ListWorktrees 返回 repoPath 所在仓库的全部 worktree。
+// 解析 `git worktree list --porcelain` 输出；非 git 仓库返回 ErrNotGitRepo。
+func ListWorktrees(repoPath string) ([]WorktreeInfo, error) {
+	root, err := GitRoot(repoPath)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command("git", "-C", root, "worktree", "list", "--porcelain")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git worktree list: %w", err)
+	}
+	return parseWorktreeList(string(out)), nil
+}
+
+// parseWorktreeList 解析 porcelain 格式输出。
+// 格式：每条记录以 "worktree <path>" 开头，后跟 HEAD/branch/detached/bare 属性，空行分隔。
+func parseWorktreeList(out string) []WorktreeInfo {
+	var list []WorktreeInfo
+	var cur *WorktreeInfo
+	flush := func() {
+		if cur != nil {
+			list = append(list, *cur)
+			cur = nil
+		}
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			flush()
+			cur = &WorktreeInfo{Path: strings.TrimPrefix(line, "worktree ")}
+		case cur == nil:
+			// 记录外的属性行，忽略
+		case strings.HasPrefix(line, "HEAD "):
+			cur.HEAD = strings.TrimPrefix(line, "HEAD ")
+		case strings.HasPrefix(line, "branch "):
+			// refs/heads/feature-x -> feature-x
+			ref := strings.TrimPrefix(line, "branch ")
+			cur.Branch = strings.TrimPrefix(ref, "refs/heads/")
+		case line == "detached":
+			cur.Detached = true
+		case line == "bare":
+			cur.Bare = true
+		case line == "":
+			flush()
+		}
+	}
+	flush()
+	// porcelain 输出第一条即主 worktree
+	if len(list) > 0 {
+		list[0].IsMain = true
+	}
+	return list
+}
+
 // EnsureWorktreesDir 确保仓库根下的 .worktrees 目录存在。
 func EnsureWorktreesDir(repoRoot string) error {
 	return os.MkdirAll(filepath.Join(repoRoot, WorktreesDir), 0o755)

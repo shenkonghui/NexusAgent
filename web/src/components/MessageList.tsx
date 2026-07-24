@@ -50,7 +50,10 @@ function groupMessages(messages: Message[]): Message[] {
 
 function filterDisplay(messages: Message[]): Message[] {
   return groupMessages(messages).filter(
-    (msg) => (msg.content.trim() !== '' || msg.kind === 'plan') && msg.kind !== 'permission_request',
+    (msg) =>
+      (msg.content.trim() !== '' || msg.kind === 'plan') &&
+      msg.kind !== 'permission_request' &&
+      msg.kind !== 'reconnecting',
   )
 }
 

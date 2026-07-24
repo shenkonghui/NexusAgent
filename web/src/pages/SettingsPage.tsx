@@ -8,9 +8,10 @@ import type { RegistryRefreshResult } from '../api/agentConfigs'
 import { listAgents, getAgentModels, probeAgentConfigs, clearAgentProbeCache } from '../api/agents'
 import { getNoteSettings, updateNoteSettings, generateNoteMCPToken } from '../api/notes'
 import { getTaskSettings, updateTaskSettings } from '../api/tasks'
+import { getPermissionSettings, updatePermissionSettings } from '../api/permissions'
 import { reloadProgram } from '../api/config'
 import { getAgentPrefs, patchAgentPrefs } from '../api/agentPrefs'
-import type { AgentConfig, Agent, ModelOption, ConfigOption, TaskSettings } from '../types'
+import type { AgentConfig, Agent, ModelOption, ConfigOption, TaskSettings, PermissionSettings } from '../types'
 import { tasksUrl } from '../utils/routes'
 import { translateTag } from '../utils/tag'
 import { translatePrompt } from '../utils/defaultPrompts'
@@ -23,10 +24,10 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import i18n from '../i18n'
 import styles from './SettingsPage.module.css'
 
-type SettingsTab = 'language' | 'agent' | 'classify' | 'config' | 'task' | 'system'
+type SettingsTab = 'language' | 'agent' | 'classify' | 'config' | 'task' | 'permission' | 'system'
 
 function parseSettingsTab(raw: string | null): SettingsTab {
-  if (raw === 'agent' || raw === 'classify' || raw === 'config' || raw === 'task' || raw === 'system') return raw
+  if (raw === 'agent' || raw === 'classify' || raw === 'config' || raw === 'task' || raw === 'permission' || raw === 'system') return raw
   return 'language'
 }
 
@@ -100,6 +101,13 @@ export default function SettingsPage() {
   const [taskTitlePrompt, setTaskTitlePrompt] = useState('')
   const [taskSettingsSaving, setTaskSettingsSaving] = useState(false)
   const [taskSettingsSaved, setTaskSettingsSaved] = useState(false)
+  // 权限规则设置（yolo / 白名单 / 黑名单）
+  const [permMode, setPermMode] = useState<'normal' | 'yolo'>('normal')
+  const [permAllow, setPermAllow] = useState('')
+  const [permAsk, setPermAsk] = useState('')
+  const [permDeny, setPermDeny] = useState('')
+  const [permSaving, setPermSaving] = useState(false)
+  const [permSaved, setPermSaved] = useState(false)
   const [reloadStatus, setReloadStatus] = useState<'idle' | 'reloading' | 'success' | 'failed'>('idle')
   const [reloadError, setReloadError] = useState('')
   const [loading, setLoading] = useState(true)
@@ -152,8 +160,8 @@ export default function SettingsPage() {
   async function loadData() {
     setLoading(true); setError('')
     try {
-      const [cfgResp, agentsResp, noteSettingsResp, taskSettingsResp] = await Promise.all([
-        listAgentConfigs(), listAgents(), getNoteSettings(), getTaskSettings(),
+      const [cfgResp, agentsResp, noteSettingsResp, taskSettingsResp, permResp] = await Promise.all([
+        listAgentConfigs(), listAgents(), getNoteSettings(), getTaskSettings(), getPermissionSettings(),
       ])
       setConfigs(cfgResp.data.agent_configs || [])
       setAgents(agentsResp.data.agents || [])
@@ -173,6 +181,12 @@ export default function SettingsPage() {
       setTaskTags(ts.tags || [])
       setTaskTagPrompt(ts.tag_prompt || '')
       setTaskTitlePrompt(ts.title_prompt || '')
+      // 权限规则设置
+      const ps = permResp.data
+      setPermMode(ps.mode || 'normal')
+      setPermAllow((ps.allow || []).join('\n'))
+      setPermAsk((ps.ask || []).join('\n'))
+      setPermDeny((ps.deny || []).join('\n'))
     } catch (err) {
       setError(err instanceof Error ? err.message : t('settings.loadFailed'))
     } finally { setLoading(false) }
@@ -283,6 +297,40 @@ export default function SettingsPage() {
       setError(err instanceof Error ? err.message : t('common.failed'))
     } finally {
       setTaskSettingsSaving(false)
+    }
+  }
+
+  // 把多行文本拆成规则数组（去空白、去空行、去重）
+  function linesToList(text: string): string[] {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const line of text.split('\n')) {
+      const s = line.trim()
+      if (!s || seen.has(s)) continue
+      seen.add(s)
+      out.push(s)
+    }
+    return out
+  }
+
+  async function handleSavePermissionSettings() {
+    setPermSaving(true); setError(''); setPermSaved(false)
+    try {
+      const payload: PermissionSettings = {
+        mode: permMode,
+        allow: linesToList(permAllow),
+        ask: linesToList(permAsk),
+        deny: linesToList(permDeny),
+      }
+      const resp = await updatePermissionSettings(payload)
+      setPermAllow((resp.data.allow || []).join('\n'))
+      setPermAsk((resp.data.ask || []).join('\n'))
+      setPermDeny((resp.data.deny || []).join('\n'))
+      setPermSaved(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.failed'))
+    } finally {
+      setPermSaving(false)
     }
   }
 
@@ -443,6 +491,13 @@ export default function SettingsPage() {
                 onClick={() => setTab('task')}
               >
                 {t('settings.tabTask')}
+              </button>
+              <button
+                type="button"
+                className={`${styles.navItem} ${tab === 'permission' ? styles.navItemActive : ''}`}
+                onClick={() => setTab('permission')}
+              >
+                {t('settings.tabPermission')}
               </button>
               <button type="button"
                 className={`${styles.navItem} ${tab === 'system' ? styles.navItemActive : ''}`}
@@ -816,6 +871,74 @@ export default function SettingsPage() {
                       <span className={styles.savedHint}>{t('settings.taskSettingsSaved')}</span>
                     )}
                   </div>
+                </>
+              )}
+
+              {tab === 'permission' && (
+                <>
+                  <p className={styles.hint}>{t('settings.permissionHint')}</p>
+                  <div className={styles.defaultSection}>
+                    <label className={styles.label}>{t('settings.permissionMode')}</label>
+                    <div className={styles.inlineRow}>
+                      <label className={styles.checkbox}>
+                        <input type="radio" name="permMode" checked={permMode === 'normal'} onChange={() => setPermMode('normal')} />
+                        <span>{t('settings.permissionModeNormal')}</span>
+                      </label>
+                      <label className={styles.checkbox}>
+                        <input type="radio" name="permMode" checked={permMode === 'yolo'} onChange={() => setPermMode('yolo')} />
+                        <span>{t('settings.permissionModeYolo')}</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className={styles.defaultSection}>
+                    <label className={styles.label}>{t('settings.permissionAllow')}</label>
+                    <p className={styles.hint}>{t('settings.permissionAllowHint')}</p>
+                    <textarea
+                      className={styles.textarea}
+                      rows={6}
+                      value={permAllow}
+                      onChange={(e) => setPermAllow(e.target.value)}
+                      placeholder={'Bash(git status *)\nBash(go test *)\nBash(ls *)'}
+                      spellCheck={false}
+                    />
+                  </div>
+
+                  <div className={styles.defaultSection}>
+                    <label className={styles.label}>{t('settings.permissionAsk')}</label>
+                    <p className={styles.hint}>{t('settings.permissionAskHint')}</p>
+                    <textarea
+                      className={styles.textarea}
+                      rows={5}
+                      value={permAsk}
+                      onChange={(e) => setPermAsk(e.target.value)}
+                      placeholder={'Bash(git commit *)\nBash(docker *)\nBash(kubectl *)'}
+                      spellCheck={false}
+                    />
+                  </div>
+
+                  <div className={styles.defaultSection}>
+                    <label className={styles.label}>{t('settings.permissionDeny')}</label>
+                    <p className={styles.hint}>{t('settings.permissionDenyHint')}</p>
+                    <textarea
+                      className={styles.textarea}
+                      rows={5}
+                      value={permDeny}
+                      onChange={(e) => setPermDeny(e.target.value)}
+                      placeholder={'Bash(rm *)\nBash(shutdown *)\nBash(dd *)'}
+                      spellCheck={false}
+                    />
+                  </div>
+
+                  <button type="button" className={styles.saveNoteBtn}
+                    onClick={handleSavePermissionSettings}
+                    disabled={permSaving}
+                  >
+                    {permSaving ? t('common.saving') : t('common.save')}
+                  </button>
+                  {permSaved && (
+                    <span className={styles.savedHint}>{t('settings.taskSettingsSaved')}</span>
+                  )}
                 </>
               )}
 

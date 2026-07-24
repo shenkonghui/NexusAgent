@@ -127,6 +127,9 @@ func main() {
 	// 供独立 watchdog 进程读取判定空闲与主程序存活。
 	acpConnRepo := repository.NewACPConnectionRepository(db)
 	acpSvc.SetACPConnectionRepo(acpConnRepo)
+	// 注入单轮 prompt 最大存活时间：prompt 的 ctx 与 HTTP/SSE 请求解耦，
+	// 此超时兜底防 agent 卡死导致 goroutine 永久泄漏（超时标记 interrupted）。
+	acpSvc.SetPromptMaxDuration(cfg.Agents.PromptMaxDuration)
 
 	// P2: Agent 注册表与路由
 	agentRegistry := agent.NewRegistry()
@@ -175,6 +178,8 @@ func main() {
 	// 启动健康检查与自动重连 goroutine（定期检查连接状态，断开自动重连）。
 	// 同时启动心跳续约 goroutine，向 acp_connections 表续约，供 watchdog 判活。
 	acpSvc.StartHealthCheck()
+	// 启动时恢复已保存的全局权限规则（须在预连接前，使新连接建连即拿到规则）。
+	acpSvc.LoadPermissionRulesAtStartup()
 	// 异步为所有已注册 agent 预建立共享 ACP 连接（每类 agent 一个常驻进程）。
 	// 每个 agent 独立 goroutine 连接，不阻塞服务启动；连接失败由健康检查自动重连。
 	acpSvc.PreconnectAllAsync()
@@ -221,6 +226,11 @@ func main() {
 	taskSettingsH := handlers.NewTaskSettingsHandler(taskSettingsRepo)
 	agentPrefsH := handlers.NewAgentPrefsHandler(repository.NewUserAgentPrefsRepository(db))
 
+	// 全局权限规则（yolo / 白名单 / 黑名单）：注入仓库 + 启动时初始下发规则到所有连接
+	permSettingsRepo := repository.NewPermissionSettingsRepository(db)
+	acpSvc.SetPermissionSettings(permSettingsRepo)
+	permSettingsH := handlers.NewPermissionSettingsHandler(permSettingsRepo, agentRouter)
+
 	configH := handlers.NewConfigHandler(cfgPath, acpSvc)
 	mcpH := handlers.NewMCPHandler(cfg.Agents.MCP.ConfigPath)
 
@@ -236,7 +246,7 @@ func main() {
 	// 启动自愈：把 opennexus-subagent 条目同步到全局 mcp.json（复用笔记 token 体系）。
 	subAgentH.SyncAllSubagentMCP()
 
-	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, registryH, schedTaskH, noteH, taskSettingsH, agentPrefsH, configH, mcpH, logH, debugH, subAgentH, orchH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Agents.SubAgents, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
+	engine := router.Setup(authSvc, jwtSvc, agentRouter, agentCfgH, registryH, schedTaskH, noteH, taskSettingsH, agentPrefsH, configH, mcpH, logH, debugH, subAgentH, orchH, permSettingsH, cfg.Agents.Skills, cfg.Agents.Commands, cfg.Agents.Rules, cfg.Agents.SubAgents, cfg.Server.Mode, cfg.Server.WebDist, cfg.Auth.AutoLogin)
 	engine.Any("/mcp/notes", gin.WrapH(notesmcp.Handler(noteRepo, noteSettingsRepo)))
 	engine.Any("/mcp/notes/*path", gin.WrapH(notesmcp.Handler(noteRepo, noteSettingsRepo)))
 	// subagent MCP server：主 agent 通过 tools/call 调起预定义的 subagent，或创建/运行持久会话。

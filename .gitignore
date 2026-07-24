@@ -33,3 +33,10 @@ config.yaml.bak
 opennexus
 server
 registry.json
+
+# git worktrees
+.worktrees/
+
+# temporary files
+tasks.json
+tmp_*.png

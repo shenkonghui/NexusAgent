@@ -16,7 +16,7 @@ import (
 	"opennexus/internal/services"
 )
 
-func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, registryH *handlers.RegistryHandler, schedTaskH *handlers.ScheduledTaskHandler, noteH *handlers.NoteHandler, taskSettingsH *handlers.TaskSettingsHandler, agentPrefsH *handlers.AgentPrefsHandler, configH *handlers.ConfigHandler, mcpH *handlers.MCPHandler, logH *handlers.LogHandler, debugH *handlers.DebugHandler, subAgentH *handlers.SubAgentHandler, orchH *handlers.OrchestrationHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, rulesCfg config.RulesConfig, subAgentsCfg config.SubAgentsConfig, mode, webDist string, autoLogin bool) *gin.Engine {
+func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRouter *agent.Router, agentCfgH *handlers.AgentConfigHandler, registryH *handlers.RegistryHandler, schedTaskH *handlers.ScheduledTaskHandler, noteH *handlers.NoteHandler, taskSettingsH *handlers.TaskSettingsHandler, agentPrefsH *handlers.AgentPrefsHandler, configH *handlers.ConfigHandler, mcpH *handlers.MCPHandler, logH *handlers.LogHandler, debugH *handlers.DebugHandler, subAgentH *handlers.SubAgentHandler, orchH *handlers.OrchestrationHandler, permSettingsH *handlers.PermissionSettingsHandler, skillsCfg config.SkillsConfig, commandsCfg config.CommandsConfig, rulesCfg config.RulesConfig, subAgentsCfg config.SubAgentsConfig, mode, webDist string, autoLogin bool) *gin.Engine {
 	gin.SetMode(mode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -139,6 +139,8 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 
 			// 文件系统目录浏览（用于前端目录选择器）
 			protected.GET("/filesystem/dirs", fsHandler.ListDirs)
+			protected.GET("/filesystem/worktrees", fsHandler.ListWorktrees)
+			protected.POST("/filesystem/worktrees", fsHandler.CreateWorktree)
 			protected.GET("/filesystem/list", fsHandler.ListFiles)
 			protected.GET("/filesystem/docs", fsHandler.ListDocs)
 			protected.GET("/filesystem/skills", fsHandler.Skills)
@@ -202,6 +204,13 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			{
 				tasks.GET("/settings", taskSettingsH.GetSettings)
 				tasks.PUT("/settings", taskSettingsH.UpdateSettings)
+			}
+
+			// 全局权限规则设置（yolo / 白名单 / 黑名单）
+			permissions := protected.Group("/permissions")
+			{
+				permissions.GET("/settings", permSettingsH.GetSettings)
+				permissions.PUT("/settings", permSettingsH.UpdateSettings)
 			}
 
 			// 用户 agent 最近使用偏好

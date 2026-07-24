@@ -24,6 +24,9 @@ const (
 	MessageKindCurrentModeUpdate = "current_mode_update"
 	MessageKindPermissionRequest = "permission_request"
 	MessageKindUnknown           = "unknown"
+	// MessageKindReconnecting 是临时流式状态（不落库），用于提示前端会话正在重新连接。
+	// 由 PromptWithExecution 在检测到会话非活跃/连接丢失并重连成功后推送。
+	MessageKindReconnecting = "reconnecting"
 )
 
 // Message 是会话消息持久化模型，存储 Prompt 产生的每条 SessionUpdate。

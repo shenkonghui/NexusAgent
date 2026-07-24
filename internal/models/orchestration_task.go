@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"encoding/json"
+	"strings"
+	"time"
+)
 
 // 任务编排（Orchestration）状态机常量。
 const (
@@ -61,6 +65,53 @@ type OrchestrationTask struct {
 
 	// 可扩展：任务间依赖（v1 仅做数据层，引擎按并发上限调度）。
 	DependsOn []string `json:"depends_on,omitempty"`
+}
+
+// jsonScalarToString 将 JSON 标量原始字节转为字符串：带引号的按字符串反序列化，
+// 数字/布尔等字面量原样返回。用于兼容 AI 手写 tasks.json 时把 id 写成数字的情况。
+func jsonScalarToString(raw json.RawMessage) (string, error) {
+	s := strings.TrimSpace(string(raw))
+	if s == "" || s == "null" {
+		return "", nil
+	}
+	if strings.HasPrefix(s, `"`) {
+		var str string
+		if err := json.Unmarshal(raw, &str); err != nil {
+			return "", err
+		}
+		return str, nil
+	}
+	return s, nil
+}
+
+// UnmarshalJSON 兼容 AI 手写 tasks.json 时把 id / depends_on 元素写成数字（而非字符串）的情况，
+// 将数字字面量原样转成字符串，避免「cannot unmarshal number into Go struct field ... of type string」。
+func (t *OrchestrationTask) UnmarshalJSON(data []byte) error {
+	type alias OrchestrationTask
+	aux := &struct {
+		ID        json.RawMessage   `json:"id"`
+		DependsOn []json.RawMessage `json:"depends_on"`
+		*alias
+	}{alias: (*alias)(t)}
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	id, err := jsonScalarToString(aux.ID)
+	if err != nil {
+		return err
+	}
+	t.ID = id
+	if aux.DependsOn != nil {
+		t.DependsOn = make([]string, 0, len(aux.DependsOn))
+		for _, raw := range aux.DependsOn {
+			dep, err := jsonScalarToString(raw)
+			if err != nil {
+				return err
+			}
+			t.DependsOn = append(t.DependsOn, dep)
+		}
+	}
+	return nil
 }
 
 // OrchestrationDef 是 tasks.json 的顶层结构。
