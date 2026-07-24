@@ -126,11 +126,9 @@ type Service struct {
 	// 同时兜底防 agent 卡死导致 goroutine 永久泄漏。SetPromptMaxDuration 注入；0=默认 30min。
 	promptMaxDuration time.Duration
 
-	// permSettings 可选：全局权限规则（yolo/白名单/黑名单）配置仓库。
-	// 为 nil（测试环境）时规则功能静默禁用，行为同旧（全部询问）。
-	permSettings *repository.PermissionSettingsRepository
 	// activePermRules 当前生效的全局权限规则（全局下发到所有连接的 broker）。
-	// ReloadPermissionRules 读取 DB 更新此值并下发。nil=无规则。
+	// 规则来自 config.yaml 的 permissions 段：启动时由 ApplyPermissions 下发，
+	// 设置页保存后热更新。nil=无规则（行为同旧，全部询问）。
 	activePermRules atomic.Pointer[PermissionRules]
 }
 
@@ -294,12 +292,6 @@ func (s *Service) effectivePromptMaxDuration() time.Duration {
 	return defaultPromptMaxDuration
 }
 
-// SetPermissionSettings 注入全局权限规则配置仓库。
-// 主 server 启动时注入；测试环境可不注入，规则功能静默禁用。
-func (s *Service) SetPermissionSettings(repo *repository.PermissionSettingsRepository) {
-	s.permSettings = repo
-}
-
 // applyRulesToConnection 把当前生效的权限规则下发到指定连接的 broker。
 func (s *Service) applyRulesToConnection(conn *Connection) {
 	if conn == nil {
@@ -322,68 +314,37 @@ func (s *Service) applyRulesToAllConnections() {
 	}
 }
 
-// ReloadPermissionRules 重新从 DB 读取用户权限规则，更新生效规则并下发到所有连接的 broker。
-// settings 仓库未注入或读取失败时静默跳过（保留旧规则）。userID 用于多用户场景取对应用户规则。
-func (s *Service) ReloadPermissionRules(userID uint) {
-	if s.permSettings == nil {
-		return
+// ApplyPermissions 用给定的权限规则更新生效规则并下发到所有连接的 broker。
+// 规则来自 config.yaml 的 permissions 段：启动时下发一次（须在预连接前，使新连接建连即拿到规则），
+// 设置页保存后再次调用热更新。mode 为空/非法时兜底 normal。
+func (s *Service) ApplyPermissions(mode string, allow, ask, deny []string) {
+	if mode != config.PermissionModeNormal && mode != config.PermissionModeYolo {
+		mode = config.PermissionModeNormal
 	}
-	st, err := s.permSettings.FindByUserID(userID)
-	if err != nil {
-		slog.Warn("读取权限规则失败，保留旧规则", "user", userID, "err", err)
-		return
-	}
-	rules := buildPermissionRules(st)
-	s.activePermRules.Store(rules)
+	s.activePermRules.Store(&PermissionRules{
+		Mode:  mode,
+		Allow: cleanRules(allow),
+		Ask:   cleanRules(ask),
+		Deny:  cleanRules(deny),
+	})
 	s.applyRulesToAllConnections()
 }
 
-// LoadPermissionRulesAtStartup 启动时恢复已保存的权限规则（取任意一条记录，单用户场景）。
-// 无记录时不设置规则（activePermRules 保持 nil，行为同旧）。应在连接建立前调用，
-// 之后 ensureConnection 会把生效规则下发给每个新连接。
-func (s *Service) LoadPermissionRulesAtStartup() {
-	if s.permSettings == nil {
-		return
+// CurrentPermissions 返回当前生效的权限规则（供设置页读取）。无规则时返回 normal + 空列表。
+func (s *Service) CurrentPermissions() (mode string, allow, ask, deny []string) {
+	r := s.activePermRules.Load()
+	if r == nil {
+		return config.PermissionModeNormal, nil, nil, nil
 	}
-	st, err := s.permSettings.FindFirst()
-	if err != nil {
-		slog.Warn("启动恢复权限规则失败", "err", err)
-		return
-	}
-	if st == nil {
-		return // 无记录，不设置规则
-	}
-	s.activePermRules.Store(buildPermissionRules(st))
+	return r.Mode, r.Allow, r.Ask, r.Deny
 }
 
-// buildPermissionRules 从持久化模型构造运行时规则（列表 JSON 解码）。
-func buildPermissionRules(st *models.PermissionSettings) *PermissionRules {
-	r := &PermissionRules{
-		Mode:  st.Mode,
-		Allow: decodeRuleList(st.Allow),
-		Ask:   decodeRuleList(st.Ask),
-		Deny:  decodeRuleList(st.Deny),
-	}
-	if r.Mode == "" {
-		r.Mode = models.PermissionModeNormal
-	}
-	return r
-}
-
-// decodeRuleList 解码 JSON 编码的规则列表；空/非法返回 nil。
-func decodeRuleList(raw string) []string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil
-	}
-	var arr []string
-	if err := json.Unmarshal([]byte(raw), &arr); err != nil {
-		return nil
-	}
-	out := make([]string, 0, len(arr))
-	for _, a := range arr {
-		if a = strings.TrimSpace(a); a != "" {
-			out = append(out, a)
+// cleanRules 去空白、去空项；无有效项返回 nil。
+func cleanRules(list []string) []string {
+	out := make([]string, 0, len(list))
+	for _, r := range list {
+		if r = strings.TrimSpace(r); r != "" {
+			out = append(out, r)
 		}
 	}
 	if len(out) == 0 {

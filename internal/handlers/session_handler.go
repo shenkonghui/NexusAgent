@@ -89,6 +89,24 @@ func currentUserID(c *gin.Context) (uint, bool) {
 	return uid, ok
 }
 
+// resolveSessionWorkingDir 解析会话的实际工作目录，供终端 / 文件浏览等复用。
+// 普通会话：优先取工作区当前 cwd（工作区目录可被用户在设置中修改）。
+// 编排任务会话：git worktree 绝对路径经 cwdOverride 写入 session.Cwd，与工作区 cwd 不同，
+// 此时以 worktree 作为工作目录，使终端 / 文件浏览与 agent 实际运行目录保持一致。
+func resolveSessionWorkingDir(store SessionStore, sess *models.Session) string {
+	cwd := sess.Cwd
+	if sess.WorkspaceID != nil {
+		if wsCwd, err := store.GetWorkspaceCwd(*sess.WorkspaceID); err == nil {
+			// session.Cwd 为空（历史数据）或与工作区一致（普通会话）时，回退到工作区当前 cwd；
+			// 仅当 session.Cwd 为 worktree 覆盖（非空且不同）时保留 session.Cwd。
+			if sess.Cwd == "" || sess.Cwd == wsCwd {
+				cwd = wsCwd
+			}
+		}
+	}
+	return cwd
+}
+
 // parseSessionID 解析 :id（uint，>0）。
 func parseSessionID(c *gin.Context) (uint, bool) {
 	idStr := c.Param("id")

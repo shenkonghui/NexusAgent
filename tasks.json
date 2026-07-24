@@ -18,8 +18,13 @@
       "id": "task-002",
       "title": "重构建议：提取公共工具函数",
       "detail": "扫描整个项目中重复出现的代码模式（相似度 \u003e= 80% 的代码块），建议可以提取为公共工具函数的部分。对于每个建议，说明复用的文件列表、建议的函数签名和存放位置。",
-      "agent_type": "",
-      "status": "pending"
+      "agent_type": "codebuddy-code",
+      "session_id": "605ee0fa-e321-4e3c-a5c4-697206f0380a",
+      "db_session_id": 99,
+      "status": "running",
+      "branch": "task-task-002",
+      "worktree_path": "/Users/shenkonghui/src/mywork/NexusAgent/.worktrees/task-002",
+      "started_at": "2026-07-24T10:32:01.456161+08:00"
     },
     {
       "id": "task-003",

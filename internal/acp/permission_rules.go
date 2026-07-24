@@ -3,7 +3,7 @@ package acp
 import (
 	"strings"
 
-	"opennexus/internal/models"
+	"opennexus/internal/config"
 )
 
 // Decision 表示全局权限规则对一个工具调用的裁决。
@@ -18,11 +18,11 @@ const (
 	DecisionDeny
 )
 
-// PermissionRules 是生效中的全局权限规则（从 models.PermissionSettings 构造）。
+// PermissionRules 是生效中的全局权限规则（从 config.PermissionsConfig 构造）。
 // 规则按 agent 上报的 ToolCall.Title 匹配，支持 `*` 通配符，大小写不敏感。
 // 优先级：deny > allow > ask > (yolo→allow | normal→ask)。
 type PermissionRules struct {
-	Mode  string   // normal | yolo（见 models.PermissionMode*）
+	Mode  string   // normal | yolo（见 config.PermissionMode*）
 	Allow []string // 白名单：命中→放行
 	Ask   []string // 询问名单：命中→强制询问
 	Deny  []string // 黑名单：命中→拒绝
@@ -105,7 +105,7 @@ func (r PermissionRules) Decide(title string) Decision {
 	if anyMatch(r.Ask, title) {
 		return DecisionAsk
 	}
-	if r.Mode == models.PermissionModeYolo {
+	if r.Mode == config.PermissionModeYolo {
 		return DecisionAllow
 	}
 	return DecisionAsk

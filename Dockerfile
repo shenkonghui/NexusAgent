@@ -13,14 +13,12 @@ COPY web/ ./
 RUN npm run build
 
 # ===== Stage 2: 构建后端 =====
-FROM docker.linkos.org/library/golang:1.25-alpine AS go-builder
+# 使用 Debian 版 golang（glibc），使 CGO 编译的二进制与 glibc 运行时匹配，
+# 同时兼容 cursor 等捆绑 glibc node 的预编译 agent。
+FROM docker.linkos.org/library/golang:1.25 AS go-builder
 WORKDIR /app
 
-# 换阿里云镜像源加速 apk 安装
-RUN sed -i 's#dl-cdn.alpinelinux.org#mirrors.aliyun.com#g' /etc/apk/repositories
-
-# 安装编译 SQLite 所需的 gcc/musl-dev
-RUN apk add --no-cache gcc musl-dev
+# golang:1.25（Debian bookworm）已内置 gcc 等编译工具链，无需额外安装 musl-dev
 
 # 复制 vendor 目录，使用本地依赖
 COPY go.mod go.sum vendor/ ./
@@ -32,17 +30,23 @@ COPY --from=web-builder /app/web/dist ./web/dist
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /out/opennexus ./cmd/server
 
 # ===== Stage 3: 运行时 =====
-# 使用包含 npm/npx 的 node 镜像，因为 agents 通过 npx 调用 claude-agent-acp
-FROM docker.linkos.org/library/node:20-alpine AS runtime
+# 使用 Debian 版 node 镜像（glibc），因为 agents 通过 npx 调用 claude-agent-acp，
+# 且 cursor 等 agent 捆绑的是 glibc 预编译 node，Alpine(musl) 下无法执行。
+FROM docker.linkos.org/library/node:20-slim AS runtime
 WORKDIR /app
 
-# 换阿里云镜像源加速 apk 安装
-RUN sed -i 's#dl-cdn.alpinelinux.org#mirrors.aliyun.com#g' /etc/apk/repositories
+# 换阿里云镜像源加速 apt 安装（兼容 deb822 与传统 sources.list 两种格式）
+RUN sed -i 's#deb.debian.org#mirrors.aliyun.com#g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true; \
+    sed -i 's#deb.debian.org#mirrors.aliyun.com#g' /etc/apt/sources.list 2>/dev/null || true
 
-# 安装运行时依赖：sqlite、ca-cert、git（部分 agent 可能需要）
-RUN apk add --no-cache ca-certificates sqlite-libs musl-locales tzdata git \
-    && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
-    && echo "Asia/Shanghai" > /etc/timezone
+# 安装运行时依赖：bash（部分 agent / 脚本依赖 bash）、sqlite、ca-cert、git、
+# wget（HEALTHCHECK 使用）、tzdata（时区）
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash ca-certificates libsqlite3-0 git wget tzdata \
+    && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo "Asia/Shanghai" > /etc/timezone \
+    && rm -rf /var/lib/apt/lists/*
 
 # 复制后端二进制
 COPY --from=go-builder /out/opennexus /app/opennexus
@@ -53,19 +57,19 @@ COPY --from=web-builder /app/web/dist /app/web/dist
 # 复制默认配置
 COPY config.yaml /app/config.yaml
 
-# 数据持久化目录
-RUN mkdir -p /app/data/session
-VOLUME ["/app/data"]
+# 数据持久化目录：统一使用默认 ~/.openNexus（root 用户即 /root/.openNexus），
+# 数据库、会话、ACP 二进制缓存、调试目录全部落在此目录，挂载单个卷即可全量持久化。
+RUN mkdir -p /root/.openNexus/session
+VOLUME ["/root/.openNexus"]
 
 # 显式指定 npm 缓存目录，便于通过 docker volume 持久化。
 # npx 调用 claude-agent-acp 时下载的包会缓存在 /root/.npm/_npx，
 # 持久化后容器重启无需重新从网络下载。
+# 不再设置 DATABASE_PATH / AGENTS_WORKSPACE_SESSION_DIR，让程序走默认 ~/.openNexus 路径。
 ENV NPM_CONFIG_CACHE=/root/.npm \
     SERVER_MODE=release \
     SERVER_PORT=8080 \
     WEB_DIST=/app/web/dist \
-    DATABASE_PATH=/app/data/opennexus.db \
-    AGENTS_WORKSPACE_SESSION_DIR=/app/data/session \
     NODE_ENV=production
 
 EXPOSE 8080

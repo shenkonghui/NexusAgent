@@ -12,14 +12,40 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Database DatabaseConfig `yaml:"database"`
-	JWT      JWTConfig      `yaml:"jwt"`
-	Auth     AuthConfig     `yaml:"auth"`
-	Password PasswordConfig `yaml:"password"`
-	Logging  LoggingConfig  `yaml:"logging"`
-	Agents   AgentsConfig   `yaml:"agents"`
-	Debug    DebugConfig    `yaml:"debug"`
+	Server      ServerConfig      `yaml:"server"`
+	Database    DatabaseConfig    `yaml:"database"`
+	JWT         JWTConfig         `yaml:"jwt"`
+	Auth        AuthConfig        `yaml:"auth"`
+	Password    PasswordConfig    `yaml:"password"`
+	Logging     LoggingConfig     `yaml:"logging"`
+	Agents      AgentsConfig      `yaml:"agents"`
+	Debug       DebugConfig       `yaml:"debug"`
+	Permissions PermissionsConfig `yaml:"permissions"`
+}
+
+// 全局权限模式常量。
+const (
+	PermissionModeNormal = "normal" // 默认：按 allow/ask/deny 列表匹配，未命中则询问
+	PermissionModeYolo   = "yolo"   // 全部自动放行（deny 命中除外）
+)
+
+// PermissionsConfig 是全局权限规则配置（yolo / 白名单 / 询问名单 / 黑名单）。
+// 运行时按 agent 上报的工具调用标题匹配，每条规则支持 `*` 通配符（如 "Bash(git status *)"）。
+// 优先级：deny > allow > ask > (yolo→allow | normal→ask)。
+type PermissionsConfig struct {
+	Mode  string   `yaml:"mode"`  // normal | yolo
+	Allow []string `yaml:"allow"` // 白名单：命中→放行
+	Ask   []string `yaml:"ask"`   // 询问名单：命中→强制询问
+	Deny  []string `yaml:"deny"`  // 黑名单：命中→拒绝（最高优先级）
+}
+
+// normalize 校正权限模式（空或非法值兜底为 normal）。
+func (p *PermissionsConfig) normalize() {
+	mode := strings.TrimSpace(p.Mode)
+	if mode != PermissionModeNormal && mode != PermissionModeYolo {
+		mode = PermissionModeNormal
+	}
+	p.Mode = mode
 }
 
 // DebugConfig 控制调试能力（如 ACP 协议报文捕获）。
@@ -269,6 +295,7 @@ func (c *Config) Validate() error {
 	if err := c.Debug.ACP.normalize(); err != nil {
 		return err
 	}
+	c.Permissions.normalize()
 	return nil
 }
 

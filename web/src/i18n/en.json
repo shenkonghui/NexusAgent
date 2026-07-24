@@ -432,7 +432,21 @@
     "gitRequiredTitle": "Git repository required",
     "gitRequiredHint": "Task orchestration requires the current working directory to be a git repository, so each task gets its own worktree under .worktrees.",
     "gitInit": "Initialize git repository",
-    "gitInitializing": "Initializing…"
+    "gitInitializing": "Initializing…",
+    "newTask": "New Task",
+    "viewJson": "JSON",
+    "viewList": "List",
+    "titlePlaceholder": "Task title (optional, defaults to prompt first line)",
+    "promptPlaceholder": "Enter prompt: describe the task (sent to the agent as instructions)",
+    "create": "Create",
+    "cancel": "Cancel",
+    "save": "Save",
+    "start": "Start",
+    "stop": "Stop",
+    "delete": "Delete",
+    "promptRequired": "Please enter a prompt",
+    "jsonInvalid": "Invalid JSON",
+    "confirmDelete": "Delete this task?"
   },
   "chat": {
     "mode": "Mode",

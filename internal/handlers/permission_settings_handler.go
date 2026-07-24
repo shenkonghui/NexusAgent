@@ -1,29 +1,33 @@
 package handlers
 
 import (
-	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gopkg.in/yaml.v3"
 
-	"opennexus/internal/models"
-	"opennexus/internal/repository"
+	"opennexus/internal/config"
 )
 
-// PermissionRuleReloader 在保存权限规则后触发热更新（由 *agent.Router 实现）。
-type PermissionRuleReloader interface {
-	ReloadPermissionRules(userID uint)
+// errInvalidConfigRoot config.yaml 根节点结构异常（非预期的 YAML 文档）。
+var errInvalidConfigRoot = errors.New("config.yaml 根节点结构异常")
+
+// PermissionRuleApplier 在保存权限规则后把规则下发到运行中的连接（由 *agent.Router 实现）。
+type PermissionRuleApplier interface {
+	ApplyPermissions(mode string, allow, ask, deny []string)
 }
 
 // PermissionSettingsHandler 处理全局权限规则配置（yolo / 白名单 / 黑名单）。
+// 配置持久化在 config.yaml 的 permissions 段（不再入库）：GET 读文件，PUT 写文件并热更新。
 type PermissionSettingsHandler struct {
-	settingsRepo *repository.PermissionSettingsRepository
-	rel          PermissionRuleReloader
+	configPath string
+	applier    PermissionRuleApplier
 }
 
-func NewPermissionSettingsHandler(settingsRepo *repository.PermissionSettingsRepository, rel PermissionRuleReloader) *PermissionSettingsHandler {
-	return &PermissionSettingsHandler{settingsRepo: settingsRepo, rel: rel}
+func NewPermissionSettingsHandler(configPath string, applier PermissionRuleApplier) *PermissionSettingsHandler {
+	return &PermissionSettingsHandler{configPath: configPath, applier: applier}
 }
 
 type permissionSettingsItem struct {
@@ -40,94 +44,60 @@ type permissionSettingsRequest struct {
 	Deny  []string `json:"deny"`
 }
 
-// toItem 把存储模型转换为返回给前端的结构（列表 JSON 解码为数组，mode 兜底）。
-func (h *PermissionSettingsHandler) toItem(s *models.PermissionSettings) permissionSettingsItem {
-	mode := strings.TrimSpace(s.Mode)
-	if mode == "" {
-		mode = models.PermissionModeNormal
-	}
-	return permissionSettingsItem{
-		Mode:  mode,
-		Allow: decodeStringList(s.Allow),
-		Ask:   decodeStringList(s.Ask),
-		Deny:  decodeStringList(s.Deny),
-	}
-}
-
 // GetSettings GET /api/v1/permissions/settings
+// 从 config.yaml 的 permissions 段读取当前配置。
 func (h *PermissionSettingsHandler) GetSettings(c *gin.Context) {
-	uid, ok := currentUserID(c)
-	if !ok {
-		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
-		return
-	}
-	s, err := h.settingsRepo.FindByUserID(uid)
+	root, err := readConfigRaw(h.configPath)
 	if err != nil {
-		Fail(c, http.StatusInternalServerError, "INTERNAL", "查询权限设置失败")
+		Fail(c, http.StatusInternalServerError, "CONFIG_READ_ERROR", "读取配置文件失败")
 		return
 	}
-	Success(c, http.StatusOK, h.toItem(s))
+	Success(c, http.StatusOK, extractPermissionsView(root))
 }
 
 // UpdateSettings PUT /api/v1/permissions/settings
+// 写回 config.yaml 的 permissions 段，并把新规则热更新到所有连接。
 func (h *PermissionSettingsHandler) UpdateSettings(c *gin.Context) {
 	var req permissionSettingsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数无效")
 		return
 	}
-	uid, ok := currentUserID(c)
-	if !ok {
-		Fail(c, http.StatusUnauthorized, "UNAUTHORIZED", "未认证")
-		return
+	item := permissionSettingsItem{
+		Mode:  normalizePermMode(req.Mode),
+		Allow: cleanRuleList(req.Allow),
+		Ask:   cleanRuleList(req.Ask),
+		Deny:  cleanRuleList(req.Deny),
 	}
-	mode := strings.TrimSpace(req.Mode)
-	if mode != models.PermissionModeNormal && mode != models.PermissionModeYolo {
-		mode = models.PermissionModeNormal
-	}
-	s := &models.PermissionSettings{
-		UserID: uid,
-		Mode:   mode,
-		Allow:  encodeStringList(cleanRuleList(req.Allow)),
-		Ask:    encodeStringList(cleanRuleList(req.Ask)),
-		Deny:   encodeStringList(cleanRuleList(req.Deny)),
-	}
-	if err := h.settingsRepo.Upsert(s); err != nil {
-		Fail(c, http.StatusInternalServerError, "INTERNAL", "保存权限设置失败")
-		return
-	}
-	// 热更新：下发新规则到所有连接的 broker
-	if h.rel != nil {
-		h.rel.ReloadPermissionRules(uid)
-	}
-	saved, err := h.settingsRepo.FindByUserID(uid)
+
+	root, err := readConfigRaw(h.configPath)
 	if err != nil {
-		Fail(c, http.StatusInternalServerError, "INTERNAL", "查询权限设置失败")
+		Fail(c, http.StatusInternalServerError, "CONFIG_READ_ERROR", "读取配置文件失败")
 		return
 	}
-	Success(c, http.StatusOK, h.toItem(saved))
+	if err := upsertPermissionsNode(root, item); err != nil {
+		Fail(c, http.StatusInternalServerError, "CONFIG_WRITE_ERROR", "更新配置失败")
+		return
+	}
+	if err := writeConfigRaw(h.configPath, root); err != nil {
+		Fail(c, http.StatusInternalServerError, "CONFIG_WRITE_ERROR", "写入配置文件失败")
+		return
+	}
+
+	// 写盘成功后热更新：下发新规则到所有连接的 broker
+	if h.applier != nil {
+		h.applier.ApplyPermissions(item.Mode, item.Allow, item.Ask, item.Deny)
+	}
+	Success(c, http.StatusOK, item)
 }
 
-// decodeStringList 解码 JSON 编码的字符串列表；空/非法返回空数组。
-func decodeStringList(raw string) []string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return []string{}
+// normalizePermMode 兜底权限模式（空或非法值回退 normal）。
+func normalizePermMode(mode string) string {
+	mode = strings.TrimSpace(mode)
+	if mode != config.PermissionModeNormal && mode != config.PermissionModeYolo {
+		return config.PermissionModeNormal
 	}
-	var arr []string
-	if err := json.Unmarshal([]byte(raw), &arr); err != nil {
-		return []string{}
-	}
-	return arr
-}
-
-// encodeStringList 编码字符串列表为 JSON（空列表编为 "[]"）。
-func encodeStringList(list []string) string {
-	if list == nil {
-		list = []string{}
-	}
-	b, _ := json.Marshal(list)
-	return string(b)
+	return mode
 }
 
 // cleanRuleList 去空白、去重、去空行。
@@ -146,4 +116,81 @@ func cleanRuleList(list []string) []string {
 		out = append(out, r)
 	}
 	return out
+}
+
+// extractPermissionsView 从 yaml.Node 中提取 permissions 段（缺失时返回默认 normal + 空列表）。
+func extractPermissionsView(root *yaml.Node) permissionSettingsItem {
+	item := permissionSettingsItem{Mode: config.PermissionModeNormal, Allow: []string{}, Ask: []string{}, Deny: []string{}}
+	if root == nil || root.Kind != yaml.DocumentNode || len(root.Content) == 0 {
+		return item
+	}
+	permNode := findMappingValue(root.Content[0], "permissions")
+	if permNode == nil || permNode.Kind != yaml.MappingNode {
+		return item
+	}
+	if modeNode := findMappingValue(permNode, "mode"); modeNode != nil && modeNode.Kind == yaml.ScalarNode {
+		item.Mode = normalizePermMode(modeNode.Value)
+	}
+	if n := findMappingValue(permNode, "allow"); n != nil {
+		item.Allow = extractStringList(n)
+	}
+	if n := findMappingValue(permNode, "ask"); n != nil {
+		item.Ask = extractStringList(n)
+	}
+	if n := findMappingValue(permNode, "deny"); n != nil {
+		item.Deny = extractStringList(n)
+	}
+	return item
+}
+
+// upsertPermissionsNode 在根映射中新建或替换 permissions 段。
+func upsertPermissionsNode(root *yaml.Node, item permissionSettingsItem) error {
+	if root == nil || root.Kind != yaml.DocumentNode || len(root.Content) == 0 {
+		return errInvalidConfigRoot
+	}
+	mapping := root.Content[0]
+	if mapping.Kind != yaml.MappingNode {
+		return errInvalidConfigRoot
+	}
+	valueNode := buildPermissionsNode(item)
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == "permissions" {
+			mapping.Content[i+1] = valueNode
+			return nil
+		}
+	}
+	// 不存在则追加 permissions 键
+	keyNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "permissions"}
+	mapping.Content = append(mapping.Content, keyNode, valueNode)
+	return nil
+}
+
+// buildPermissionsNode 构造 permissions 映射节点（mode 标量 + allow/ask/deny 序列）。
+func buildPermissionsNode(item permissionSettingsItem) *yaml.Node {
+	node := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	appendScalar := func(key, val string) {
+		node.Content = append(node.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: val},
+		)
+	}
+	appendSeq := func(key string, values []string) {
+		seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Content: make([]*yaml.Node, len(values))}
+		for i, v := range values {
+			seq.Content[i] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v}
+		}
+		// 空序列用流式 [] 表示，避免写出裸键
+		if len(values) == 0 {
+			seq.Style = yaml.FlowStyle
+		}
+		node.Content = append(node.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+			seq,
+		)
+	}
+	appendScalar("mode", item.Mode)
+	appendSeq("allow", item.Allow)
+	appendSeq("ask", item.Ask)
+	appendSeq("deny", item.Deny)
+	return node
 }

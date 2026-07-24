@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
   getOrchestration, getOrchStatus, getOrchGitStatus, initOrchGitRepo,
+  upsertOrchTask, deleteOrchTask, startOrchestration, stopOrchestration, saveOrchestration,
   type OrchestrationDef, type OrchestrationTask,
 } from '../api/orchestration'
 import { sessionUrl, newTaskUrl } from '../utils/routes'
@@ -11,9 +12,14 @@ import LoadingSpinner from './LoadingSpinner'
 import OrchestrationChatPanel from './OrchestrationChatPanel'
 import SplitPane from './SplitPane'
 import styles from './OrchestrationView.module.css'
-import { ChevronRight, ChevronDown, MessagesSquare, GitBranch } from 'lucide-react'
+import { ChevronRight, ChevronDown, MessagesSquare, GitBranch, Plus, FileJson, List, Play, Square, Trash2 } from 'lucide-react'
 
 const ACTIVE_STATUSES = new Set(['queued', 'running'])
+
+// 生成一个不与现有任务冲突的短 id（客户端新建任务用）。
+function genTaskId(): string {
+  return `t${Date.now().toString(36)}${Math.floor(Math.random() * 36).toString(36)}`
+}
 
 // 规范化后端返回的 def：确保 tasks 为数组（tasks.json 不存在/为空时后端可能省略 tasks 字段）。
 function normalizeDef(d: OrchestrationDef | null | undefined): OrchestrationDef {
@@ -47,6 +53,18 @@ export default function OrchestrationView({ workspaceId, cwd, agents, restoreSes
   // git 仓库状态：null=未知/加载中；true=是仓库；false=需初始化
   const [gitRepo, setGitRepo] = useState<boolean | null>(null)
   const [gitInitializing, setGitInitializing] = useState(false)
+
+  // 新建任务内联表单
+  const [showNewForm, setShowNewForm] = useState(false)
+  const [newTitle, setNewTitle] = useState('')
+  const [newPrompt, setNewPrompt] = useState('')
+  const [newAgent, setNewAgent] = useState('')
+  // JSON 查看/编辑模式
+  const [jsonMode, setJsonMode] = useState(false)
+  const [jsonText, setJsonText] = useState('')
+  const [jsonError, setJsonError] = useState('')
+  // 单任务操作（新建/启停/删除/保存）进行中，避免并发点击
+  const [busy, setBusy] = useState(false)
 
   // 检查当前工作目录是否为 git 仓库（编排任务需基于 worktree 隔离）
   useEffect(() => {
@@ -96,6 +114,114 @@ export default function OrchestrationView({ workspaceId, cwd, agents, restoreSes
     } catch { /* ignore */ }
   }
 
+  // 变更任务（新建/删除/保存）后用完整 def 刷新，保证 JSON 视图与 parent_session_id 准确。
+  async function reloadDef() {
+    if (!workspaceId) return
+    try {
+      const r = await getOrchestration(workspaceId)
+      setDef(normalizeDef(r.data))
+    } catch { /* ignore */ }
+  }
+
+  // 提交新建任务：prompt 必填（作为 detail），标题缺省取 prompt 首行。
+  async function handleCreateTask() {
+    if (!workspaceId || busy) return
+    const prompt = newPrompt.trim()
+    if (!prompt) { onError(t('orchestration.promptRequired')); return }
+    const title = newTitle.trim() || prompt.split('\n')[0].slice(0, 40)
+    const agentType = (newAgent || agents[0]?.type || '').trim()
+    setBusy(true)
+    try {
+      await upsertOrchTask(workspaceId, { id: genTaskId(), title, detail: prompt, agent_type: agentType })
+      setShowNewForm(false)
+      setNewTitle('')
+      setNewPrompt('')
+      await reloadDef()
+    } catch (e) {
+      onError(String((e as Error)?.message || e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function cancelNewForm() {
+    setShowNewForm(false)
+    setNewTitle('')
+    setNewPrompt('')
+  }
+
+  // 手动启动单个任务。
+  async function handleStartTask(task: OrchestrationTask) {
+    if (!workspaceId || busy) return
+    setBusy(true)
+    try {
+      await startOrchestration(workspaceId, task.id)
+      await reloadStatus()
+    } catch (e) {
+      onError(String((e as Error)?.message || e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // 停止单个运行中的任务。
+  async function handleStopTask(task: OrchestrationTask) {
+    if (!workspaceId || busy) return
+    setBusy(true)
+    try {
+      await stopOrchestration(workspaceId, task.id)
+      await reloadStatus()
+    } catch (e) {
+      onError(String((e as Error)?.message || e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // 删除单个任务（需确认）。
+  async function handleDeleteTask(task: OrchestrationTask) {
+    if (!workspaceId || busy) return
+    if (!window.confirm(t('orchestration.confirmDelete'))) return
+    setBusy(true)
+    try {
+      await deleteOrchTask(workspaceId, task.id)
+      await reloadDef()
+    } catch (e) {
+      onError(String((e as Error)?.message || e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // 进入 JSON 编辑模式：用当前 def 初始化文本。
+  function enterJsonMode() {
+    setJsonText(JSON.stringify(def, null, 2))
+    setJsonError('')
+    setJsonMode(true)
+  }
+
+  // 保存 JSON：解析后整体覆盖 tasks.json。
+  async function saveJson() {
+    if (!workspaceId || busy) return
+    let parsed: OrchestrationDef
+    try {
+      parsed = JSON.parse(jsonText)
+    } catch (e) {
+      setJsonError(t('orchestration.jsonInvalid') + ': ' + String((e as Error)?.message || e))
+      return
+    }
+    setBusy(true)
+    try {
+      await saveOrchestration(workspaceId, parsed)
+      await reloadDef()
+      setJsonMode(false)
+    } catch (e) {
+      onError(String((e as Error)?.message || e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   function toggleExpand(id: string) {
     setExpanded((prev) => {
       const next = new Set(prev)
@@ -133,8 +259,35 @@ export default function OrchestrationView({ workspaceId, cwd, agents, restoreSes
 
   return (
     <SplitPane dir="row" storageKey="orchestration" defaultFlexes={[1, 1]}>
-      {/* 左栏：任务列表。点击卡片展开/收起查看详情（无操作按钮，操作走右栏 AI 对话）。 */}
+      {/* 左栏：任务列表。顶部工具栏可新建任务 / 切换 JSON 视图；每个任务右侧可手动启停/删除。 */}
       <div className={styles.taskCol}>
+        {gitRepo !== false && (
+          <div className={styles.toolbar}>
+            <span className={styles.toolbarTitle}>{t('orchestration.groupTitle')}</span>
+            <div className={styles.toolbarActions}>
+              {!jsonMode && (
+                <button
+                  type="button"
+                  className={styles.toolbarBtn}
+                  onClick={() => { setShowNewForm((v) => !v); setNewAgent(agents[0]?.type || '') }}
+                  disabled={busy}
+                  title={t('orchestration.newTask')}
+                >
+                  <Plus size={14} /> {t('orchestration.newTask')}
+                </button>
+              )}
+              <button
+                type="button"
+                className={styles.toolbarBtn}
+                onClick={() => { if (jsonMode) { setJsonMode(false) } else { enterJsonMode() } }}
+                disabled={busy}
+                title={jsonMode ? t('orchestration.viewList') : t('orchestration.viewJson')}
+              >
+                {jsonMode ? <><List size={14} /> {t('orchestration.viewList')}</> : <><FileJson size={14} /> {t('orchestration.viewJson')}</>}
+              </button>
+            </div>
+          </div>
+        )}
         <div className={styles.taskScroll}>
           {gitRepo === false ? (
             <div className={styles.gitPrompt}>
@@ -151,12 +304,68 @@ export default function OrchestrationView({ workspaceId, cwd, agents, restoreSes
                 {gitInitializing ? t('orchestration.gitInitializing') : t('orchestration.gitInit')}
               </button>
             </div>
-          ) : def.tasks.length === 0 ? (
-            <div className={styles.empty}>{t('orchestration.empty')}</div>
+          ) : jsonMode ? (
+            <div className={styles.jsonEditor}>
+              <textarea
+                className={styles.jsonTextarea}
+                value={jsonText}
+                onChange={(e) => { setJsonText(e.target.value); setJsonError('') }}
+                spellCheck={false}
+              />
+              {jsonError && <div className={styles.jsonError}>{jsonError}</div>}
+              <div className={styles.jsonActions}>
+                <button type="button" className={styles.formCancel} onClick={() => setJsonMode(false)} disabled={busy}>
+                  {t('orchestration.cancel')}
+                </button>
+                <button type="button" className={styles.formConfirm} onClick={saveJson} disabled={busy}>
+                  {t('orchestration.save')}
+                </button>
+              </div>
+            </div>
           ) : (
             <div className={styles.taskList}>
-              {def.tasks.map((task) => {
+              {showNewForm && (
+                <div className={styles.newForm}>
+                  <input
+                    className={styles.formInput}
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    placeholder={t('orchestration.titlePlaceholder')}
+                  />
+                  <textarea
+                    className={styles.formTextarea}
+                    value={newPrompt}
+                    onChange={(e) => setNewPrompt(e.target.value)}
+                    placeholder={t('orchestration.promptPlaceholder')}
+                    autoFocus
+                  />
+                  {agents.length > 0 && (
+                    <select
+                      className={styles.formSelect}
+                      value={newAgent || agents[0]?.type || ''}
+                      onChange={(e) => setNewAgent(e.target.value)}
+                    >
+                      {agents.map((a) => (
+                        <option key={a.type} value={a.type}>{a.display_name || a.type}</option>
+                      ))}
+                    </select>
+                  )}
+                  <div className={styles.formActions}>
+                    <button type="button" className={styles.formCancel} onClick={cancelNewForm} disabled={busy}>
+                      {t('orchestration.cancel')}
+                    </button>
+                    <button type="button" className={styles.formConfirm} onClick={handleCreateTask} disabled={busy || !newPrompt.trim()}>
+                      {t('orchestration.create')}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {def.tasks.length === 0 && !showNewForm ? (
+                <div className={styles.empty}>{t('orchestration.empty')}</div>
+              ) : (
+                def.tasks.map((task) => {
                 const isOpen = expanded.has(task.id)
+                const isActive = ACTIVE_STATUSES.has(task.status)
                 return (
                   <div key={task.id} className={styles.taskCard}>
                     <div className={styles.taskHeader} onClick={() => toggleExpand(task.id)}>
@@ -175,8 +384,42 @@ export default function OrchestrationView({ workspaceId, cwd, agents, restoreSes
                           }}
                         >{task.title}</span>
                       </span>
-                      <span className={`${styles.taskStatus} ${styles[`status_${task.status}`] || ''}`}>
-                        {t(`orchestration.status_${task.status}`)}
+                      <span className={styles.taskHeaderRight}>
+                        <span className={`${styles.taskStatus} ${styles[`status_${task.status}`] || ''}`}>
+                          {t(`orchestration.status_${task.status}`)}
+                        </span>
+                        <span className={styles.taskActions} onClick={(e) => e.stopPropagation()}>
+                          {isActive ? (
+                            <button
+                              type="button"
+                              className={styles.taskActionBtn}
+                              onClick={() => handleStopTask(task)}
+                              disabled={busy}
+                              title={t('orchestration.stop')}
+                            >
+                              <Square size={13} />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className={styles.taskActionBtn}
+                              onClick={() => handleStartTask(task)}
+                              disabled={busy}
+                              title={t('orchestration.start')}
+                            >
+                              <Play size={13} />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className={`${styles.taskActionBtn} ${styles.taskActionDanger}`}
+                            onClick={() => handleDeleteTask(task)}
+                            disabled={busy}
+                            title={t('orchestration.delete')}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </span>
                       </span>
                     </div>
                     <div className={styles.taskMeta}>
@@ -215,7 +458,8 @@ export default function OrchestrationView({ workspaceId, cwd, agents, restoreSes
                     )}
                   </div>
                 )
-              })}
+                })
+              )}
             </div>
           )}
         </div>

@@ -38,6 +38,9 @@ type NavigateState = { initialPrompt?: string; createdSession?: Session; doc?: D
 
 type ConvState = ConvStatusState
 
+// 用户未保存过 agent 偏好时的默认选中 agent（仅当该 agent 已启用时生效）。
+const DEFAULT_AGENT_TYPE = 'cursor'
+
 export default function ChatPage() {
   const { t } = useTranslation()
   const { wid, sid } = useParams<{ wid?: string; sid?: string }>()
@@ -393,6 +396,9 @@ export default function ChatPage() {
         const types = agentsResp.data.agents.map((a: Agent) => a.type)
         if (prefs.last_agent_type && types.includes(prefs.last_agent_type)) {
           setSelectedAgent(prefs.last_agent_type)
+        } else if (types.includes(DEFAULT_AGENT_TYPE)) {
+          // 用户未保存过偏好时，优先默认选中 cursor（若已启用），否则退回首个 agent
+          setSelectedAgent(DEFAULT_AGENT_TYPE)
         } else {
           setSelectedAgent(agentsResp.data.agents[0].type)
         }

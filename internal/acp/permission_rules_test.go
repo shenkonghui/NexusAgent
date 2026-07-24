@@ -3,12 +3,12 @@ package acp
 import (
 	"testing"
 
-	"opennexus/internal/models"
+	"opennexus/internal/config"
 )
 
 func TestPermissionRules_PriorityDenyOverAllow(t *testing.T) {
 	r := PermissionRules{
-		Mode:  models.PermissionModeNormal,
+		Mode:  config.PermissionModeNormal,
 		Allow: []string{"Bash(git *)"},
 		Deny:  []string{"Bash(git push *)"},
 	}
@@ -24,7 +24,7 @@ func TestPermissionRules_PriorityDenyOverAllow(t *testing.T) {
 
 func TestPermissionRules_AllowOverAsk(t *testing.T) {
 	r := PermissionRules{
-		Mode:  models.PermissionModeNormal,
+		Mode:  config.PermissionModeNormal,
 		Allow: []string{"Bash(ls:*)"},
 		Ask:   []string{"Bash(ls:*)"}, // 故意重叠
 	}
@@ -36,7 +36,7 @@ func TestPermissionRules_AllowOverAsk(t *testing.T) {
 
 func TestPermissionRules_AskForcesPromptEvenInYolo(t *testing.T) {
 	r := PermissionRules{
-		Mode: models.PermissionModeYolo,
+		Mode: config.PermissionModeYolo,
 		Ask:  []string{"Bash(rm *)"},
 	}
 	// yolo 模式下命中 ask 仍走询问（`*` 跨 `/`）
@@ -46,14 +46,14 @@ func TestPermissionRules_AskForcesPromptEvenInYolo(t *testing.T) {
 }
 
 func TestPermissionRules_YoloAllowsUnmatched(t *testing.T) {
-	r := PermissionRules{Mode: models.PermissionModeYolo}
+	r := PermissionRules{Mode: config.PermissionModeYolo}
 	if got := r.Decide("Bash(anything)"); got != DecisionAllow {
 		t.Errorf("yolo 未命中应放行，期望 Allow，实际 %d", got)
 	}
 }
 
 func TestPermissionRules_NormalAsksUnmatched(t *testing.T) {
-	r := PermissionRules{Mode: models.PermissionModeNormal}
+	r := PermissionRules{Mode: config.PermissionModeNormal}
 	if got := r.Decide("Bash(anything)"); got != DecisionAsk {
 		t.Errorf("normal 未命中应询问，期望 Ask，实际 %d", got)
 	}
@@ -61,7 +61,7 @@ func TestPermissionRules_NormalAsksUnmatched(t *testing.T) {
 
 func TestPermissionRules_GlobAndCaseInsensitive(t *testing.T) {
 	r := PermissionRules{
-		Mode:  models.PermissionModeNormal,
+		Mode:  config.PermissionModeNormal,
 		Allow: []string{"Bash(git status *)"},
 	}
 	cases := map[string]Decision{
@@ -79,7 +79,7 @@ func TestPermissionRules_GlobAndCaseInsensitive(t *testing.T) {
 }
 
 func TestPermissionRules_EmptyTitle(t *testing.T) {
-	r := PermissionRules{Mode: models.PermissionModeYolo, Allow: []string{"*"}}
+	r := PermissionRules{Mode: config.PermissionModeYolo, Allow: []string{"*"}}
 	// 空 title 无法匹配，保守询问
 	if got := r.Decide(""); got != DecisionAsk {
 		t.Errorf("空 title 应询问，期望 Ask，实际 %d", got)
@@ -92,7 +92,7 @@ func TestPermissionRules_EmptyTitle(t *testing.T) {
 func TestPermissionRules_InvalidGlobFallsBackToExact(t *testing.T) {
 	// `[` 在 path.Match 中是非法模式，应回退到精确匹配（小写）
 	r := PermissionRules{
-		Mode:  models.PermissionModeNormal,
+		Mode:  config.PermissionModeNormal,
 		Allow: []string{"[invalid"},
 	}
 	if got := r.Decide("[invalid"); got != DecisionAllow {
@@ -103,24 +103,18 @@ func TestPermissionRules_InvalidGlobFallsBackToExact(t *testing.T) {
 	}
 }
 
-func TestBuildPermissionRules(t *testing.T) {
-	st := &models.PermissionSettings{
-		Mode:  "yolo",
-		Allow: `["Bash(ls:*)","Bash(git:*)"]`,
-		Ask:   `["Bash(docker:*)"]`,
-		Deny:  `["Bash(rm:*)"]`,
+func TestCleanRules(t *testing.T) {
+	// 去空白与空项；全空返回 nil
+	if got := cleanRules([]string{" Bash(ls) ", "", "  "}); len(got) != 1 || got[0] != "Bash(ls)" {
+		t.Errorf("cleanRules 清洗错误: %#v", got)
 	}
-	r := buildPermissionRules(st)
-	if r.Mode != "yolo" {
-		t.Errorf("期望 mode=yolo，实际 %q", r.Mode)
+	if got := cleanRules([]string{"", "   "}); got != nil {
+		t.Errorf("全空应返回 nil，实际 %#v", got)
 	}
-	if len(r.Allow) != 2 || len(r.Ask) != 1 || len(r.Deny) != 1 {
-		t.Errorf("列表解析错误: allow=%d ask=%d deny=%d", len(r.Allow), len(r.Ask), len(r.Deny))
-	}
-	// 空 mode 兜底 normal
-	st2 := &models.PermissionSettings{Allow: `[]`}
-	r2 := buildPermissionRules(st2)
-	if r2.Mode != models.PermissionModeNormal {
-		t.Errorf("空 mode 应回退 normal，实际 %q", r2.Mode)
+}
+
+func TestPermissionModeConstants(t *testing.T) {
+	if config.PermissionModeNormal != "normal" || config.PermissionModeYolo != "yolo" {
+		t.Errorf("权限模式常量取值异常: normal=%q yolo=%q", config.PermissionModeNormal, config.PermissionModeYolo)
 	}
 }

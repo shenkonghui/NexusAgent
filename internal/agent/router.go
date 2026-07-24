@@ -464,12 +464,20 @@ func (r *Router) HasActivePrompt(sessionID string) bool {
 	return r.service.HasActivePrompt(sessionID)
 }
 
-// ReloadPermissionRules 重新从 DB 读取用户权限规则并下发到所有连接（热更新）。
-func (r *Router) ReloadPermissionRules(userID uint) {
+// ApplyPermissions 把权限规则下发到所有连接（设置页保存后热更新）。
+func (r *Router) ApplyPermissions(mode string, allow, ask, deny []string) {
 	if r.service == nil {
 		return
 	}
-	r.service.ReloadPermissionRules(userID)
+	r.service.ApplyPermissions(mode, allow, ask, deny)
+}
+
+// CurrentPermissions 返回当前生效的权限规则（供设置页读取）。
+func (r *Router) CurrentPermissions() (mode string, allow, ask, deny []string) {
+	if r.service == nil {
+		return "", nil, nil, nil
+	}
+	return r.service.CurrentPermissions()
 }
 
 // ListInterruptedTasks 返回指定会话下因服务重启而中断的任务。

@@ -9,24 +9,12 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      # 持久化 SQLite 数据库与上传文件
-      - ./data:/app/data
-      # 持久化 npm/npx 缓存，容器重启后 npx 调用 claude-agent-acp 无需重新下载
+      - ./data:/root/.openNexus
       - opennexus-npm-cache:/root/.npm
-      # 如需覆盖默认配置，可挂载自己的 config.yaml
-      # - ./config.yaml:/app/config.yaml:ro
-      # 如需让 agent 访问宿主机工作区，可挂载目录（按需调整）
-      # - ./workspace:/app/workspace
     environment:
       - SERVER_MODE=release
       - SERVER_PORT=8080
       - JWT_SECRET=${JWT_SECRET:-nexusagent-dev-secret-key-32+bytes!}
-      # 如使用 Claude Code agent，需提供 Anthropic API Key
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      # 数据库路径（对应 config.go 中的 DATABASE_PATH 环境变量）
-      - DATABASE_PATH=/app/data/opennexus.db
-      # 会话工作区根目录，持久化到卷中避免容器重建丢失
-      - AGENTS_WORKSPACE_SESSION_DIR=/app/data/session
       # 默认时区
       - TZ=Asia/Shanghai
     healthcheck:

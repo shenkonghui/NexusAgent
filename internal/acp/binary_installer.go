@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -187,7 +188,7 @@ func ensureBinaryInstalled(agentID, version, archiveURL, cmd string) (string, er
 	binaryPath, err := resolveBinaryPath(versionDir, cmd)
 	if err != nil {
 		// 版本目录没有 → 下载
-		slog.Info("开始下载 binary", "agent", agentID, "version", version, "url", archiveURL)
+		slog.Info("开始下载 binary", "agent", agentID, "version", version, "dir", versionDir, "url", archiveURL)
 		if err := downloadAndExtract(archiveURL, versionDir); err != nil {
 			_ = os.RemoveAll(versionDir)
 			return "", fmt.Errorf("下载解压 binary: %w", err)
@@ -197,6 +198,9 @@ func ensureBinaryInstalled(agentID, version, archiveURL, cmd string) (string, er
 			_ = os.RemoveAll(versionDir)
 			return "", err
 		}
+	} else {
+		// 版本目录已存在且含 binary → 命中缓存，跳过下载
+		slog.Info("binary 命中版本目录缓存，跳过下载", "agent", agentID, "version", version, "dir", versionDir, "path", binaryPath)
 	}
 	_ = os.Chmod(binaryPath, 0o755)
 
@@ -430,13 +434,96 @@ func downloadArchiveOnce(client *http.Client, url string) (string, error) {
 		return "", fmt.Errorf("创建临时文件: %w", err)
 	}
 
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	// 包装响应体，每 5 秒打印一次下载进度（已下载字节 / 总大小 / 百分比）
+	pr := newProgressReader(resp.Body, resp.ContentLength, url)
+	defer pr.Stop()
+
+	if _, err := io.Copy(f, pr); err != nil {
 		f.Close()
 		os.Remove(f.Name())
 		return "", fmt.Errorf("下载写入: %w", err)
 	}
 	f.Close()
+	pr.logDone()
 	return f.Name(), nil
+}
+
+// progressReader 包装底层 io.Reader，累计已读字节，并由后台 ticker 每 5 秒打印一次进度。
+type progressReader struct {
+	r     io.Reader
+	url   string
+	total int64        // Content-Length，<=0 表示未知
+	read  atomic.Int64 // 已读字节数
+	stop  chan struct{}
+	once  sync.Once
+}
+
+func newProgressReader(r io.Reader, total int64, url string) *progressReader {
+	pr := &progressReader{
+		r:     r,
+		url:   url,
+		total: total,
+		stop:  make(chan struct{}),
+	}
+	go pr.loop()
+	return pr
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	if n > 0 {
+		p.read.Add(int64(n))
+	}
+	return n, err
+}
+
+func (p *progressReader) loop() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-p.stop:
+			return
+		case <-ticker.C:
+			p.log()
+		}
+	}
+}
+
+func (p *progressReader) log() {
+	read := p.read.Load()
+	if p.total > 0 {
+		percent := float64(read) / float64(p.total) * 100
+		slog.Info("下载进度", "url", p.url,
+			"downloaded", formatBytes(read), "total", formatBytes(p.total),
+			"percent", fmt.Sprintf("%.1f%%", percent))
+	} else {
+		slog.Info("下载进度", "url", p.url, "downloaded", formatBytes(read), "total", "未知")
+	}
+}
+
+// logDone 打印下载完成的最终进度。
+func (p *progressReader) logDone() {
+	read := p.read.Load()
+	slog.Info("下载完成", "url", p.url, "downloaded", formatBytes(read))
+}
+
+func (p *progressReader) Stop() {
+	p.once.Do(func() { close(p.stop) })
+}
+
+// formatBytes 将字节数格式化为易读单位（B/KB/MB/GB）。
+func formatBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
 // resolveBinaryPath 在缓存目录中定位二进制文件，支持压缩包内嵌子目录。

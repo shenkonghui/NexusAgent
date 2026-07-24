@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -48,6 +50,37 @@ func stopWithTimeout(name string, timeout time.Duration, stop func()) {
 	case <-time.After(timeout):
 		log.Printf("%s 退出超时，继续关闭", name)
 	}
+}
+
+// ensureBuiltinMCPToken 保证存在一个全局 MCP token：内置 MCP server（notes/subagent/
+// orchestration）依赖它生成 Authorization 头并写入 ~/.agents/mcp.json。启动同步
+// （SyncAllNotesMCP / SyncAllSubagentMCP）采用全局共享 token 策略，若一个 token 都没有
+// 则直接跳过写入，导致新安装时内置 MCP 不会出现在 mcp.json。此处在首次启动
+// （尚无任何 token）时为 admin 用户自动生成一个，使内置 MCP 开箱即用。
+func ensureBuiltinMCPToken(userRepo *repository.UserRepository, settingsRepo *repository.NoteSettingsRepository) {
+	list, err := settingsRepo.FindAllWithMcpToken()
+	if err != nil {
+		log.Printf("检查 MCP token 失败（跳过自动生成）: %v", err)
+		return
+	}
+	if len(list) > 0 {
+		return // 已有 token，复用全局共享 token
+	}
+	admin, err := userRepo.FindByUsername("admin")
+	if err != nil || admin == nil {
+		log.Printf("未找到 admin 用户，跳过 MCP token 自动生成: %v", err)
+		return
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		log.Printf("生成 MCP token 失败: %v", err)
+		return
+	}
+	if err := settingsRepo.SetMCPTokenOnce(admin.ID, hex.EncodeToString(b)); err != nil {
+		log.Printf("保存自动生成的 MCP token 失败: %v", err)
+		return
+	}
+	log.Printf("已为内置 MCP server 自动生成全局 MCP token（admin 用户）")
 }
 
 func main() {
@@ -130,6 +163,9 @@ func main() {
 	// 注入单轮 prompt 最大存活时间：prompt 的 ctx 与 HTTP/SSE 请求解耦，
 	// 此超时兜底防 agent 卡死导致 goroutine 永久泄漏（超时标记 interrupted）。
 	acpSvc.SetPromptMaxDuration(cfg.Agents.PromptMaxDuration)
+	// 全局权限规则（yolo/白名单/黑名单）来自 config.yaml 的 permissions 段。
+	// 启动时立即下发到 service（须在 PreconnectAllAsync 前，使新连接建连即拿到规则）。
+	acpSvc.ApplyPermissions(cfg.Permissions.Mode, cfg.Permissions.Allow, cfg.Permissions.Ask, cfg.Permissions.Deny)
 
 	// P2: Agent 注册表与路由
 	agentRegistry := agent.NewRegistry()
@@ -178,8 +214,6 @@ func main() {
 	// 启动健康检查与自动重连 goroutine（定期检查连接状态，断开自动重连）。
 	// 同时启动心跳续约 goroutine，向 acp_connections 表续约，供 watchdog 判活。
 	acpSvc.StartHealthCheck()
-	// 启动时恢复已保存的全局权限规则（须在预连接前，使新连接建连即拿到规则）。
-	acpSvc.LoadPermissionRulesAtStartup()
 	// 异步为所有已注册 agent 预建立共享 ACP 连接（每类 agent 一个常驻进程）。
 	// 每个 agent 独立 goroutine 连接，不阻塞服务启动；连接失败由健康检查自动重连。
 	acpSvc.PreconnectAllAsync()
@@ -213,6 +247,10 @@ func main() {
 		publicBase = fmt.Sprintf("http://127.0.0.1:%d", cfg.Server.Port)
 	}
 	noteH := handlers.NewNoteHandler(noteRepo, noteSettingsRepo, noteClassifier, cfg.Agents.MCP.ConfigPath, publicBase)
+	// 保证存在全局 MCP token：内置 MCP server（notes/subagent/orchestration）依赖它才会
+	// 被写入 ~/.agents/mcp.json。首次启动尚无任何 token 时自动生成，使内置 MCP 开箱即用，
+	// 无需手动到设置页点"生成 MCP Token"。
+	ensureBuiltinMCPToken(repository.NewUserRepository(db), noteSettingsRepo)
 	// 启动时把已生成 token 的笔记 MCP 同步到全局 mcp.json（为存量 token 补写配置）。
 	noteH.SyncAllNotesMCP()
 	acpSvc.SetNotesMCP(noteSettingsRepo, publicBase)
@@ -226,10 +264,8 @@ func main() {
 	taskSettingsH := handlers.NewTaskSettingsHandler(taskSettingsRepo)
 	agentPrefsH := handlers.NewAgentPrefsHandler(repository.NewUserAgentPrefsRepository(db))
 
-	// 全局权限规则（yolo / 白名单 / 黑名单）：注入仓库 + 启动时初始下发规则到所有连接
-	permSettingsRepo := repository.NewPermissionSettingsRepository(db)
-	acpSvc.SetPermissionSettings(permSettingsRepo)
-	permSettingsH := handlers.NewPermissionSettingsHandler(permSettingsRepo, agentRouter)
+	// 全局权限规则（yolo / 白名单 / 黑名单）：配置来自 config.yaml，设置页保存时写回文件并热更新到所有连接
+	permSettingsH := handlers.NewPermissionSettingsHandler(cfgPath, agentRouter)
 
 	configH := handlers.NewConfigHandler(cfgPath, acpSvc)
 	mcpH := handlers.NewMCPHandler(cfg.Agents.MCP.ConfigPath)
@@ -436,16 +472,30 @@ func seedDefaultClaudeCodeAgent(repo *repository.AgentConfigRepository, cc confi
 	}
 }
 
-// loadRegistryAgents 从内嵌的 registry.json 加载所有 agent，合并写入数据库。
+// loadRegistryAgents 加载 ACP registry 并合并写入数据库。
+// 启动时默认先从 CDN 拉取最新 registry（更新一次）；网络失败则回退到内嵌的 registry.json。
 // 合并语义：新 agent 以 enabled=false 创建；已有 agent 仅刷新名称/描述，保留用户修改。
 // 不在此处注册 backend——统一交由 loadDBAgentConfigs 根据 DB 中的 enabled 状态注册。
 func loadRegistryAgents(repo *repository.AgentConfigRepository) {
-	agents, err := acp.FetchEmbeddedRegistry()
-	if err != nil {
-		log.Printf("加载内嵌 registry 失败: %v", err)
-		return
+	var agents []acp.RegistryAgent
+	source := "cdn"
+	if doc, err := acp.FetchRegistryFull(); err != nil {
+		log.Printf("启动更新 registry 失败，回退内嵌 registry: %v", err)
+		source = "embedded"
+	} else {
+		agents = doc.Agents
+		log.Printf("已从 CDN 拉取最新 registry（version=%s）", doc.Version)
 	}
-	log.Printf("加载到 %d 个 agent", len(agents))
+	if len(agents) == 0 {
+		embedded, err := acp.FetchEmbeddedRegistry()
+		if err != nil {
+			log.Printf("加载内嵌 registry 失败: %v", err)
+			return
+		}
+		agents = embedded
+		source = "embedded"
+	}
+	log.Printf("加载到 %d 个 agent（来源 %s）", len(agents), source)
 
 	added, updated, _ := acp.SyncRegistryToStore(agents, repo)
 	log.Printf("registry agent 已同步到数据库（新增 %d，更新 %d），等待用户在设置中启用", added, updated)

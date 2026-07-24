@@ -66,13 +66,8 @@ func (h *TerminalHandler) HandleTerminal(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": gin.H{"code": "SESSION_NOT_FOUND", "message": "会话不存在"}})
 		return
 	}
-	// 获取 cwd，优先从 workspace 获取
-	cwd := sess.Cwd
-	if sess.WorkspaceID != nil {
-		if ws, err := h.store.GetWorkspaceCwd(*sess.WorkspaceID); err == nil {
-			cwd = ws
-		}
-	}
+	// 获取 cwd：普通会话取工作区 cwd，编排任务会话取其 git worktree 路径（见 resolveSessionWorkingDir）。
+	cwd := resolveSessionWorkingDir(h.store, sess)
 	if cwd == "" {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": gin.H{"code": "NO_CWD", "message": "该会话没有工作目录"}})
 		return
@@ -97,11 +92,9 @@ func (h *TerminalHandler) HandleTerminal(c *gin.Context) {
 	}
 	defer conn.Close()
 
-	// 4. 启动 PTY shell
-	shell := findShell()
-	cmd := exec.Command(shell)
-	cmd.Dir = cwdAbs
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	// 4. 启动 PTY shell（提示符仅显示当前目录最后一级，而非完整路径）
+	cmd, cleanup := buildTerminalCommand(cwdAbs)
+	defer cleanup()
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
@@ -170,6 +163,57 @@ func findShell() string {
 		}
 	}
 	return "/bin/sh"
+}
+
+// buildTerminalCommand 构造在 cwd 下启动的交互式 shell 命令，并将提示符改为仅显示
+// 当前目录的最后一级（如 task-001），而非完整路径。返回清理函数用于删除临时 rc 文件。
+//
+// 由于用户的 .zshrc/.bashrc 通常会自定义提示符，仅设置 PROMPT/PS1 环境变量会被其覆盖，
+// 因此对 zsh 使用临时 ZDOTDIR、对 bash 使用 --rcfile：先加载用户原有配置，再覆盖提示符；
+// sh 及回退情况直接通过 PS1 环境变量设置（POSIX shell 无 rc 覆盖问题）。
+func buildTerminalCommand(cwd string) (*exec.Cmd, func()) {
+	shell := findShell()
+	env := append(os.Environ(), "TERM=xterm-256color")
+	cleanup := func() {}
+
+	switch filepath.Base(shell) {
+	case "zsh":
+		if dir, err := os.MkdirTemp("", "onx-zsh-"); err == nil {
+			orig := os.Getenv("ZDOTDIR")
+			if orig == "" {
+				orig = os.Getenv("HOME")
+			}
+			// %1~ 表示当前路径的最后一级目录（在 $HOME 下显示为 ~）。
+			rc := "[[ -f \"" + orig + "/.zshrc\" ]] && source \"" + orig + "/.zshrc\"\nPROMPT='%1~ %# '\nRPROMPT=''\n"
+			if werr := os.WriteFile(filepath.Join(dir, ".zshrc"), []byte(rc), 0o600); werr == nil {
+				env = append(env, "ZDOTDIR="+dir)
+				cleanup = func() { _ = os.RemoveAll(dir) }
+			} else {
+				_ = os.RemoveAll(dir)
+			}
+		}
+		cmd := exec.Command(shell)
+		cmd.Dir = cwd
+		cmd.Env = env
+		return cmd, cleanup
+	case "bash":
+		if f, err := os.CreateTemp("", "onx-bash-*.sh"); err == nil {
+			// \W 表示当前工作目录的最后一级（basename）。
+			_, _ = f.WriteString("[ -f \"$HOME/.bashrc\" ] && source \"$HOME/.bashrc\"\nPS1='\\W \\$ '\n")
+			_ = f.Close()
+			cmd := exec.Command(shell, "--rcfile", f.Name(), "-i")
+			cmd.Dir = cwd
+			cmd.Env = env
+			return cmd, func() { _ = os.Remove(f.Name()) }
+		}
+		fallthrough
+	default:
+		// sh 及回退：${PWD##*/} 在每次显示提示符时取 $PWD 的最后一级路径。
+		cmd := exec.Command(shell)
+		cmd.Dir = cwd
+		cmd.Env = append(env, "PS1=${PWD##*/} $ ")
+		return cmd, cleanup
+	}
 }
 
 // 确保 models 包被引用（避免未使用导入）

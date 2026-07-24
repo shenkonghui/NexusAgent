@@ -16,6 +16,56 @@
   background: var(--bg-base);
 }
 
+/* ===== 顶部工具栏（新建任务 / 切换 JSON 视图） ===== */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.toolbarTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbarActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.toolbarBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.toolbarBtn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.toolbarBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .chatCol {
   display: flex;
   flex-direction: column;
@@ -296,4 +346,169 @@
 .openChatLink:hover {
   background: var(--accent);
   color: var(--text-on-accent);
+}
+
+/* ===== 头部右侧：状态 + 启停/删除操作 ===== */
+.taskHeaderRight {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.taskActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.taskActionBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.taskActionBtn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+.taskActionDanger:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.taskActionBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ===== 新建任务内联表单 ===== */
+.newForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.formInput,
+.formTextarea,
+.formSelect {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+  font-family: inherit;
+}
+
+.formTextarea {
+  min-height: 88px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.formInput:focus,
+.formTextarea:focus,
+.formSelect:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.formActions,
+.jsonActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.formConfirm {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: 6px;
+  padding: 5px 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.formConfirm:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.formConfirm:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.formCancel {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.formCancel:hover:not(:disabled) {
+  border-color: var(--text-secondary);
+}
+
+.formCancel:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ===== JSON 查看/编辑模式 ===== */
+.jsonEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+}
+
+.jsonTextarea {
+  flex: 1;
+  min-height: 240px;
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  tab-size: 2;
+}
+
+.jsonTextarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.jsonError {
+  font-size: 12px;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-radius: 4px;
+  padding: 6px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }

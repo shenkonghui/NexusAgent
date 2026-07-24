@@ -42,12 +42,7 @@ func (h *SessionFileHandler) resolveSessionPath(c *gin.Context) (*models.Session
 	if !ok {
 		return nil, "", false
 	}
-	cwd := sess.Cwd
-	if sess.WorkspaceID != nil {
-		if ws, err := h.store.GetWorkspaceCwd(*sess.WorkspaceID); err == nil {
-			cwd = ws
-		}
-	}
+	cwd := resolveSessionWorkingDir(h.store, sess)
 	if cwd == "" {
 		Fail(c, http.StatusBadRequest, "NO_CWD", "该会话没有工作目录")
 		return nil, "", false
@@ -403,18 +398,13 @@ func applyUndoDiffs(cwd string, items []undoDiffItem) (restored, deleted int, er
 	return
 }
 
-// resolveSessionCwd 加载会话并解析工作目录（workspace 优先于 session.Cwd）。
+// resolveSessionCwd 加载会话并解析工作目录（普通会话取工作区 cwd，编排任务取 worktree 路径）。
 func (h *SessionFileHandler) resolveSessionCwd(c *gin.Context) (*models.Session, string, bool) {
 	sess, ok := h.loadOwnedSession(c)
 	if !ok {
 		return nil, "", false
 	}
-	cwd := sess.Cwd
-	if sess.WorkspaceID != nil {
-		if ws, err := h.store.GetWorkspaceCwd(*sess.WorkspaceID); err == nil {
-			cwd = ws
-		}
-	}
+	cwd := resolveSessionWorkingDir(h.store, sess)
 	if cwd == "" {
 		Fail(c, http.StatusBadRequest, "NO_CWD", "该会话没有工作目录")
 		return nil, "", false
