@@ -124,6 +124,42 @@
   margin-left: auto;
 }
 
+.yoloBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.yoloBtn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.yoloBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.yoloBtnOn {
+  color: var(--accent);
+  border-color: var(--accent-border);
+  background: var(--accent-subtle);
+}
+
+.yoloBtnOn:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-subtle);
+}
+
 .fileBtn {
   padding: 6px 14px;
   background: var(--bg-hover);

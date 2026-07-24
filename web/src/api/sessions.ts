@@ -1,13 +1,14 @@
 import type { Session, Message, AgentCommand, ConfigOption, SessionMode, AgentSkill, Execution, RunningTask } from '../types'
 import { apiFetch } from './client'
 
-// 创建会话（可选 model_value 指定初始模型，可选 workspace_id，可选 source 标记来源，可选 cwd 指定自定义工作目录）
+// 创建会话（可选 model_value 指定初始模型，可选 workspace_id，可选 source 标记来源，可选 cwd 指定自定义工作目录，可选 yolo）
 export function createSession(
   agentType: string,
   workspaceId?: number,
   modelValue?: string,
   source?: 'manual' | 'orchestration',
   cwd?: string,
+  yolo?: boolean,
 ): Promise<{ data: Session }> {
   return apiFetch('/sessions', {
     method: 'POST',
@@ -17,6 +18,7 @@ export function createSession(
       model_value: modelValue || '',
       ...(source ? { source } : {}),
       ...(cwd ? { cwd } : {}),
+      ...(yolo ? { yolo: true } : {}),
     }),
   })
 }
@@ -42,6 +44,14 @@ export function updateSessionTitle(id: number, title: string): Promise<{ data: S
   return apiFetch(`/sessions/${id}/title`, {
     method: 'PUT',
     body: JSON.stringify({ title }),
+  })
+}
+
+// 按任务开关 YOLO（白/黑/询问名单仍全局生效）
+export function setSessionYolo(id: number, yolo: boolean): Promise<{ data: Session }> {
+  return apiFetch(`/sessions/${id}/yolo`, {
+    method: 'PUT',
+    body: JSON.stringify({ yolo }),
   })
 }
 

@@ -126,10 +126,12 @@ type Service struct {
 	// 同时兜底防 agent 卡死导致 goroutine 永久泄漏。SetPromptMaxDuration 注入；0=默认 30min。
 	promptMaxDuration time.Duration
 
-	// activePermRules 当前生效的全局权限规则（全局下发到所有连接的 broker）。
+	// activePermRules 当前生效的全局权限规则（白/询问/黑名单，全局下发到所有连接的 broker）。
 	// 规则来自 config.yaml 的 permissions 段：启动时由 ApplyPermissions 下发，
-	// 设置页保存后热更新。nil=无规则（行为同旧，全部询问）。
+	// 设置页保存后热更新。nil=无规则（未开会话 yolo 时全部询问）。
 	activePermRules atomic.Pointer[PermissionRules]
+	// sessionYolo 按 ACP SessionId 记录会话级 YOLO 开关（名单仍走 activePermRules）。
+	sessionYolo sync.Map
 }
 
 // TaskMetaTrigger 由任务元数据服务实现，发起任务时异步调用以打标签和生成标题。
@@ -292,12 +294,39 @@ func (s *Service) effectivePromptMaxDuration() time.Duration {
 	return defaultPromptMaxDuration
 }
 
-// applyRulesToConnection 把当前生效的权限规则下发到指定连接的 broker。
+// applyRulesToConnection 把当前生效的权限规则与 YOLO 查询下发到指定连接的 broker。
 func (s *Service) applyRulesToConnection(conn *Connection) {
 	if conn == nil {
 		return
 	}
 	conn.Client().perm.setRules(s.activePermRules.Load())
+	conn.Client().SetYoloCheck(s.isACPSessionYolo)
+}
+
+// isACPSessionYolo 供 permissionBroker 查询会话 YOLO（按 ACP SessionId）。
+func (s *Service) isACPSessionYolo(id acp.SessionId) bool {
+	v, ok := s.sessionYolo.Load(string(id))
+	return ok && v.(bool)
+}
+
+// bindACPSessionYolo 绑定/清除 ACP 会话的 YOLO 运行态。
+func (s *Service) bindACPSessionYolo(acpSID string, yolo bool) {
+	if acpSID == "" {
+		return
+	}
+	if yolo {
+		s.sessionYolo.Store(acpSID, true)
+		return
+	}
+	s.sessionYolo.Delete(acpSID)
+}
+
+// rebindACPSessionYolo 在 ACP SessionId 轮换时迁移 YOLO 运行态。
+func (s *Service) rebindACPSessionYolo(oldACP, newACP string, yolo bool) {
+	if oldACP != "" && oldACP != newACP {
+		s.sessionYolo.Delete(oldACP)
+	}
+	s.bindACPSessionYolo(newACP, yolo)
 }
 
 // applyRulesToAllConnections 把当前生效的权限规则下发到所有活跃连接的 broker。
@@ -311,6 +340,7 @@ func (s *Service) applyRulesToAllConnections() {
 	s.mu.RUnlock()
 	for _, conn := range conns {
 		conn.Client().perm.setRules(rules)
+		conn.Client().SetYoloCheck(s.isACPSessionYolo)
 	}
 }
 
@@ -1245,6 +1275,7 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 
 		session.AgentSessionID = newAgentSID
 		session.Status = models.SessionStatusActive
+		s.rebindACPSessionYolo("", newAgentSID, session.Yolo)
 
 		// 应用用户在创建会话时选择的模型（configOptions 在激活时才可用，故延迟到此设置）
 		if modelValue := strings.TrimSpace(session.ModelValue); modelValue != "" {
@@ -1706,6 +1737,7 @@ func (s *Service) DeleteSession(ctx context.Context, sessionID string) error {
 	wsID := session.WorkspaceID
 
 	s.debugUnregister(agentSessionID(session))
+	s.bindACPSessionYolo(agentSessionID(session), false)
 	s.detachAndReleaseConn(ctx, session)
 
 	// 先删消息再删会话，避免孤儿消息
@@ -1821,6 +1853,20 @@ func (s *Service) GetSession(sessionID string) (*models.Session, error) {
 // UpdateTitle 更新会话标题。
 func (s *Service) UpdateTitle(dbSessionID uint, title string) error {
 	return s.sessions.UpdateTitle(dbSessionID, title)
+}
+
+// SetSessionYolo 设置会话级 YOLO，并同步到权限 broker 运行态。
+func (s *Service) SetSessionYolo(dbSessionID uint, yolo bool) (*models.Session, error) {
+	sess, err := s.sessions.FindByID(dbSessionID)
+	if err != nil {
+		return nil, ErrSessionNotFound
+	}
+	if err := s.sessions.UpdateYolo(dbSessionID, yolo); err != nil {
+		return nil, err
+	}
+	sess.Yolo = yolo
+	s.bindACPSessionYolo(agentSessionID(sess), yolo)
+	return sess, nil
 }
 
 // RecoverActiveSessions 在服务启动时调用：
@@ -2519,6 +2565,7 @@ func (s *Service) ResumeSession(ctx context.Context, sessionID string) (*models.
 	s.debugLog(session.ID, "resume_session", newAgentSID, map[string]any{
 		"agent": session.AgentType, "cwd": cwd,
 	})
+	s.rebindACPSessionYolo(oldAgentSID, newAgentSID, session.Yolo)
 
 	// 返回更新后的 session
 	return s.sessions.FindByID(session.ID)
@@ -2601,6 +2648,7 @@ func (s *Service) ClearContext(ctx context.Context, sessionID string) (*models.S
 	s.debugLog(session.ID, "clear_context", newAgentSID, map[string]any{
 		"agent": session.AgentType, "cwd": cwd,
 	})
+	s.rebindACPSessionYolo(oldAgentSID, newAgentSID, session.Yolo)
 
 	// 追加一条 used=0 的 usage_update，使前端上下文占用立即归零（保留原窗口大小以维持展示）。
 	// 仅需最近一次 usage_update 的 size，无需全量加载历史。
@@ -2881,6 +2929,7 @@ func (s *Service) FindSessionsByWorkspaceID(workspaceID uint) ([]models.Session,
 // 调用方（workspace_handler 删除循环）无 ctx，故使用 context.Background()。
 func (s *Service) DeleteSessionWithMessages(session *models.Session) error {
 	s.debugUnregister(agentSessionID(session))
+	s.bindACPSessionYolo(agentSessionID(session), false)
 	s.detachAndReleaseConn(context.Background(), session)
 	if err := s.messages.DeleteByDBSessionID(session.ID); err != nil {
 		return err

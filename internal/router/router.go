@@ -77,6 +77,7 @@ func Setup(authSvc *services.AuthService, jwtSvc *services.JWTService, agentRout
 			protected.GET("/sessions/running", sessionH.RunningSessions)
 			protected.GET("/sessions/:id", sessionH.Get)
 			protected.PUT("/sessions/:id/title", sessionH.UpdateTitle)
+			protected.PUT("/sessions/:id/yolo", sessionH.UpdateYolo)
 			protected.DELETE("/sessions/:id", sessionH.Delete)
 			protected.POST("/sessions/:id/prompt", sessionH.Prompt)
 			protected.POST("/sessions/:id/cancel", sessionH.Cancel)

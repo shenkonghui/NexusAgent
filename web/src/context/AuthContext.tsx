@@ -52,14 +52,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
-        try {
-          const resp = await authApi.autoLogin()
-          localStorage.setItem('access_token', resp.access_token)
-          localStorage.setItem('refresh_token', resp.refresh_token)
-          setUser(resp.user)
-        } catch {
-          // auto_login 未启用或失败，展示登录页
+        for (let attempt = 0; attempt < AUTH_INIT_RETRIES; attempt += 1) {
+          try {
+            const resp = await authApi.autoLogin()
+            localStorage.setItem('access_token', resp.access_token)
+            localStorage.setItem('refresh_token', resp.refresh_token)
+            setUser(resp.user)
+            return
+          } catch {
+            await waitForBackend(attempt)
+          }
         }
+        // auto_login 未启用或后端未就绪，展示登录页
       } finally {
         setLoading(false)
       }

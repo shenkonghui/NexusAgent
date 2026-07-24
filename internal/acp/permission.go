@@ -33,8 +33,11 @@ type permissionBroker struct {
 	seq     atomic.Uint64
 	waiters map[acp.SessionId]chan PermissionNotify
 	pending map[string]pendingPermission
-	// rules 全局权限规则（yolo/白名单/黑名单）。nil=无规则，行为同旧（全部询问）。
+	// rules 全局权限规则（白名单/黑名单/询问名单）。nil=无规则，未开 yolo 时全部询问。
 	rules atomic.Pointer[PermissionRules]
+	// yoloCheck 查询会话是否开启 YOLO（由 Service 注入，按 ACP SessionId 查）。
+	yoloMu    sync.RWMutex
+	yoloCheck func(acp.SessionId) bool
 }
 
 func newPermissionBroker() *permissionBroker {
@@ -52,6 +55,23 @@ func (b *permissionBroker) setRules(rules *PermissionRules) {
 	}
 	cp := *rules
 	b.rules.Store(&cp)
+}
+
+// setYoloCheck 注入会话 YOLO 查询函数（按 ACP SessionId）。
+func (b *permissionBroker) setYoloCheck(fn func(acp.SessionId) bool) {
+	b.yoloMu.Lock()
+	b.yoloCheck = fn
+	b.yoloMu.Unlock()
+}
+
+func (b *permissionBroker) isYolo(sessionID acp.SessionId) bool {
+	b.yoloMu.RLock()
+	fn := b.yoloCheck
+	b.yoloMu.RUnlock()
+	if fn == nil {
+		return false
+	}
+	return fn(sessionID)
 }
 
 func (b *permissionBroker) registerWaiter(sessionID acp.SessionId) chan PermissionNotify {
@@ -98,15 +118,18 @@ func (b *permissionBroker) request(ctx context.Context, params acp.RequestPermis
 		return autoApprovePermission(params), nil
 	}
 
-	// 全局权限规则匹配（yolo / 白名单 / 黑名单）：在入队 UI 之前裁决，
-	// 命中 allow/yolo→自动放行，命中 deny→自动拒绝，命中 ask 或 normal 未命中→继续走 UI 询问。
+	// 全局名单 + 会话 YOLO：在入队 UI 之前裁决，
+	// 命中 allow / 会话 yolo→自动放行，命中 deny→自动拒绝，命中 ask 或未命中→继续走 UI 询问。
+	yolo := b.isYolo(params.SessionId)
 	if rules := b.rules.Load(); rules != nil {
-		switch rules.Decide(toolCallTitle(params)) {
+		switch rules.Decide(toolCallTitle(params), yolo) {
 		case DecisionAllow:
 			return autoApprovePermission(params), nil
 		case DecisionDeny:
 			return autoRejectPermission(params), nil
 		}
+	} else if yolo {
+		return autoApprovePermission(params), nil
 	}
 
 	requestID := fmt.Sprintf("perm-%d", b.seq.Add(1))
@@ -251,7 +274,7 @@ func (b *permissionBroker) removePending(requestID string) {
 
 func autoApprovePermission(params acp.RequestPermissionRequest) acp.RequestPermissionResponse {
 	// 必须优先 allow-once：若选 allow-always，agent（如 CodeBuddy）会把本会话记成永久放行，
-	// 关掉全局 yolo 后现有会话仍会自动跑命令。
+	// 关掉会话 yolo 后现有会话仍会自动跑命令。
 	pick := func(kind acp.PermissionOptionKind) *acp.PermissionOptionId {
 		for i := range params.Options {
 			if params.Options[i].Kind == kind {

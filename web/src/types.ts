@@ -125,6 +125,8 @@ export interface Session {
   closed_at: string | null;
   // 标签 JSON 数组字符串，如 '["后端","mysql"]'，由任务自动分类写入
   tags?: string;
+  /** 本任务是否开启 YOLO（未命中全局黑/白/询问名单时自动放行） */
+  yolo?: boolean;
 }
 
 // 消息
@@ -269,10 +271,10 @@ export interface TaskSettings {
   title_prompt: string;
 }
 
-// 全局权限规则配置（yolo / 白名单 / 黑名单）。
-// mode=normal：按列表匹配，未命中→询问；mode=yolo：全部放行（deny 命中除外）。
+// 全局权限规则配置（白名单 / 询问名单 / 黑名单，对所有会话生效）。
+// YOLO 改为按任务开关，mode 仅兼容旧配置读写（设置页不再暴露）。
 // 规则按 agent 上报的工具调用标题匹配，支持 `*` 通配符（如 "Bash(git status *)"）。
-// 优先级：deny > allow > ask。
+// 优先级：deny > allow > ask > (会话 yolo→allow | 询问)。
 export interface PermissionSettings {
   mode: 'normal' | 'yolo';
   allow: string[];

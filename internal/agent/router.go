@@ -222,6 +222,14 @@ func (r *Router) UpdateTitle(dbSessionID uint, title string) error {
 	return r.service.UpdateTitle(dbSessionID, title)
 }
 
+// SetSessionYolo 设置会话级 YOLO，委托 service。
+func (r *Router) SetSessionYolo(dbSessionID uint, yolo bool) (*models.Session, error) {
+	if r.service == nil {
+		return nil, errors.New("service 未配置")
+	}
+	return r.service.SetSessionYolo(dbSessionID, yolo)
+}
+
 // ListAgentStatus 返回所有 agent 类型的连接状态，委托 service。
 func (r *Router) ListAgentStatus() []acp.AgentStatus {
 	if r.service == nil {

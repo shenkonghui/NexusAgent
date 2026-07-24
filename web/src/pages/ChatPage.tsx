@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useRequireAuth } from '../hooks/useRequireAuth'
-import { getSession, listMessages, cancelSession, listCommands, listModes, listSkills, listConfigOptions, setConfigOption, setSessionMode, respondPermission, deleteSession, updateSessionTitle, createSession, resumeSession, listSessionExecutions, getInterruptedTasks } from '../api/sessions'
+import { getSession, listMessages, cancelSession, listCommands, listModes, listSkills, listConfigOptions, setConfigOption, setSessionMode, respondPermission, deleteSession, updateSessionTitle, createSession, resumeSession, listSessionExecutions, getInterruptedTasks, setSessionYolo } from '../api/sessions'
 import { getWorkspace } from '../api/workspaces'
 import { listScheduledTasks, listExecutions } from '../api/scheduledTasks'
 import { listAgents, probeAgentConfigs, preconnectAgent, listAgentCommands, listAgentModes } from '../api/agents'
@@ -22,7 +22,7 @@ import WorkspaceSelector from '../components/WorkspaceSelector'
 import { type ConvState as ConvStatusState } from '../components/ConvStatusBar'
 import TaskModeSwitch, { type TaskMode } from '../components/TaskModeSwitch'
 import OrchestrationView from '../components/OrchestrationView'
-import { Plus, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { Plus, PanelRightClose, PanelRightOpen, Zap } from 'lucide-react'
 import { useFileViewer } from '../context/FileViewerContext'
 import { saveLastDoc, loadDocFolders, loadDocSession, saveDocSession, clearDocSession, TASK_MODE_KEY, LAST_DOC_KEY_PREFIX, type DocTarget } from '../utils/docs'
 import { docEditSystemPrompt, docSessionTitle } from '../utils/docPrompt'
@@ -293,6 +293,9 @@ export default function ChatPage() {
   const [probeConfigs, setProbeConfigs] = useState<ConfigOption[]>([])
   const [probing, setProbing] = useState(false)
   const [creating, setCreating] = useState(false)
+  // 新建任务页：YOLO 草稿，创建会话时写入
+  const [yoloDraft, setYoloDraft] = useState(false)
+  const [yoloSaving, setYoloSaving] = useState(false)
   const [homeCommands, setHomeCommands] = useState<AgentCommand[]>([])
   const [homeModes, setHomeModes] = useState<SessionMode[]>([])
   const [homeSkills, setHomeSkills] = useState<AgentSkill[]>([])
@@ -821,7 +824,7 @@ export default function ChatPage() {
     if (!selectedAgent || creating) return
     setCreating(true); setError('')
     try {
-      const resp = await createSession(selectedAgent, workspaceId || 0, selectedModel || undefined, undefined, taskCwd || undefined)
+      const resp = await createSession(selectedAgent, workspaceId || 0, selectedModel || undefined, undefined, taskCwd || undefined, yoloDraft)
       const extras = probeConfigs.filter((o) => o.type === 'select' && o.category !== 'model' && o.current_value)
       for (const o of extras) {
         try { await setConfigOption(resp.data.id, o.id, o.current_value) } catch { /* 部分失败可接受 */ }
@@ -1020,7 +1023,7 @@ export default function ChatPage() {
             if (prefs.data.last_agent_type) agentType = prefs.data.last_agent_type
           } catch { /* 回退默认 */ }
         }
-        const resp = await createSession(agentType, workspaceId, selectedModel || undefined)
+        const resp = await createSession(agentType, workspaceId, selectedModel || undefined, undefined, undefined, yoloDraft)
         sid = resp.data.id
         setDocSession(resp.data)
         // 持久化为该工作区的文档共享会话，后续打开任意文档都复用它
@@ -1355,6 +1358,30 @@ export default function ChatPage() {
     catch (err) { setError(err instanceof Error ? err.message : t('common.failed')) }
   }
 
+  // 按当前会话开关 YOLO：编码会话 / 文档会话各自独立；尚无会话时改草稿，创建时写入。
+  async function handleToggleYolo() {
+    const target = taskMode === 'docs' ? docSession : (hasSession ? activeSession : null)
+    if (!target) {
+      setYoloDraft((v) => !v)
+      return
+    }
+    if (yoloSaving) return
+    setYoloSaving(true)
+    setError('')
+    try {
+      const resp = await setSessionYolo(target.id, !target.yolo)
+      if (taskMode === 'docs') setDocSession(resp.data)
+      else setSession(resp.data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.failed'))
+    } finally {
+      setYoloSaving(false)
+    }
+  }
+
+  const yoloTarget = taskMode === 'docs' ? docSession : (hasSession ? activeSession : null)
+  const yoloEnabled = yoloTarget ? !!yoloTarget.yolo : yoloDraft
+
   if (authLoading) return <LoadingSpinner text={t('common.loading')} />
   if (!user) return null
 
@@ -1535,6 +1562,16 @@ export default function ChatPage() {
                     {leftHidden ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}
                   </button>
                 )}
+                <button
+                  type="button"
+                  className={`${styles.yoloBtn} ${yoloEnabled ? styles.yoloBtnOn : ''}`}
+                  onClick={handleToggleYolo}
+                  disabled={yoloSaving}
+                  title={t('session.yoloHint')}
+                >
+                  <Zap size={14} />
+                  {yoloEnabled ? t('session.yoloOn') : t('session.yoloOff')}
+                </button>
                 <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
                 <button
                   type="button"
@@ -1546,23 +1583,6 @@ export default function ChatPage() {
                 </button>
                 <UserMenu />
               </div>
-            </div>
-            <div className={styles.sessionInfo}>
-              <span className={styles.agentType}>
-                {isDocs
-                  ? (docTarget?.filePath.split('/').pop() || t('taskMode.docs'))
-                  : (activeSession?.title || activeSession?.agent_type || '')}
-              </span>
-              {!isDocs && displayConvState !== 'idle' && (
-                <span className={`${styles.convStatus} ${styles[`conv_${displayConvState}`]}`}>
-                  {t(`session.conv_${displayConvState}`)}
-                </span>
-              )}
-              {!isDocs && activeSession?.workspace?.cwd && (
-                <span className={styles.cwd} title={activeSession.workspace.cwd}>
-                  {activeSession.workspace.cwd.split('/').filter(Boolean).pop()}
-                </span>
-              )}
             </div>
           </div>
 
@@ -1709,6 +1729,16 @@ export default function ChatPage() {
                   {leftHidden ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}
                 </button>
               )}
+              <button
+                type="button"
+                className={`${styles.yoloBtn} ${yoloEnabled ? styles.yoloBtnOn : ''}`}
+                onClick={handleToggleYolo}
+                disabled={yoloSaving}
+                title={t('session.yoloHint')}
+              >
+                <Zap size={14} />
+                {yoloEnabled ? t('session.yoloOn') : t('session.yoloOff')}
+              </button>
               <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
               <button type="button" className={styles.newTaskBtn} onClick={() => navigate(newTaskUrl(workspaceId))} title={t('session.newSession')}><Plus size={16} /></button>
               <UserMenu />

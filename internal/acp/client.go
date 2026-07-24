@@ -113,6 +113,11 @@ func (c *Client) UnregisterFileWaiter(sessionID acp.SessionId) {
 	c.rec.unregisterWaiter(sessionID)
 }
 
+// SetYoloCheck 注入会话 YOLO 查询（按 ACP SessionId）。
+func (c *Client) SetYoloCheck(fn func(acp.SessionId) bool) {
+	c.perm.setYoloCheck(fn)
+}
+
 // CancelPermissions 取消 session 所有挂起的权限请求。
 func (c *Client) CancelPermissions(sessionID acp.SessionId) {
 	c.perm.cancelSession(sessionID)

@@ -54,6 +54,8 @@ type SessionStore interface {
 	SetSessionMode(ctx context.Context, sessionID, modeID string) error
 	RespondPermission(sessionID, requestID, optionID string, cancelled bool) error
 	UpdateTitle(dbSessionID uint, title string) error
+	// SetSessionYolo 设置会话级 YOLO（名单仍全局生效）。
+	SetSessionYolo(dbSessionID uint, yolo bool) (*models.Session, error)
 	Prompt(ctx context.Context, sessionID, prompt string) (<-chan models.Message, error)
 	GetWorkspaceCwd(workspaceID uint) (string, error)
 	ListExecutions(sessionID string) ([]repository.ExecutionAggregate, error)
@@ -155,6 +157,8 @@ type createSessionRequest struct {
 	Source string `json:"source"`
 	// Cwd 可选的自定义工作目录（如用户选择的已存在 worktree 目录）；空=跟随工作区 cwd。
 	Cwd string `json:"cwd"`
+	// Yolo 创建时即开启本任务 YOLO。
+	Yolo bool `json:"yolo"`
 }
 
 // Create POST /api/v1/sessions
@@ -193,6 +197,11 @@ func (h *SessionHandler) Create(c *gin.Context) {
 	if err != nil {
 		writeSessionError(c, err)
 		return
+	}
+	if req.Yolo {
+		if updated, yErr := h.store.SetSessionYolo(sess.ID, true); yErr == nil {
+			sess = updated
+		}
 	}
 	Success(c, http.StatusCreated, sess)
 }
@@ -271,6 +280,27 @@ func (h *SessionHandler) UpdateTitle(c *gin.Context) {
 	}
 	sess.Title = title
 	Success(c, http.StatusOK, sess)
+}
+
+// UpdateYolo PUT /api/v1/sessions/:id/yolo — 按任务开关 YOLO。
+func (h *SessionHandler) UpdateYolo(c *gin.Context) {
+	sess, ok := h.loadOwnedSession(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		Yolo bool `json:"yolo"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		Fail(c, http.StatusBadRequest, "INVALID_REQUEST", "请求参数无效")
+		return
+	}
+	updated, err := h.store.SetSessionYolo(sess.ID, req.Yolo)
+	if err != nil {
+		Fail(c, http.StatusInternalServerError, "INTERNAL", err.Error())
+		return
+	}
+	Success(c, http.StatusOK, updated)
 }
 
 // Delete DELETE /api/v1/sessions/:id — 彻底删除会话及其消息。

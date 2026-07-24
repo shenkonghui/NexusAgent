@@ -40,7 +40,9 @@ type Session struct {
 	// ParentSessionID 指向父会话的主键，用于表达父子（主/子任务）关系。
 	// nil 表示顶级独立会话。由 MCP create_session/run_session_task 工具按需写入。
 	ParentSessionID *uint     `gorm:"index" json:"parent_session_id,omitempty"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	ClosedAt        *time.Time `gorm:"index" json:"closed_at"`
+	// Yolo 为本任务独立开启 YOLO：未命中黑/白/询问名单时自动放行；名单仍全局生效。
+	Yolo      bool       `gorm:"not null;default:false" json:"yolo"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	ClosedAt  *time.Time `gorm:"index" json:"closed_at"`
 }

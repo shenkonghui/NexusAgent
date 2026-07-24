@@ -167,6 +167,9 @@
     "timeoutReconnected": "Timed out — reconnected automatically",
     "interruptedPrompt": "{{count}} task(s) interrupted by server restart — click to resend",
     "resume": "Resend",
+    "yoloOn": "YOLO on",
+    "yoloOff": "Enable YOLO",
+    "yoloHint": "Auto-approve tool calls for this task (global deny list still applies)",
     "permission": {
       "title": "Permission required",
       "defaultTitle": "Agent wants to perform an action"
@@ -221,7 +224,7 @@
     "titlePrompt": "Title prompt",
     "titlePromptHint": "Placeholder: {{prompt}} (task description). Leave blank for default.",
     "taskSettingsSaved": "Task settings saved",
-    "permissionHint": "Configure global tool permission rules. Rules match the tool title reported by the agent, supporting * wildcards (e.g. Bash(git status *)). Priority: deny > allow > ask.",
+    "permissionHint": "Configure global permission lists (apply to all sessions). Rules match the tool title reported by the agent, supporting * wildcards (e.g. Bash(git status *)). Priority: deny > allow > ask. Enable YOLO per task from the task header.",
     "permissionMode": "Mode",
     "permissionModeNormal": "Standard: match against lists, ask when unmatched",
     "permissionModeYolo": "YOLO: auto-allow everything (except deny matches)",

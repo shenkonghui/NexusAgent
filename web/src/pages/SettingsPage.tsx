@@ -106,8 +106,7 @@ export default function SettingsPage() {
   const [taskTitlePrompt, setTaskTitlePrompt] = useState('')
   const [taskSettingsSaving, setTaskSettingsSaving] = useState(false)
   const [taskSettingsSaved, setTaskSettingsSaved] = useState(false)
-  // 权限规则设置（yolo / 白名单 / 黑名单）
-  const [permMode, setPermMode] = useState<'normal' | 'yolo'>('normal')
+  // 权限规则设置（白名单 / 黑名单 / 询问名单，全局；YOLO 按任务）
   const [permAllow, setPermAllow] = useState('')
   const [permAsk, setPermAsk] = useState('')
   const [permDeny, setPermDeny] = useState('')
@@ -229,9 +228,8 @@ export default function SettingsPage() {
       setTaskTags(ts.tags || [])
       setTaskTagPrompt(ts.tag_prompt || '')
       setTaskTitlePrompt(ts.title_prompt || '')
-      // 权限规则设置
+      // 权限规则设置（YOLO 已改为按任务开关，此处只加载名单）
       const ps = permResp.data
-      setPermMode(ps.mode || 'normal')
       setPermAllow((ps.allow || []).join('\n'))
       setPermAsk((ps.ask || []).join('\n'))
       setPermDeny((ps.deny || []).join('\n'))
@@ -408,7 +406,7 @@ export default function SettingsPage() {
     setPermSaving(true); setError(''); setPermSaved(false)
     try {
       const payload: PermissionSettings = {
-        mode: permMode,
+        mode: 'normal',
         allow: linesToList(permAllow),
         ask: linesToList(permAsk),
         deny: linesToList(permDeny),
@@ -1001,19 +999,6 @@ export default function SettingsPage() {
               {tab === 'permission' && (
                 <>
                   <p className={styles.hint}>{t('settings.permissionHint')}</p>
-                  <div className={styles.defaultSection}>
-                    <label className={styles.label}>{t('settings.permissionMode')}</label>
-                    <div className={styles.inlineRow}>
-                      <label className={styles.checkbox}>
-                        <input type="radio" name="permMode" checked={permMode === 'normal'} onChange={() => setPermMode('normal')} />
-                        <span>{t('settings.permissionModeNormal')}</span>
-                      </label>
-                      <label className={styles.checkbox}>
-                        <input type="radio" name="permMode" checked={permMode === 'yolo'} onChange={() => setPermMode('yolo')} />
-                        <span>{t('settings.permissionModeYolo')}</span>
-                      </label>
-                    </div>
-                  </div>
 
                   <div className={styles.defaultSection}>
                     <label className={styles.label}>{t('settings.permissionAllow')}</label>

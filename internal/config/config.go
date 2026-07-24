@@ -29,11 +29,12 @@ const (
 	PermissionModeYolo   = "yolo"   // 全部自动放行（deny 命中除外）
 )
 
-// PermissionsConfig 是全局权限规则配置（yolo / 白名单 / 询问名单 / 黑名单）。
+// PermissionsConfig 是全局权限规则配置（白名单 / 询问名单 / 黑名单，对所有会话生效）。
+// YOLO 改为会话级开关；Mode 保留兼容旧配置读写，裁决时忽略。
 // 运行时按 agent 上报的工具调用标题匹配，每条规则支持 `*` 通配符（如 "Bash(git status *)"）。
-// 优先级：deny > allow > ask > (yolo→allow | normal→ask)。
+// 优先级：deny > allow > ask > (会话 yolo→allow | ask)。
 type PermissionsConfig struct {
-	Mode  string   `yaml:"mode"`  // normal | yolo
+	Mode  string   `yaml:"mode"`  // 兼容字段；裁决忽略
 	Allow []string `yaml:"allow"` // 白名单：命中→放行
 	Ask   []string `yaml:"ask"`   // 询问名单：命中→强制询问
 	Deny  []string `yaml:"deny"`  // 黑名单：命中→拒绝（最高优先级）

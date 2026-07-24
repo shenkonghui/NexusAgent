@@ -64,6 +64,12 @@ func (r *SessionRepository) UpdateTitle(id uint, title string) error {
 		Update("title", title).Error
 }
 
+// UpdateYolo 更新会话级 YOLO 开关。
+func (r *SessionRepository) UpdateYolo(id uint, yolo bool) error {
+	return r.db.Model(&models.Session{}).Where("id = ?", id).
+		Update("yolo", yolo).Error
+}
+
 // UpdateTags 更新会话标签（JSON 数组字符串）。
 func (r *SessionRepository) UpdateTags(id uint, tags string) error {
 	return r.db.Model(&models.Session{}).Where("id = ?", id).
