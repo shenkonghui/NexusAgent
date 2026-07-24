@@ -17,6 +17,8 @@ interface MessageBubbleProps {
   cwd?: string
   canRestore?: boolean // 是否显示恢复按钮（仅历史用户消息）
   onRestored?: (promptText: string) => void // 恢复完成后回调，返回被恢复消息的文本
+  /** 去掉水平 padding（分组展开内容与标题左对齐） */
+  flush?: boolean
 }
 
 const kindLabels: Record<string, string> = {
@@ -36,10 +38,46 @@ export function toolSummary(content: string): string {
   return 'chat.toolCall'
 }
 
+// CodeBuddy 等常先发 title=工具名（如 Bash），命令在后续 update 的 rawInput.command 里流式到达。
+// raw_json 可能含多行 JSON（合并消息）；取其中最长的 command。
+export function toolCommandFromRaw(rawJSON: string): string {
+  if (!rawJSON) return ''
+  let best = ''
+  for (const part of rawJSON.split('\n')) {
+    const line = part.trim()
+    if (!line) continue
+    try {
+      const raw = JSON.parse(line) as { rawInput?: Record<string, unknown> }
+      const ri = raw.rawInput
+      if (!ri || typeof ri !== 'object') continue
+      const cmd = ri.command
+      if (typeof cmd === 'string' && cmd.trim().length >= best.length) best = cmd.trim()
+    } catch {
+      /* 跳过无法解析的行 */
+    }
+  }
+  return best
+}
+
+export function isBareToolName(title: string): boolean {
+  return /^(bash|shell|read|write|edit|grep|glob|search|execute|other)$/i.test(title.trim())
+}
+
+/** 工具调用展示文案：有具体命令时优先显示命令，避免只显示 "Bash" */
+export function toolLabel(msg: Message): string {
+  const cmd = toolCommandFromRaw(msg.raw_json)
+  const content = (msg.content || '').trim().split('\n')[0] || ''
+  if (cmd && (!content || isBareToolName(content))) return `\`${cmd}\``
+  if (content && !isBareToolName(content)) return content
+  if (cmd) return `\`${cmd}\``
+  if (content) return content
+  return 'chat.toolCall'
+}
+
 // 用 memo 包裹：虚拟化后仅可视区几个气泡参与比较，配合 ChatPage 稳定的 onRestored 回调，
 // 历史气泡（其 message 引用在 groupMessages 后仍可能变化，但虚拟化路径下它们多不在可视区）
 // 与未变化的可视区气泡可被跳过，减少 reconcile。
-function MessageBubble({ message, defaultOpen = false, forceCollapsed = false, streaming = false, sessionId, cwd, canRestore, onRestored }: MessageBubbleProps) {
+function MessageBubble({ message, defaultOpen = false, forceCollapsed = false, streaming = false, sessionId, cwd, canRestore, onRestored, flush }: MessageBubbleProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(defaultOpen && !forceCollapsed)
   const [restoring, setRestoring] = useState(false)
@@ -78,8 +116,10 @@ function MessageBubble({ message, defaultOpen = false, forceCollapsed = false, s
   const isThought = message.kind === 'agent_thought_chunk'
   const isTool = message.role === 'tool'
   const isPlan = message.kind === 'plan'
-  // 助手正文消息不显示角色标签
-  const showRole = !isUser && message.kind !== 'agent_message_chunk'
+  // 助手正文/工具不显示角色标签（工具只显示命令，避免「工具调用 Bash Bash」）
+  const showRole = !isUser && message.kind !== 'agent_message_chunk' && !isTool
+  const toolText = isTool ? toolLabel(message) : ''
+  const toolTextDisplay = toolText.startsWith('chat.') ? t(toolText) : toolText
 
   // 思考和工具调用可折叠
   const collapsible = isThought || isTool
@@ -142,22 +182,25 @@ function MessageBubble({ message, defaultOpen = false, forceCollapsed = false, s
     </div>
   )
 
+  // 用户/助手正文无角色行时不渲染空 header，避免多出一截行距
+  const showHeader = showRole || isPlan || isTool || collapsible
+
   return (
-    <div className={`${styles.container} ${isUser ? styles.containerUser : ''}`}>
+    <div className={`${styles.container} ${flush ? styles.containerFlush : ''} ${isUser ? styles.containerUser : ''}`}>
       <div className={`${styles.bubble} ${bubbleClass}`}>
-        <div
-          className={`${styles.header} ${collapsible ? styles.headerClickable : ''}`}
-          onClick={headerClick}
-        >
-          {showRole && <span className={styles.role}>{t(kindLabels[message.kind] || message.role)}</span>}
-          {isPlan && <span className={styles.badge}>{t('chat.plan')}</span>}
-          {isTool && (
-            <span className={styles.summary}>{t(toolSummary(message.content))}</span>
-          )}
-          {collapsible && (
-            <span className={styles.toggle}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
-          )}
-        </div>
+        {showHeader && (
+          <div
+            className={`${styles.header} ${collapsible ? styles.headerClickable : ''}`}
+            onClick={headerClick}
+          >
+            {showRole && <span className={styles.role}>{t(kindLabels[message.kind] || message.role)}</span>}
+            {isPlan && <span className={styles.badge}>{t('chat.plan')}</span>}
+            {isTool && <span className={styles.summary}>{toolTextDisplay}</span>}
+            {collapsible && (
+              <span className={styles.toggle}>{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+            )}
+          </div>
+        )}
         {!collapsible || open ? (
           <>
             {isUser ? (
@@ -169,7 +212,7 @@ function MessageBubble({ message, defaultOpen = false, forceCollapsed = false, s
                 )}
                 {restoreMenu}
               </div>
-            ) : (
+            ) : isTool ? null : (
               <>
                 {message.content && (
                   message.kind === 'agent_message_chunk' && !streaming ? (

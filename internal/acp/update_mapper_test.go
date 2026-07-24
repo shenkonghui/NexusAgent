@@ -131,6 +131,22 @@ func TestMapUpdate_ToolCall(t *testing.T) {
 	}
 }
 
+func TestMapUpdate_ToolCall_BareTitleUsesCommand(t *testing.T) {
+	update := acp.SessionUpdate{
+		ToolCall: &acp.SessionUpdateToolCall{
+			Title:         "Bash",
+			ToolCallId:    "tc-1",
+			SessionUpdate: "tool_call",
+			RawInput:      map[string]any{"command": `date "+%Y-%m-%d"`},
+		},
+	}
+	msg := MapUpdate("s1", 1, 1, update)
+	want := "`date \"+%Y-%m-%d\"`"
+	if msg.Content != want {
+		t.Errorf("Content = %q, 期望 %q", msg.Content, want)
+	}
+}
+
 func TestMapUpdate_ToolCallUpdate(t *testing.T) {
 	title := "更新后的标题"
 	update := acp.SessionUpdate{

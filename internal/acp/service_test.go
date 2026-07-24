@@ -2,6 +2,7 @@ package acp
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -193,6 +194,41 @@ func TestService_ListMessages(t *testing.T) {
 	}
 	if msgs[1].Content != "回答" {
 		t.Errorf("第二条消息 Content = %q", msgs[1].Content)
+	}
+}
+
+func TestService_ListMessages_ReturnsLastN(t *testing.T) {
+	// 超过默认页大小时必须返回最近 N 条，而非最早 N 条（否则长会话 loadData 会冲掉近期对话）。
+	db := setupACPTestDB(t)
+	repo := repository.NewSessionRepository(db)
+	sess := &models.Session{
+		SessionID: "msg-last-n", AgentType: "claude-code", Cwd: "/tmp",
+		Status: models.SessionStatusActive, WorkspaceMode: "",
+	}
+	_ = repo.Create(sess)
+	msgRepo := repository.NewMessageRepository(db)
+	n := defaultMessagePageSize + 50
+	for i := 1; i <= n; i++ {
+		_ = msgRepo.Create(&models.Message{
+			SessionID: "msg-last-n", DBSessionID: sess.ID,
+			Role: models.MessageRoleAssistant, Kind: models.MessageKindAgentMessageChunk,
+			Content: fmt.Sprintf("m%d", i), RawJSON: "{}", Sequence: i,
+		})
+	}
+	skills, commands, rules, subAgents := testDiscoveryConfig(t)
+	svc := NewService(db, config.WorkspaceConfig{DefaultMode: "external"}, skills, commands, rules, subAgents)
+	msgs, err := svc.ListMessages("msg-last-n")
+	if err != nil {
+		t.Fatalf("ListMessages 返回错误: %v", err)
+	}
+	if len(msgs) != defaultMessagePageSize {
+		t.Fatalf("期望 %d 条，实际 %d", defaultMessagePageSize, len(msgs))
+	}
+	if msgs[0].Sequence != n-defaultMessagePageSize+1 {
+		t.Errorf("首条 sequence = %d, 期望最近页起点 %d", msgs[0].Sequence, n-defaultMessagePageSize+1)
+	}
+	if msgs[len(msgs)-1].Sequence != n {
+		t.Errorf("末条 sequence = %d, 期望 %d", msgs[len(msgs)-1].Sequence, n)
 	}
 }
 

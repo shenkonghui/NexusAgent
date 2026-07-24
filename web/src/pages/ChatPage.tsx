@@ -1524,17 +1524,17 @@ export default function ChatPage() {
                 onChange={handleTaskModeChange}
                 disabled={hasSession}
               />
-              {canTogglePanels && (
-                <button
-                  type="button"
-                  className={styles.iconBtn}
-                  onClick={() => setLeftHidden((v) => !v)}
-                  title={leftHidden ? t('layout.showPanels') : t('layout.hidePanels')}
-                >
-                  {leftHidden ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}
-                </button>
-              )}
               <div className={styles.actions}>
+                {canTogglePanels && (
+                  <button
+                    type="button"
+                    className={styles.iconBtn}
+                    onClick={() => setLeftHidden((v) => !v)}
+                    title={leftHidden ? t('layout.showPanels') : t('layout.hidePanels')}
+                  >
+                    {leftHidden ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}
+                  </button>
+                )}
                 <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
                 <button
                   type="button"
@@ -1697,6 +1697,8 @@ export default function ChatPage() {
               <SidebarToggleButton />
               {/* 新建任务可选编码/文档；编排走侧边栏「任务编排」 */}
               <TaskModeSwitch value={taskMode} onChange={handleTaskModeChange} />
+            </div>
+            <div className={styles.actions}>
               {canTogglePanels && (
                 <button
                   type="button"
@@ -1707,8 +1709,6 @@ export default function ChatPage() {
                   {leftHidden ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}
                 </button>
               )}
-            </div>
-            <div className={styles.actions}>
               <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
               <button type="button" className={styles.newTaskBtn} onClick={() => navigate(newTaskUrl(workspaceId))} title={t('session.newSession')}><Plus size={16} /></button>
               <UserMenu />

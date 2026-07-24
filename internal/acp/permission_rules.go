@@ -87,13 +87,16 @@ func anyMatch(rules []string, title string) bool {
 }
 
 // Decide 根据工具调用标题（ToolCall.Title）返回裁决。
-//   - title 为空 → DecisionAsk（无法匹配，保守询问）
+//   - title 为空：yolo → Allow；normal → Ask（无法匹配名单时的兜底）
 //   - deny 命中 → DecisionDeny
 //   - allow 命中 → DecisionAllow
 //   - ask 命中 → DecisionAsk
 //   - yolo 模式 → DecisionAllow；否则 DecisionAsk
 func (r PermissionRules) Decide(title string) Decision {
 	if strings.TrimSpace(title) == "" {
+		if r.Mode == config.PermissionModeYolo {
+			return DecisionAllow
+		}
 		return DecisionAsk
 	}
 	if anyMatch(r.Deny, title) {

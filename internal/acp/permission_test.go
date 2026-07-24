@@ -37,6 +37,22 @@ func TestTrustedMCPAutoApprove(t *testing.T) {
 	}
 }
 
+func TestAutoApprovePrefersAllowOnce(t *testing.T) {
+	// options 里 allow-always 在前时，仍应选 allow-once，避免会话被永久放行。
+	params := acp.RequestPermissionRequest{
+		SessionId: "s1",
+		ToolCall:  acp.ToolCallUpdate{Title: titlePtr("Bash")},
+		Options: []acp.PermissionOption{
+			{OptionId: "allow-always", Kind: acp.PermissionOptionKindAllowAlways, Name: "Always"},
+			{OptionId: "allow-once", Kind: acp.PermissionOptionKindAllowOnce, Name: "Once"},
+		},
+	}
+	resp := autoApprovePermission(params)
+	if resp.Outcome.Selected == nil || string(resp.Outcome.Selected.OptionId) != "allow-once" {
+		t.Fatalf("expected allow-once, got %+v", resp.Outcome)
+	}
+}
+
 func TestAllowAlwaysBatchesPending(t *testing.T) {
 	b := newPermissionBroker()
 	sid := acp.SessionId("s1")

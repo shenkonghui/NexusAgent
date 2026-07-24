@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import type { Message, Execution } from '../types'
 import { aggregateChanges, type FileChangeItem } from '../utils/diff'
-import MessageBubble, { toolSummary } from './MessageBubble'
+import MessageBubble, { toolLabel, toolCommandFromRaw, isBareToolName } from './MessageBubble'
 import ChangesSummary from './ChangesSummary'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import styles from './MessageList.module.css'
@@ -45,7 +45,66 @@ function groupMessages(messages: Message[]): Message[] {
     }
     grouped.push(msg)
   }
-  return grouped
+  return collapseToolCalls(grouped)
+}
+
+/** 解析 tool_call / tool_call_update 的 toolCallId（兼容多行 raw_json） */
+function toolCallIdOf(msg: Message): string | null {
+  if (msg.kind !== 'tool_call' && msg.kind !== 'tool_call_update') return null
+  for (const part of (msg.raw_json || '').split('\n')) {
+    const line = part.trim()
+    if (!line) continue
+    try {
+      const raw = JSON.parse(line) as { toolCallId?: string }
+      if (raw.toolCallId) return raw.toolCallId
+    } catch { /* continue */ }
+  }
+  return null
+}
+
+/** 合并 raw_json：保留带有更长 command 的那份，避免后期空 update 冲掉命令 */
+function mergeToolRaw(a: string, b: string): string {
+  const ca = toolCommandFromRaw(a)
+  const cb = toolCommandFromRaw(b)
+  if (cb.length > ca.length) return b || a
+  return a || b
+}
+
+/** 同 toolCallId 的 tool_call + update 合并为一条，content 取更具体的命令/标题 */
+function collapseToolCalls(messages: Message[]): Message[] {
+  const out: Message[] = []
+  const indexById = new Map<string, number>()
+  const better = (a: string, b: string) => {
+    const at = a.trim()
+    const bt = b.trim()
+    if (!bt) return at
+    if (!at || isBareToolName(at)) return bt || at
+    if (isBareToolName(bt)) return at
+    if (bt.length >= at.length) return bt
+    return at
+  }
+  for (const msg of messages) {
+    const id = toolCallIdOf(msg)
+    if (!id) {
+      out.push(msg)
+      continue
+    }
+    const label = toolLabel(msg)
+    const content = label.startsWith('chat.') ? (msg.content || '') : label
+    const prevIdx = indexById.get(id)
+    if (prevIdx === undefined) {
+      indexById.set(id, out.length)
+      out.push({ ...msg, kind: 'tool_call', role: 'tool', content: content || msg.content })
+      continue
+    }
+    const prev = out[prevIdx]
+    out[prevIdx] = {
+      ...prev,
+      content: better(prev.content || '', content || msg.content || ''),
+      raw_json: mergeToolRaw(prev.raw_json || '', msg.raw_json || ''),
+    }
+  }
+  return out
 }
 
 function filterDisplay(messages: Message[]): Message[] {
@@ -158,7 +217,7 @@ function groupStats(messages: Message[]) {
       thoughtCount++
     } else if (m.role === 'tool') {
       toolCount++
-      lastToolSummary = toolSummary(m.content)
+      lastToolSummary = toolLabel(m)
     }
   }
   return { thoughtCount, toolCount, lastToolSummary }
@@ -572,13 +631,13 @@ const VirtuosoSegmentList = forwardRef<VirtuosoHandle, {
           </>
         )
       }}
-      // 注意：react-virtuoso 会对「存在于 props 上的可选键」直接发布其值，
-      // 即使值为 undefined 也会覆盖内部默认的 components（{}），导致读取
-      // components.EmptyPlaceholder 时崩溃。因此无 Footer 时必须整体省略该 prop，
-      // 而不能传 components={undefined}。
-      {...(loadingFooter
-        ? {
-            components: {
+      // react-virtuoso 对 optional props 仅在「键存在于 props」时才发布；
+      // 若 loading 结束后省略 components，上次的 Footer 会残留（... 一直转）。
+      // 必须始终传入 components：有 Footer 时挂上，否则传 {} 清掉。
+      // 不要传 components={undefined}（会把内部默认覆盖坏）。
+      components={
+        loadingFooter
+          ? {
               Footer: () => (
                 <div className={styles.loading}>
                   <span className={styles.dot} />
@@ -586,9 +645,9 @@ const VirtuosoSegmentList = forwardRef<VirtuosoHandle, {
                   <span className={styles.dot} />
                 </div>
               ),
-            },
-          }
-        : {})}
+            }
+          : {}
+      }
     />
   )
 })
@@ -762,14 +821,17 @@ function CollapsibleGroup({
   return (
     <div className={styles.groupContainer}>
       <div
-        className={`${styles.groupHeader} ${open ? styles.groupHeaderOpen : ''}`}
+        className={styles.groupHeader}
         onClick={() => setOpen((v) => !v)}
       >
         <span className={styles.groupToggle}>{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</span>
         <span className={styles.groupSummary}>
           {summary}
           {toolCount > 0 && lastToolSummary && (
-            <span className={styles.groupLastTool}> · {t(lastToolSummary)}</span>
+            <span className={styles.groupLastTool}>
+              {' · '}
+              {lastToolSummary.startsWith('chat.') ? t(lastToolSummary) : lastToolSummary}
+            </span>
           )}
         </span>
         {streaming && !forceCollapsed && <span className={styles.groupSpinner} />}
@@ -792,6 +854,7 @@ function CollapsibleGroup({
                 forceCollapsed={false}
                 sessionId={sessionId}
                 cwd={cwd}
+                flush
               />
             )
           })}

@@ -3,6 +3,8 @@ package acp
 import (
 	"testing"
 
+	acpsdk "github.com/coder/acp-go-sdk"
+
 	"opennexus/internal/config"
 )
 
@@ -79,13 +81,37 @@ func TestPermissionRules_GlobAndCaseInsensitive(t *testing.T) {
 }
 
 func TestPermissionRules_EmptyTitle(t *testing.T) {
-	r := PermissionRules{Mode: config.PermissionModeYolo, Allow: []string{"*"}}
-	// 空 title 无法匹配，保守询问
-	if got := r.Decide(""); got != DecisionAsk {
-		t.Errorf("空 title 应询问，期望 Ask，实际 %d", got)
+	yolo := PermissionRules{Mode: config.PermissionModeYolo, Allow: []string{"*"}}
+	// yolo 下空 title 仍放行（CodeBuddy 等常不填 title，不能因此卡死）
+	if got := yolo.Decide(""); got != DecisionAllow {
+		t.Errorf("yolo 空 title 应放行，期望 Allow，实际 %d", got)
 	}
-	if got := r.Decide("   "); got != DecisionAsk {
-		t.Errorf("空白 title 应询问，期望 Ask，实际 %d", got)
+	if got := yolo.Decide("   "); got != DecisionAllow {
+		t.Errorf("yolo 空白 title 应放行，期望 Allow，实际 %d", got)
+	}
+	normal := PermissionRules{Mode: config.PermissionModeNormal}
+	if got := normal.Decide(""); got != DecisionAsk {
+		t.Errorf("normal 空 title 应询问，期望 Ask，实际 %d", got)
+	}
+}
+
+func TestToolCallTitle_FromMetaAndRawInput(t *testing.T) {
+	params := acpsdk.RequestPermissionRequest{
+		ToolCall: acpsdk.ToolCallUpdate{
+			Meta:     map[string]any{"codebuddy.ai/toolName": "Bash"},
+			RawInput: map[string]any{"command": "curl -s ifconfig.me", "description": "查看公网IP"},
+		},
+	}
+	got := toolCallTitle(params)
+	want := "Bash(curl -s ifconfig.me)"
+	if got != want {
+		t.Errorf("toolCallTitle = %q, 期望 %q", got, want)
+	}
+	// 有 Title 时优先用 Title
+	title := "Write(foo.go)"
+	params.ToolCall.Title = &title
+	if got := toolCallTitle(params); got != title {
+		t.Errorf("有 Title 时期望 %q，实际 %q", title, got)
 	}
 }
 

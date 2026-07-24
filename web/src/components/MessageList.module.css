@@ -139,29 +139,24 @@
 }
 
 .groupHeader {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
-  background: var(--bg-muted);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: 8px;
+  gap: 4px;
+  padding: 2px 0;
+  background: transparent;
+  border: none;
   cursor: pointer;
   user-select: none;
-  transition: background 0.15s;
+  max-width: 100%;
 }
 
 .groupHeader:hover {
-  background: var(--bg-hover);
-}
-
-.groupHeaderOpen {
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
+  opacity: 0.85;
 }
 
 .groupToggle {
+  display: inline-flex;
+  align-items: center;
   font-size: 10px;
   opacity: 0.6;
   flex-shrink: 0;
@@ -203,10 +198,7 @@
 }
 
 .groupBody {
-  border: 1px solid var(--border);
-  border-top: none;
-  border-left: 3px solid var(--accent);
-  border-radius: 0 0 8px 8px;
-  background: var(--bubble-thought-bg);
+  border: none;
+  background: transparent;
   padding: 2px 0;
 }

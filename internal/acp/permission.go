@@ -184,18 +184,63 @@ func (b *permissionBroker) respond(requestID, optionID string, cancelled bool) e
 }
 
 func isTrustedMCPTool(params acp.RequestPermissionRequest) bool {
-	if params.ToolCall.Title == nil {
-		return false
-	}
-	return strings.HasPrefix(*params.ToolCall.Title, "opennexus-notes")
+	return strings.HasPrefix(toolCallTitle(params), "opennexus-notes")
 }
 
-// toolCallTitle 返回权限请求的工具调用标题（用于权限规则匹配）。无标题返回空串。
+// toolCallTitle 返回权限请求的工具调用标题（用于权限规则匹配）。
+// 优先用 ToolCall.Title；CodeBuddy 等常不填 title，改从 _meta.toolName + rawInput.command
+// 拼成 "Bash(cmd)" 以便 yolo/白名单匹配。皆无则返回空串。
 func toolCallTitle(params acp.RequestPermissionRequest) string {
-	if params.ToolCall.Title == nil {
+	if params.ToolCall.Title != nil {
+		if t := strings.TrimSpace(*params.ToolCall.Title); t != "" {
+			return t
+		}
+	}
+	name := metaString(params.ToolCall.Meta, "codebuddy.ai/toolName", "toolName", "tool_name")
+	cmd := rawInputString(params.ToolCall.RawInput, "command", "cmd")
+	switch {
+	case name != "" && cmd != "":
+		return name + "(" + cmd + ")"
+	case name != "":
+		return name
+	case cmd != "":
+		return cmd
+	}
+	if params.ToolCall.Kind != nil {
+		return string(*params.ToolCall.Kind)
+	}
+	return ""
+}
+
+// metaString 从 ACP _meta 中按候选键取非空字符串。
+func metaString(meta map[string]any, keys ...string) string {
+	if meta == nil {
 		return ""
 	}
-	return *params.ToolCall.Title
+	for _, k := range keys {
+		if v, ok := meta[k].(string); ok {
+			if s := strings.TrimSpace(v); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// rawInputString 从 toolCall.rawInput（通常为 map）中按候选键取非空字符串。
+func rawInputString(raw any, keys ...string) string {
+	m, ok := raw.(map[string]any)
+	if !ok || m == nil {
+		return ""
+	}
+	for _, k := range keys {
+		if v, ok := m[k].(string); ok {
+			if s := strings.TrimSpace(v); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
 }
 
 func (b *permissionBroker) removePending(requestID string) {
@@ -205,13 +250,29 @@ func (b *permissionBroker) removePending(requestID string) {
 }
 
 func autoApprovePermission(params acp.RequestPermissionRequest) acp.RequestPermissionResponse {
-	for _, o := range params.Options {
-		if o.Kind == acp.PermissionOptionKindAllowOnce || o.Kind == acp.PermissionOptionKindAllowAlways {
-			return acp.RequestPermissionResponse{
-				Outcome: acp.RequestPermissionOutcome{
-					Selected: &acp.RequestPermissionOutcomeSelected{OptionId: o.OptionId},
-				},
+	// 必须优先 allow-once：若选 allow-always，agent（如 CodeBuddy）会把本会话记成永久放行，
+	// 关掉全局 yolo 后现有会话仍会自动跑命令。
+	pick := func(kind acp.PermissionOptionKind) *acp.PermissionOptionId {
+		for i := range params.Options {
+			if params.Options[i].Kind == kind {
+				id := params.Options[i].OptionId
+				return &id
 			}
+		}
+		return nil
+	}
+	if id := pick(acp.PermissionOptionKindAllowOnce); id != nil {
+		return acp.RequestPermissionResponse{
+			Outcome: acp.RequestPermissionOutcome{
+				Selected: &acp.RequestPermissionOutcomeSelected{OptionId: *id},
+			},
+		}
+	}
+	if id := pick(acp.PermissionOptionKindAllowAlways); id != nil {
+		return acp.RequestPermissionResponse{
+			Outcome: acp.RequestPermissionOutcome{
+				Selected: &acp.RequestPermissionOutcomeSelected{OptionId: *id},
+			},
 		}
 	}
 	if len(params.Options) > 0 {
@@ -251,10 +312,7 @@ func MapPermissionRequest(sessionID string, dbSessionID uint, seq int, notify Pe
 		"options":    notify.Request.Options,
 	}
 	raw, _ := json.Marshal(payload)
-	title := ""
-	if notify.Request.ToolCall.Title != nil {
-		title = *notify.Request.ToolCall.Title
-	}
+	title := toolCallTitle(notify.Request)
 	return models.Message{
 		SessionID:   sessionID,
 		DBSessionID: dbSessionID,

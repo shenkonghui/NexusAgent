@@ -1509,6 +1509,15 @@ func (s *Service) PromptWithExecution(ctx context.Context, sessionID, prompt str
 						bc.broadcast(msg)
 						out <- msg
 						thoughtBatch = append(thoughtBatch, msg)
+					} else if msg.Kind == models.MessageKindUsageUpdate || msg.Kind == models.MessageKindSessionInfoUpdate {
+						// 用量/会话信息是高频心跳：只推前端，不落库、不阻塞 out。
+						// 逐条 Create + 阻塞 out 会拖慢本循环，导致 ACP 订阅 buffer 满并丢弃
+						// agent_message_chunk（用户看到输出到一半突然没了）。
+						bc.broadcast(msg)
+						select {
+						case out <- msg:
+						default:
+						}
 					} else {
 						// 非 thought：先 flush 攒批的 thought，再同步落库本条
 						flushThoughts()
@@ -1894,8 +1903,14 @@ func (s *Service) getNextSequence(dbSessionID uint) int {
 // ListMessages 查询会话消息历史，按 sequence 升序返回。
 // 默认最多返回 defaultMessagePageSize 条（最近 N 条），避免长会话一次性加载全部 raw_json。
 // 如需更早的消息，调用方应使用 ListMessagesPaged 显式分页。
+// 注意：不可用 Paged(limit, 0)——那是按 sequence 升序的「最早 N 条」，长会话刷新会把
+// 前端刚流式展示的近期对话整页冲掉（表现为输出突然消失、自己发的消息不见了）。
 func (s *Service) ListMessages(sessionID string) ([]models.Message, error) {
-	return s.ListMessagesPaged(sessionID, defaultMessagePageSize, 0)
+	session, err := s.GetSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return s.messages.FindByDBSessionIDLastN(session.ID, defaultMessagePageSize)
 }
 
 // defaultMessagePageSize 是 ListMessages 默认返回的消息上限。
@@ -1907,7 +1922,7 @@ const maxMessagePageSize = 1000
 
 // ListMessagesPaged 分页查询会话消息，按 sequence 升序返回。
 // limit<=0 时使用默认页大小；limit>maxMessagePageSize 时截断为最大值。
-// offset 从 0 开始；返回最近的消息（offset 作用于升序 sequence）。
+// offset 从 0 开始（最早一条起算）；要取「最近 N 条」请用 ListMessages。
 func (s *Service) ListMessagesPaged(sessionID string, limit, offset int) ([]models.Message, error) {
 	session, err := s.GetSession(sessionID)
 	if err != nil {

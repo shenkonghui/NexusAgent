@@ -2,6 +2,7 @@ package acp
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/coder/acp-go-sdk"
 
@@ -62,7 +63,8 @@ func extractKindRole(update acp.SessionUpdate) (kind, role string) {
 }
 
 // extractContent 从 SessionUpdate 中提取可读文本内容。
-// user/agent/thought chunk 取 Content.Text.Text；tool_call 取 Title；tool_call_update 取 Title 指针。
+// user/agent/thought chunk 取 Content.Text.Text；
+// tool_call / tool_call_update：Title 若只是工具名（如 Bash）则优先用 rawInput.command。
 func extractContent(update acp.SessionUpdate) string {
 	switch {
 	case update.UserMessageChunk != nil:
@@ -78,11 +80,32 @@ func extractContent(update acp.SessionUpdate) string {
 			return update.AgentThoughtChunk.Content.Text.Text
 		}
 	case update.ToolCall != nil:
-		return update.ToolCall.Title
+		return toolCallDisplayContent(update.ToolCall.Title, update.ToolCall.RawInput)
 	case update.ToolCallUpdate != nil:
+		title := ""
 		if update.ToolCallUpdate.Title != nil {
-			return *update.ToolCallUpdate.Title
+			title = *update.ToolCallUpdate.Title
 		}
+		return toolCallDisplayContent(title, update.ToolCallUpdate.RawInput)
 	}
 	return ""
+}
+
+// toolCallDisplayContent 生成工具调用摘要：有 command 且 title 为空/仅为工具名时显示 `command`。
+func toolCallDisplayContent(title string, rawInput any) string {
+	title = strings.TrimSpace(title)
+	cmd := rawInputString(rawInput, "command", "cmd")
+	if cmd != "" && (title == "" || isBareToolTitle(title)) {
+		return "`" + cmd + "`"
+	}
+	return title
+}
+
+func isBareToolTitle(title string) bool {
+	switch strings.ToLower(strings.TrimSpace(title)) {
+	case "bash", "shell", "read", "write", "edit", "grep", "glob", "search", "execute", "other":
+		return true
+	default:
+		return false
+	}
 }

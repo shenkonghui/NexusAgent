@@ -4,6 +4,11 @@
   padding: 0 20px;
 }
 
+.containerFlush {
+  padding-left: 0;
+  padding-right: 0;
+}
+
 .containerUser {
   justify-content: flex-end;
 }
@@ -20,6 +25,7 @@
   background: var(--bubble-user-bg);
   color: var(--bubble-user-text);
   max-width: 70%;
+  padding: 5px 12px;
 }
 
 .assistantBubble {
@@ -32,30 +38,28 @@
 }
 
 .thoughtBubble {
-  background: var(--bubble-thought-bg);
-  border: 1px dashed var(--bubble-thought-border);
+  background: transparent;
+  border: none;
   color: var(--text-secondary);
   font-style: italic;
   max-width: 100%;
   width: 100%;
-  padding: 8px 14px;
-  border-radius: 8px;
+  padding: 2px 0;
 }
 
 .toolBubble {
-  background: var(--bg-muted);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
   max-width: 100%;
   width: 100%;
-  border-radius: 8px;
+  padding: 2px 0;
 }
 
 .header {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 2px;
   margin-bottom: 2px;
 }
 
@@ -96,10 +100,11 @@
 }
 
 .toggle {
+  display: inline-flex;
+  align-items: center;
   font-size: 10px;
   opacity: 0.6;
   flex-shrink: 0;
-  margin-left: auto;
 }
 
 .content {
@@ -125,6 +130,21 @@
   font-size: 14px;
   line-height: 1.6;
   word-break: break-word;
+}
+
+/* react-markdown 默认包 <p>，浏览器 1em 上下边距会把气泡撑得很松 */
+.mdContent :global(p),
+.mdContent :global(ul),
+.mdContent :global(ol) {
+  margin: 0.4em 0;
+}
+
+.mdContent :global(> :first-child) {
+  margin-top: 0;
+}
+
+.mdContent :global(> :last-child) {
+  margin-bottom: 0;
 }
 
 .contentMuted {
