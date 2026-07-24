@@ -14,19 +14,25 @@ export type TaskMode = string
 interface TaskModeSwitchProps {
   value: TaskMode
   onChange: (mode: TaskMode) => void
+  /** 禁用切换：任务创建后锁定，不可再更改任务类型。 */
+  disabled?: boolean
 }
 
+/** 任务类型可选模式：不含「编排」（编排走侧边栏「任务编排」独立页）。 */
+const TASK_TYPE_MODES = MODES.filter((m) => m.id !== 'orchestration')
+
 /**
- * 模式切换器：下拉框形式，选项直接来自 MODES 注册表。
- * 新增一个模式只需在 registry.tsx 加一条 + 对应 i18n key，
- * 这里会自动多出一个选项，ChatPage 也会自动渲染其布局。
+ * 模式切换器：下拉框形式，选项为编码/文档等任务类型。
+ * 编排不在此列——入口为侧边栏「任务编排」。
+ *
+ * disabled 时仅展示当前任务类型，不展开下拉、不显示箭头。
  */
-export default function TaskModeSwitch({ value, onChange }: TaskModeSwitchProps) {
+export default function TaskModeSwitch({ value, onChange, disabled }: TaskModeSwitchProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const current = MODES.find((m) => m.id === value) || MODES[0]
+  const current = TASK_TYPE_MODES.find((m) => m.id === value) || TASK_TYPE_MODES[0]
 
   useEffect(() => {
     if (!open) return
@@ -48,20 +54,23 @@ export default function TaskModeSwitch({ value, onChange }: TaskModeSwitchProps)
     <div className={styles.container} ref={containerRef}>
       <button
         type="button"
-        className={styles.trigger}
-        onClick={() => setOpen((v) => !v)}
+        className={`${styles.trigger} ${disabled ? styles.triggerDisabled : ''}`}
+        onClick={() => { if (!disabled) setOpen((v) => !v) }}
         aria-haspopup="listbox"
         aria-expanded={open}
+        disabled={disabled}
         title={current ? t(current.titleKey) : undefined}
       >
         {current?.icon}
         <span className={styles.label}>{current ? t(current.titleKey) : ''}</span>
-        <span className={styles.arrow}>{open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</span>
+        {!disabled && (
+          <span className={styles.arrow}>{open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</span>
+        )}
       </button>
 
-      {open && (
+      {open && !disabled && (
         <div className={styles.dropdown} role="listbox">
-          {MODES.map((opt) => (
+          {TASK_TYPE_MODES.map((opt) => (
             <button
               key={opt.id}
               type="button"

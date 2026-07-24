@@ -1,0 +1,38 @@
+# docker-compose.dev.yml
+# 开发用编排：镜像内置 Go 工具链，供容器内 coding agent 编译/运行 Go 代码。
+# 用法：
+#   docker compose -f docker-compose.dev.yml up -d --build
+services:
+  opennexus-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: opennexus:dev
+    container_name: opennexus-dev
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/root/.openNexus
+      - opennexus-npm-cache:/root/.npm
+      # Go module / build 缓存持久化，避免容器重启后重新拉取依赖
+      - opennexus-go-cache:/root/go
+    environment:
+      - SERVER_MODE=release
+      - SERVER_PORT=8080
+      - JWT_SECRET=${JWT_SECRET:-nexusagent-dev-secret-key-32+bytes!}
+      # 默认时区
+      - TZ=Asia/Shanghai
+      # Go 环境（PATH/GOPATH 已在镜像内设置，这里补充常用环境变量）
+      - GOPATH=/root/go
+      - GOFLAGS=
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  opennexus-npm-cache:
+  opennexus-go-cache:

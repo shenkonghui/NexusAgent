@@ -216,7 +216,8 @@ export default function MessageList({ messages, loading, scheduled, executions, 
     return <PlainList messages={messages} loading={loading} sessionId={sessionId} cwd={cwd} onRestored={onRestored} />
   }
 
-  const blocks = groupByExecution(messages)
+  const allBlocks = groupByExecution(messages)
+  const blocks = allBlocks.slice(-10)
   const unblocked = messages.filter((m) => m.execution_id == null)
   const scheduledLoading = !!loading
   const execStatusMap = new Map<number, Execution>()
@@ -244,12 +245,13 @@ export default function MessageList({ messages, loading, scheduled, executions, 
         // 避免定时/分类任务出现「状态页已成功却仍在转圈」的矛盾表现。
         const isTerminal =
           execStatus === 'success' || execStatus === 'failed' || execStatus === 'skipped'
+        const index = allBlocks.length - blocks.length + idx + 1
         return (
           <ExecutionBlockView
             key={block.executionId}
             block={block}
-            index={idx + 1}
-            total={blocks.length}
+            index={index}
+            total={allBlocks.length}
             loading={scheduledLoading && idx === blocks.length - 1 && !isTerminal}
             status={execStatus}
             errorMsg={exec?.error || ''}

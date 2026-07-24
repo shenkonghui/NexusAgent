@@ -364,17 +364,6 @@ export default function OrchestrationView({ workspaceId, cwd, agents, restoreSes
                     placeholder={t('orchestration.promptPlaceholder')}
                     autoFocus
                   />
-                  {agents.length > 0 && (
-                    <select
-                      className={styles.formSelect}
-                      value={newAgent || agents[0]?.type || ''}
-                      onChange={(e) => setNewAgent(e.target.value)}
-                    >
-                      {agents.map((a) => (
-                        <option key={a.type} value={a.type}>{a.display_name || a.type}</option>
-                      ))}
-                    </select>
-                  )}
                   <div className={styles.formActions}>
                     <button type="button" className={styles.formCancel} onClick={cancelNewForm} disabled={busy}>
                       {t('orchestration.cancel')}

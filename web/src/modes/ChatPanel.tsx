@@ -9,7 +9,7 @@ import ModelSelector from '../components/ModelSelector'
 import SessionModeSelector from '../components/SessionModeSelector'
 import ContextStats from '../components/ContextStats'
 import WorktreePicker from '../components/WorktreePicker'
-import { BookOpenText, FolderGit2 } from 'lucide-react'
+import { BookOpenText, Code2, FolderGit2 } from 'lucide-react'
 import type { PanelCtx, ConfigBarKind } from './types'
 import styles from './ChatPanel.module.css'
 
@@ -151,7 +151,9 @@ export default function ChatPanel({
       )}
       {isEmpty && emptyTitleKey ? (
         <div className={styles.empty}>
-          <BookOpenText size={36} className={styles.emptyIcon} />
+          {emptyTitleKey.startsWith('codingMode.')
+            ? <Code2 size={36} className={styles.emptyIcon} />
+            : <BookOpenText size={36} className={styles.emptyIcon} />}
           <h3 className={styles.emptyTitle}>{t(emptyTitleKey)}</h3>
           {emptyHintKey && <p className={styles.emptyHint}>{t(emptyHintKey)}</p>}
         </div>

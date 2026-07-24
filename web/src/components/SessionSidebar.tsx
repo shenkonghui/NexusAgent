@@ -2,15 +2,16 @@ import { useState, useEffect, useMemo } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { formatTimeAgo } from '../utils/time'
-import { sessionUrl, tasksUrl, newTaskUrl, isTasksPath, orchestrationUrl } from '../utils/routes'
+import { sessionUrl, newTaskUrl, orchestrationUrl } from '../utils/routes'
 import type { Session, ScheduledTask, AgentStatus } from '../types'
 import { listScheduledTasks } from '../api/scheduledTasks'
 import { listAgentStatus } from '../api/agents'
 import { listSessions, listRunningSessions } from '../api/sessions'
 import { getOrchestration, getOrchStatus, startOrchestration, type OrchestrationTask } from '../api/orchestration'
-import { PanelLeftClose, Star, Pencil, X, Check, SquarePlus, FileText, Calendar, ClipboardList, Timer, Settings, Zap, ScrollText, Loader2, CheckCircle2, XCircle, Clock3, CircleDashed, Network } from 'lucide-react'
+import { PanelLeftClose, Star, Pencil, X, Check, SquarePlus, FileText, Calendar, Settings, Zap, ScrollText, Loader2, CheckCircle2, XCircle, Clock3, CircleDashed, Network, MoreHorizontal, ChevronDown } from 'lucide-react'
 import styles from './SessionSidebar.module.css'
 import LogPanel from './LogPanel'
+import NexusLogoIcon from './NexusLogoIcon'
 
 interface SessionSidebarProps {
   sessions: Session[]
@@ -20,20 +21,22 @@ interface SessionSidebarProps {
   onRename?: (id: number, title: string) => void
   onCollapse?: () => void
   onNewScheduledTask?: () => void
+  /** 由 AppLayout 统一渲染顶栏 Logo 时隐藏，避免重复 */
+  hideLogo?: boolean
 }
 
 const STORAGE_KEY = 'opennexus.sidebar.collapsed'
 const FAVS_KEY = 'opennexus.favorites'
 
-function loadCollapsed(): { favorites: boolean; manual: boolean; scheduled: boolean; orchestration: boolean } {
+function loadCollapsed(): { favorites: boolean; manual: boolean; scheduled: boolean; orchestration: boolean; footer: boolean } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw)
-      return { favorites: false, manual: false, scheduled: false, orchestration: true, ...parsed }
+      return { favorites: false, manual: false, scheduled: false, orchestration: true, footer: false, ...parsed }
     }
   } catch { /* ignore */ }
-  return { favorites: false, manual: false, scheduled: false, orchestration: true }
+  return { favorites: false, manual: false, scheduled: false, orchestration: true, footer: false }
 }
 
 function loadFavorites(): number[] {
@@ -79,14 +82,13 @@ function OrchStatusDot({ status }: { status: string }) {
   return <CircleDashed size={size} className={`${cls} ${styles.taskStatusIconIdle}`} />
 }
 
-export default function SessionSidebar({ sessions, workspaceId, currentId, onDelete, onRename, onCollapse, onNewScheduledTask }: SessionSidebarProps) {
+export default function SessionSidebar({ sessions, workspaceId, currentId, onDelete, onRename, onCollapse, onNewScheduledTask, hideLogo }: SessionSidebarProps) {
   const { t } = useTranslation()
   const [editingId, setEditingId] = useState<number | null>(null)
   const [showLogs, setShowLogs] = useState(false)
   const [editTitle, setEditTitle] = useState('')
   const location = useLocation()
   const navigate = useNavigate()
-  const isSessionList = isTasksPath(location.pathname, workspaceId)
 
   const [collapsed, setCollapsed] = useState(loadCollapsed)
   const [favorites, setFavorites] = useState<number[]>(loadFavorites)
@@ -165,7 +167,7 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
     .filter((t) => t.last_run_at)
     .sort((a, b) => (a.last_run_at! < b.last_run_at! ? 1 : -1))[0]
 
-  function toggleGroup(group: 'favorites' | 'manual' | 'scheduled' | 'orchestration') {
+  function toggleGroup(group: 'favorites' | 'manual' | 'scheduled' | 'orchestration' | 'footer') {
     setCollapsed((prev) => ({ ...prev, [group]: !prev[group] }))
   }
 
@@ -222,19 +224,21 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
 
   return (
     <div className={styles.sidebar}>
-      <Link to={newTaskUrl(workspaceId)} className={styles.logo} title={t('session.newSession')}>
-        <span className={styles.logoText}>openNexus</span>
-        {onCollapse && (
-          <button
-            type="button"
-            className={styles.collapseBtn}
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onCollapse() }}
-            title={t('common.close') + ' (⌘B)'}
-          >
-            <PanelLeftClose size={16} />
-          </button>
-        )}
-      </Link>
+      {!hideLogo && (
+        <Link to={newTaskUrl(workspaceId)} className={styles.logo} title={t('session.newSession')}>
+          <NexusLogoIcon size={22} />
+          {onCollapse && (
+            <button
+              type="button"
+              className={styles.collapseBtn}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onCollapse() }}
+              title={t('common.close') + ' (⌘B)'}
+            >
+              <PanelLeftClose size={16} />
+            </button>
+          )}
+        </Link>
+      )}
 
       <div className={styles.groups}>
         {/* 收藏任务 */}
@@ -454,6 +458,18 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
           )}
         </div>
 
+        <div className={styles.group}>
+          <Link
+            to="/notes"
+            className={`${styles.groupHeader} ${location.pathname === '/notes' ? styles.itemActive : ''}`}
+          >
+            <span className={styles.groupTitle}>
+              <FileText size={13} style={{ marginRight: 4, verticalAlign: '-2px' }} />
+              {t('nav.notes')}
+            </span>
+          </Link>
+        </div>
+
       </div>
 
       {agentStatuses.length > 0 && (
@@ -475,32 +491,42 @@ export default function SessionSidebar({ sessions, workspaceId, currentId, onDel
       )}
 
       <div className={styles.footer}>
-        <Link to={tasksUrl(workspaceId)} className={`${styles.navItem} ${isSessionList ? styles.navItemActive : ''}`}>
-          <span className={styles.navIcon}><ClipboardList size={15} /></span>
-          <span>{t('nav.sessionList')}</span>
-        </Link>
-        <Link to="/scheduled-tasks" className={`${styles.navItem} ${location.pathname === '/scheduled-tasks' ? styles.navItemActive : ''}`}>
-          <span className={styles.navIcon}><Timer size={15} /></span>
-          <span>{t('nav.scheduledTasks')}</span>
-        </Link>
-        <Link to={orchestrationUrl(workspaceId)} className={`${styles.navItem} ${location.pathname.endsWith('/orchestration') ? styles.navItemActive : ''}`}>
-          <span className={styles.navIcon}><Network size={15} /></span>
-          <span>{t('nav.orchestration')}</span>
-        </Link>
-        <Link to="/notes" className={`${styles.navItem} ${location.pathname === '/notes' ? styles.navItemActive : ''}`}>
-          <span className={styles.navIcon}><FileText size={15} /></span>
-          <span>{t('nav.notes')}</span>
-        </Link>
-        <button type="button" className={`${styles.navItem} ${showLogs ? styles.navItemActive : ''}`}
-          onClick={() => setShowLogs((v) => !v)}
-        >
-          <span className={styles.navIcon}><ScrollText size={15} /></span>
-          <span>{t('log.openLogs')}</span>
-        </button>
-        <Link to="/settings" className={`${styles.navItem} ${location.pathname === '/settings' ? styles.navItemActive : ''}`}>
-          <span className={styles.navIcon}><Settings size={15} /></span>
-          <span>{t('common.settings')}</span>
-        </Link>
+        <div className={styles.footerBar}>
+          {!collapsed.footer && (
+            <>
+              <Link
+                to={orchestrationUrl(workspaceId)}
+                className={`${styles.footerIcon} ${location.pathname.endsWith('/orchestration') ? styles.footerIconActive : ''}`}
+                title={t('nav.orchestration')}
+              >
+                <Network size={15} />
+              </Link>
+              <Link
+                to="/settings"
+                className={`${styles.footerIcon} ${location.pathname === '/settings' ? styles.footerIconActive : ''}`}
+                title={t('common.settings')}
+              >
+                <Settings size={15} />
+              </Link>
+              <button
+                type="button"
+                className={`${styles.footerIcon} ${showLogs ? styles.footerIconActive : ''}`}
+                title={t('log.openLogs')}
+                onClick={() => setShowLogs((v) => !v)}
+              >
+                <ScrollText size={15} />
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            className={styles.footerIcon}
+            title={t('common.more')}
+            onClick={() => toggleGroup('footer')}
+          >
+            {collapsed.footer ? <MoreHorizontal size={15} /> : <ChevronDown size={15} />}
+          </button>
+        </div>
       </div>
 
       {showLogs && <LogPanel onClose={() => setShowLogs(false)} />}

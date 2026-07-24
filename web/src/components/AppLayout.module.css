@@ -16,55 +16,89 @@
   flex-direction: column;
 }
 
-/* 侧边栏顶部视图切换标签栏（菜单 / 文件） */
-.tabBar {
+/* 侧栏顶栏：Logo + 菜单/文件图标开关 + 折叠，同一行 */
+.header {
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 4px;
   flex-shrink: 0;
+  padding: 8px 8px 8px 10px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-sidebar);
 }
 
-.tab {
-  flex: 1;
+.logo {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 8px 6px;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-
-.tab:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.tabActive {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-
-.tabCollapse {
   flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: background 0.15s, color 0.15s;
+}
+
+.logo:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
+
+/* 图标开关推到右侧，与折叠按钮成组 */
+.viewSwitch {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--bg-hover, rgba(0, 0, 0, 0.04));
+}
+
+.viewBtn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   background: transparent;
   border: none;
+  border-radius: 4px;
   color: var(--text-secondary);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
 
-.tabCollapse:hover {
+.viewBtn:hover {
+  color: var(--text-primary);
+}
+
+.viewBtnActive {
+  background: var(--bg-surface);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.collapseBtn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.collapseBtn:hover {
   background: var(--bg-hover);
   color: var(--accent);
 }

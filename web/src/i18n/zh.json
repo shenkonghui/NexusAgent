@@ -665,6 +665,10 @@
     "docs": "文档",
     "orchestration": "编排"
   },
+  "codingMode": {
+    "chatEmptyTitle": "编码助手",
+    "chatEmptyHint": "在下方描述你想完成的编码任务，例如「修复登录接口的空指针」或「给 UserService 加单元测试」。"
+  },
   "docMode": {
     "emptyTitle": "文档工作区",
     "emptyHint": "从左侧侧边栏的「文档」分组中选择一个 .md 文件开始编辑，或在对话中让 AI 生成 draw.io 图。",
@@ -682,6 +686,10 @@
     "debug": "调试",
     "docPreview": "文档",
     "requireSession": "请先创建或选择一个任务会话"
+  },
+  "layout": {
+    "hidePanels": "隐藏面板，仅保留对话",
+    "showPanels": "显示面板"
   },
   "sidebar": {
     "menuTab": "菜单",

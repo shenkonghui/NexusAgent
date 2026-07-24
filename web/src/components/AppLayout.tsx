@@ -1,4 +1,5 @@
 import { useState, useEffect, createContext, useContext, type ReactNode, type ComponentProps, type MouseEvent as ReactMouseEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { PanelLeftOpen, PanelLeftClose, Menu, FolderTree } from 'lucide-react'
 import SessionSidebar from './SessionSidebar'
@@ -7,6 +8,8 @@ import WorkspaceFileEditor from './WorkspaceFileEditor'
 import StartupWarmup from './StartupWarmup'
 import { getWorkspace } from '../api/workspaces'
 import { useFileViewer } from '../context/FileViewerContext'
+import { newTaskUrl } from '../utils/routes'
+import NexusLogoIcon from './NexusLogoIcon'
 import styles from './AppLayout.module.css'
 
 // 整体隐藏/展开侧边栏的状态，独立于 SessionSidebar 内部分组折叠状态
@@ -34,6 +37,11 @@ function loadWidth(): number {
 
 function loadView(): 'menu' | 'files' {
   try { return localStorage.getItem(VIEW_KEY) === 'files' ? 'files' : 'menu' } catch { return 'menu' }
+}
+
+/** 按任务模式给出侧栏默认视图：编码 → 文件，其余 → 菜单 */
+function preferredView(taskMode?: string): 'menu' | 'files' {
+  return taskMode === 'coding' ? 'files' : 'menu'
 }
 
 interface SidebarContextValue {
@@ -65,6 +73,8 @@ export function SidebarToggleButton() {
 interface AppLayoutProps {
   // 透传给 SessionSidebar 的 props（onCollapse 由本组件自动注入，不可外部覆盖）
   sidebarProps: Omit<ComponentProps<typeof SessionSidebar>, 'onCollapse'>
+  /** 当前任务模式：变化时自动切换侧栏默认视图（编码→文件，其余→菜单）；手动点 Tab 仍可覆盖 */
+  taskMode?: string
   children: ReactNode
 }
 
@@ -72,12 +82,14 @@ interface AppLayoutProps {
  * 全局共享布局：统一渲染左侧侧边栏、管理折叠/展开状态与 ⌘B 快捷键。
  * 各页面通过 sidebarProps 透传数据/回调，children 即右侧主内容区。
  */
-export default function AppLayout({ sidebarProps, children }: AppLayoutProps) {
+export default function AppLayout({ sidebarProps, taskMode, children }: AppLayoutProps) {
   const { t } = useTranslation()
   const { openFilePath, openFile, closeFile, hasEmbedded } = useFileViewer()
   const [collapsed, setCollapsed] = useState(loadHidden)
   const [width, setWidth] = useState(loadWidth)
-  const [view, setView] = useState<'menu' | 'files'>(loadView)
+  const [view, setView] = useState<'menu' | 'files'>(() =>
+    taskMode != null ? preferredView(taskMode) : loadView(),
+  )
   // 当前工作区 cwd，作为文件浏览器的根目录
   const [cwd, setCwd] = useState('')
   const workspaceId = sidebarProps.workspaceId
@@ -89,6 +101,12 @@ export default function AppLayout({ sidebarProps, children }: AppLayoutProps) {
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0') } catch { /* ignore */ }
   }, [collapsed])
+
+  // 任务模式变化时自动切到对应默认视图；手动点 Tab 可临时覆盖，直到下次模式变化
+  useEffect(() => {
+    if (taskMode == null) return
+    setView(preferredView(taskMode))
+  }, [taskMode])
 
   // 持久化侧边栏视图（菜单/文件）
   useEffect(() => {
@@ -151,26 +169,36 @@ export default function AppLayout({ sidebarProps, children }: AppLayoutProps) {
       <div className={styles.layout}>
         {!collapsed && (
           <div className={styles.sidebarWrap} style={{ width }}>
-            <div className={styles.tabBar}>
+            {/* Logo 与菜单/文件小开关同一行；模式变化会自动切默认视图，此处可手动覆盖 */}
+            <div className={styles.header}>
+              <Link to={newTaskUrl(workspaceId)} className={styles.logo} title={t('session.newSession')}>
+                <NexusLogoIcon size={22} />
+              </Link>
+              <div className={styles.viewSwitch} role="tablist" aria-label={t('sidebar.menuTab') + '/' + t('sidebar.filesTab')}>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={view === 'menu'}
+                  className={`${styles.viewBtn} ${view === 'menu' ? styles.viewBtnActive : ''}`}
+                  onClick={() => setView('menu')}
+                  title={t('sidebar.menuTab')}
+                >
+                  <Menu size={15} />
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={view === 'files'}
+                  className={`${styles.viewBtn} ${view === 'files' ? styles.viewBtnActive : ''}`}
+                  onClick={() => setView('files')}
+                  title={t('sidebar.filesTab')}
+                >
+                  <FolderTree size={15} />
+                </button>
+              </div>
               <button
                 type="button"
-                className={`${styles.tab} ${view === 'menu' ? styles.tabActive : ''}`}
-                onClick={() => setView('menu')}
-                title={t('sidebar.menuTab')}
-              >
-                <Menu size={14} /> {t('sidebar.menuTab')}
-              </button>
-              <button
-                type="button"
-                className={`${styles.tab} ${view === 'files' ? styles.tabActive : ''}`}
-                onClick={() => setView('files')}
-                title={t('sidebar.filesTab')}
-              >
-                <FolderTree size={14} /> {t('sidebar.filesTab')}
-              </button>
-              <button
-                type="button"
-                className={styles.tabCollapse}
+                className={styles.collapseBtn}
                 onClick={toggle}
                 title={t('common.close') + ' (⌘B)'}
               >
@@ -179,7 +207,7 @@ export default function AppLayout({ sidebarProps, children }: AppLayoutProps) {
             </div>
             <div className={styles.sidebarBody}>
               <div className={styles.viewPane} style={{ display: view === 'menu' ? 'flex' : 'none' }}>
-                <SessionSidebar {...sidebarProps} />
+                <SessionSidebar {...sidebarProps} hideLogo />
               </div>
               <div className={styles.viewPane} style={{ display: view === 'files' ? 'flex' : 'none' }}>
                 {cwd ? (

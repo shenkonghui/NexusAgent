@@ -32,7 +32,9 @@ export const MODES: ModeDef[] = [
     sessionKind: 'primary',
     configBar: 'coding',
     layout: split('row', [
-      // 中间列：上文件、下标签组（终端/改动/调试，默认终端）
+      // 左：AI 对话
+      leaf('chat', 1),
+      // 右列：上文件、下标签组（终端/改动/调试，默认终端）
       split(
         'col',
         [
@@ -41,8 +43,6 @@ export const MODES: ModeDef[] = [
         ],
         1.3,
       ),
-      // 右：AI 对话
-      leaf('chat', 1),
     ]),
   },
   {
@@ -53,14 +53,15 @@ export const MODES: ModeDef[] = [
     configBar: 'docs',
     requiresDocTarget: true,
     layout: split('row', [
-      // 中间列：文档预览/编辑（含 drawio 渲染）
-      leaf('doc-preview', 1.3),
-      // 右：AI 对话（生成 drawio）
+      // 左：AI 对话（与编码模式一致，对话统一靠左）
       leaf('chat', 1),
+      // 右：文档预览/编辑（含 drawio 渲染）
+      leaf('doc-preview', 1.3),
     ]),
   },
   {
     // 编排模式：layout 仅占位，实际由 ChatPage 拦截渲染 OrchestrationView（不走 LayoutRenderer）。
+    // 不是任务类型：不出现在 TaskModeSwitch；唯一入口为侧边栏「任务编排」。
     id: 'orchestration',
     titleKey: 'taskMode.orchestration',
     icon: <Network size={14} />,

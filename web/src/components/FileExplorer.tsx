@@ -45,20 +45,55 @@ interface ContextMenuState {
   entry: SessionFileEntry | null // null 表示空白区域（针对根目录）
 }
 
-// 文件图标根据扩展名
+// 文件图标根据扩展名（图标形状 + 颜色，接近 VS Code 风格）
 function fileIcon(name: string): ReactNode {
-  if (name.endsWith('.go')) return <FileCode size={14} />
-  if (name.endsWith('.ts') || name.endsWith('.tsx')) return <FileCode size={14} />
-  if (name.endsWith('.js') || name.endsWith('.jsx')) return <FileCode size={14} />
-  if (name.endsWith('.py')) return <FileCode size={14} />
-  if (name.endsWith('.md')) return <FileText size={14} />
-  if (name.endsWith('.json')) return <FileJson size={14} />
-  if (name.endsWith('.css')) return <FileCode size={14} />
-  if (name.endsWith('.html')) return <FileCode size={14} />
-  if (name.endsWith('.yaml') || name.endsWith('.yml')) return <FileText size={14} />
-  if (name.endsWith('.sh')) return <FileCode size={14} />
-  return <File size={14} />
+  const ext = name.split('.').pop()?.toLowerCase() || ''
+  switch (ext) {
+    case 'go':
+      return <FileCode size={14} color="#00add8" />
+    case 'ts':
+    case 'tsx':
+      return <FileCode size={14} color="#3178c6" />
+    case 'js':
+    case 'jsx':
+    case 'mjs':
+      return <FileCode size={14} color="#f1e05a" />
+    case 'py':
+      return <FileCode size={14} color="#3572a5" />
+    case 'rs':
+      return <FileCode size={14} color="#dea584" />
+    case 'java':
+      return <FileCode size={14} color="#b07219" />
+    case 'c':
+    case 'cpp':
+    case 'cc':
+    case 'h':
+    case 'hpp':
+      return <FileCode size={14} color="#659ad2" />
+    case 'css':
+      return <FileCode size={14} color="#563d7c" />
+    case 'html':
+    case 'xml':
+      return <FileCode size={14} color="#e34c26" />
+    case 'sh':
+    case 'bash':
+      return <FileCode size={14} color="#89e051" />
+    case 'sql':
+      return <FileCode size={14} color="#e38c00" />
+    case 'md':
+      return <FileText size={14} color="#519aba" />
+    case 'yaml':
+    case 'yml':
+      return <FileText size={14} color="#cb171e" />
+    case 'json':
+      return <FileJson size={14} color="#cbcb41" />
+    default:
+      return <File size={14} color="#8a929c" />
+  }
 }
+
+// 目录图标颜色
+const FOLDER_COLOR = '#dcb67a'
 
 // 拼接绝对路径（工作区模式路径以 / 分隔）
 function joinPath(dir: string, name: string): string {
@@ -267,7 +302,7 @@ export default function FileExplorer({ sessionId, rootPath, onSelectFile, select
             onContextMenu={(e) => openContextMenu(e, entry)}
           >
             <span className={styles.icon}>
-              {entry.is_dir ? (isExpanded ? <FolderOpen size={14} /> : <Folder size={14} />) : fileIcon(entry.name)}
+              {entry.is_dir ? (isExpanded ? <FolderOpen size={14} color={FOLDER_COLOR} /> : <Folder size={14} color={FOLDER_COLOR} />) : fileIcon(entry.name)}
             </span>
             <span className={styles.name}>{entry.name}</span>
             {entry.is_dir && (

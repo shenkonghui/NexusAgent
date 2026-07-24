@@ -50,6 +50,27 @@
   border-bottom: 1px solid var(--border);
 }
 
+/* 纯图标按钮（如折叠/展开左侧面板列） */
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.iconBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
 /* agent 任务级栏：agent 类型、session 目录 */
 .sessionInfo {
   display: flex;
@@ -240,15 +261,17 @@
 }
 
 .newTaskBtn {
-  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border: 1px solid var(--accent);
   background: var(--bg-surface);
   color: var(--accent);
   border-radius: 6px;
-  font-size: 13px;
-  font-weight: 500;
   cursor: pointer;
-  white-space: nowrap;
   transition: background 0.2s, color 0.2s;
 }
 

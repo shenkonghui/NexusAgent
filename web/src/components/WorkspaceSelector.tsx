@@ -115,7 +115,6 @@ export default function WorkspaceSelector({ value, onChange, onRefresh, onError 
         <span className={styles.label}>{displayName(current?.name || t('workspace.default'))}</span>
         <span className={styles.arrow}>{open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</span>
       </button>
-      <button type="button" className={styles.newBtn} onClick={() => setShowCreate(true)} title={t('workspace.create')}><Plus size={14} /></button>
 
       {open && (
         <div className={styles.dropdown}>
@@ -149,6 +148,14 @@ export default function WorkspaceSelector({ value, onChange, onRefresh, onError 
               ><MoreHorizontal size={14} /></button>
             </div>
           ))}
+          <button
+            type="button"
+            className={styles.createItem}
+            onClick={() => { setOpen(false); setShowCreate(true) }}
+          >
+            <Plus size={14} />
+            <span>{t('workspace.create')}</span>
+          </button>
         </div>
       )}
 

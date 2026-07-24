@@ -9,20 +9,43 @@ import styles from './LayoutRenderer.module.css'
  * - leaf → 查 PANELS 注册表渲染单个面板
  * - split → 按 dir 方向排列子节点，子节点之间插入可拖拽分隔条调整大小
  * - tabs → 标签组：所有面板保持挂载、用 display 切换可见性（保活终端 WS）
+ *
+ * hiddenPanels：需要隐藏的面板 id 集合。当某棵子树的面板全部在集合中时，
+ * 整棵子树（连同其拖拽分隔条）都不渲染——用于"隐藏左侧列只保留对话"。
  */
-export default function LayoutRenderer({ node, ctx }: { node: LayoutNode; ctx: PanelCtx }) {
-  return <RenderNode node={node} ctx={ctx} />
+export default function LayoutRenderer({ node, ctx, hiddenPanels }: { node: LayoutNode; ctx: PanelCtx; hiddenPanels?: Set<string> }) {
+  return <RenderNode node={node} ctx={ctx} hiddenPanels={hiddenPanels} />
+}
+
+/** 收集某棵子树下所有 leaf 面板 id（用于判断子树是否整体隐藏） */
+function collectPanels(node: LayoutNode): string[] {
+  switch (node.kind) {
+    case 'leaf':
+      return [node.panel]
+    case 'tabs':
+      return node.panels
+    case 'split':
+      return node.children.flatMap(collectPanels)
+  }
+}
+
+/** 子树是否整体隐藏：其包含的面板全部都在 hiddenPanels 中 */
+function isSubtreeHidden(node: LayoutNode, hiddenPanels?: Set<string>): boolean {
+  if (!hiddenPanels || hiddenPanels.size === 0) return false
+  return collectPanels(node).every((p) => hiddenPanels.has(p))
 }
 
 /** flex 覆盖值：由父级 split 拖拽后下发，优先于节点自身 flex */
-function RenderNode({ node, ctx, flex }: { node: LayoutNode; ctx: PanelCtx; flex?: number }) {
+function RenderNode({ node, ctx, flex, hiddenPanels }: { node: LayoutNode; ctx: PanelCtx; flex?: number; hiddenPanels?: Set<string> }) {
+  // 隐藏的子树直接不渲染（父级 SplitView 也会跳过它的分隔条）
+  if (isSubtreeHidden(node, hiddenPanels)) return null
   switch (node.kind) {
     case 'leaf':
       return <LeafView node={node} ctx={ctx} flex={flex} />
     case 'split':
-      return <SplitView node={node} ctx={ctx} flex={flex} />
+      return <SplitView node={node} ctx={ctx} flex={flex} hiddenPanels={hiddenPanels} />
     case 'tabs':
-      return <TabsView node={node} ctx={ctx} flex={flex} />
+      return <TabsView node={node} ctx={ctx} flex={flex} hiddenPanels={hiddenPanels} />
   }
 }
 
@@ -74,7 +97,7 @@ function saveFlexes(key: string, flexes: number[]) {
   }
 }
 
-function SplitView({ node, ctx, flex }: { node: Extract<LayoutNode, { kind: 'split' }>; ctx: PanelCtx; flex?: number }) {
+function SplitView({ node, ctx, flex, hiddenPanels }: { node: Extract<LayoutNode, { kind: 'split' }>; ctx: PanelCtx; flex?: number; hiddenPanels?: Set<string> }) {
   const isRow = node.dir === 'row'
   const containerRef = useRef<HTMLDivElement>(null)
   const key = useMemo(() => splitSignature(node), [node])
@@ -85,6 +108,11 @@ function SplitView({ node, ctx, flex }: { node: Extract<LayoutNode, { kind: 'spl
     setFlexes(loadFlexes(key, node))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
+
+  // 仅渲染可见子节点（隐藏子树被过滤），resizer 只插在相邻可见子节点之间
+  const visible = node.children
+    .map((child, i) => ({ child, i }))
+    .filter(({ child }) => !isSubtreeHidden(child, hiddenPanels))
 
   function startDrag(index: number, e: ReactMouseEvent) {
     e.preventDefault()
@@ -130,10 +158,10 @@ function SplitView({ node, ctx, flex }: { node: Extract<LayoutNode, { kind: 'spl
       className={isRow ? styles.row : styles.col}
       style={{ flex: flex ?? node.flex ?? 1 }}
     >
-      {node.children.map((child, i) => (
+      {visible.map(({ child, i }, vi) => (
         <Fragment key={i}>
-          <RenderNode node={child} ctx={ctx} flex={flexes[i] ?? 1} />
-          {i < node.children.length - 1 && (
+          <RenderNode node={child} ctx={ctx} flex={flexes[i] ?? 1} hiddenPanels={hiddenPanels} />
+          {vi < visible.length - 1 && (
             <div
               className={isRow ? styles.resizerV : styles.resizerH}
               onMouseDown={(e) => startDrag(i, e)}
@@ -167,7 +195,7 @@ function LeafView({ node, ctx, flex }: { node: Extract<LayoutNode, { kind: 'leaf
  * 标签组视图。所有子面板一次性挂载，用 display 切换可见性——这样切换 tab 时
  * 终端的 WebSocket、xterm 实例、文件树展开状态等都得以保留。
  */
-function TabsView({ node, ctx, flex }: { node: Extract<LayoutNode, { kind: 'tabs' }>; ctx: PanelCtx; flex?: number }) {
+function TabsView({ node, ctx, flex }: { node: Extract<LayoutNode, { kind: 'tabs' }>; ctx: PanelCtx; flex?: number; hiddenPanels?: Set<string> }) {
   const { t } = useTranslation()
   const PANELS = getPANELS()
   const initial = node.defaultTab && node.panels.includes(node.defaultTab) ? node.defaultTab : node.panels[0]

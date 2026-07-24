@@ -7,7 +7,20 @@ import { searchKeymap, highlightSelectionMatches } from '@codemirror/search'
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import { lintKeymap } from '@codemirror/lint'
 import { oneDark } from '@codemirror/theme-one-dark'
-import { languages } from '@codemirror/language-data'
+import type { Extension } from '@codemirror/state'
+import { go } from '@codemirror/lang-go'
+import { javascript } from '@codemirror/lang-javascript'
+import { json } from '@codemirror/lang-json'
+import { css } from '@codemirror/lang-css'
+import { html } from '@codemirror/lang-html'
+import { markdown } from '@codemirror/lang-markdown'
+import { python } from '@codemirror/lang-python'
+import { yaml } from '@codemirror/lang-yaml'
+import { sql } from '@codemirror/lang-sql'
+import { rust } from '@codemirror/lang-rust'
+import { java } from '@codemirror/lang-java'
+import { cpp } from '@codemirror/lang-cpp'
+import { xml } from '@codemirror/lang-xml'
 
 interface CodeEditorProps {
   value: string
@@ -18,33 +31,51 @@ interface CodeEditorProps {
   readOnly?: boolean
 }
 
-// 根据文件扩展名推断语言（language-data 会自动匹配）
-function langFromPath(path: string): string {
+// 根据文件扩展名同步返回对应的语言扩展（直接使用 @codemirror/lang-* 包，无需异步加载）
+function langFromPath(path: string): Extension | null {
   const ext = path.split('.').pop()?.toLowerCase() || ''
-  const map: Record<string, string> = {
-    go: 'go',
-    ts: 'typescript',
-    tsx: 'typescript-jsx',
-    js: 'javascript',
-    jsx: 'javascript',
-    mjs: 'javascript',
-    py: 'python',
-    md: 'markdown',
-    json: 'json',
-    css: 'css',
-    html: 'html',
-    yaml: 'yaml',
-    yml: 'yaml',
-    sh: 'shell',
-    bash: 'shell',
-    sql: 'sql',
-    rs: 'rust',
-    java: 'java',
-    c: 'c',
-    cpp: 'cpp',
-    xml: 'xml',
+  switch (ext) {
+    case 'go':
+      return go()
+    case 'ts':
+      return javascript({ typescript: true })
+    case 'tsx':
+      return javascript({ typescript: true, jsx: true })
+    case 'js':
+    case 'mjs':
+      return javascript()
+    case 'jsx':
+      return javascript({ jsx: true })
+    case 'py':
+      return python()
+    case 'md':
+      return markdown()
+    case 'json':
+      return json()
+    case 'css':
+      return css()
+    case 'html':
+      return html()
+    case 'yaml':
+    case 'yml':
+      return yaml()
+    case 'sql':
+      return sql()
+    case 'rs':
+      return rust()
+    case 'java':
+      return java()
+    case 'c':
+    case 'cpp':
+    case 'cc':
+    case 'h':
+    case 'hpp':
+      return cpp()
+    case 'xml':
+      return xml()
+    default:
+      return null
   }
-  return map[ext] || ''
 }
 
 export default function CodeEditor({ value, onChange, filePath, readOnly }: CodeEditorProps) {
@@ -53,17 +84,11 @@ export default function CodeEditor({ value, onChange, filePath, readOnly }: Code
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
 
-  // 语言扩展：使用 language-data 的 StreamLanguage 懒加载
-  const langExtension = useMemo(() => {
+  // 语言扩展：按扩展名同步匹配对应的 LanguageSupport
+  const langExtension = useMemo<Extension[]>(() => {
     if (!filePath) return []
-    const langName = langFromPath(filePath)
-    if (!langName) return []
-    // languages 是 LanguageDescription[]，通过 name/alias 匹配
-    const desc = languages.find(
-      (d) => d.name.toLowerCase() === langName || (d.alias && d.alias.includes(langName)),
-    )
-    if (desc && desc.support) return [desc.support]
-    return []
+    const lang = langFromPath(filePath)
+    return lang ? [lang] : []
   }, [filePath])
 
   useEffect(() => {

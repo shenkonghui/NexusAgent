@@ -22,7 +22,7 @@ import WorkspaceSelector from '../components/WorkspaceSelector'
 import { type ConvState as ConvStatusState } from '../components/ConvStatusBar'
 import TaskModeSwitch, { type TaskMode } from '../components/TaskModeSwitch'
 import OrchestrationView from '../components/OrchestrationView'
-import { Plus } from 'lucide-react'
+import { Plus, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { useFileViewer } from '../context/FileViewerContext'
 import { saveLastDoc, loadDocFolders, loadDocSession, saveDocSession, clearDocSession, TASK_MODE_KEY, LAST_DOC_KEY_PREFIX, type DocTarget } from '../utils/docs'
 import { docEditSystemPrompt, docSessionTitle } from '../utils/docPrompt'
@@ -65,14 +65,49 @@ export default function ChatPage() {
   // 顶层 UI 模式（与 ACP SessionMode 正交）。localStorage 记忆，默认 coding。
   // 模式来自 registry；未识别的值回退到首个模式。
   // navState.taskMode 优先：从任务编排等入口打开时强制指定（如“默认编程模式”）。
-  // 旧编排深链接（/orchestration）：检测路径初始化为编排模式。
-  const [taskMode, setTaskMode] = useState<TaskMode>(
-    () => navState?.taskMode || (isOrchestrationPath(location.pathname) ? 'orchestration' : (localStorage.getItem(TASK_MODE_KEY) || 'coding')),
-  )
+  // 编排深链接（/orchestration）：检测路径初始化为编排模式。
+  // 编排不是「新建任务」可选类型：非编排路径下忽略持久化的 orchestration，回退 coding。
+  const [taskMode, setTaskMode] = useState<TaskMode>(() => {
+    if (navState?.taskMode) return navState.taskMode
+    if (isOrchestrationPath(location.pathname)) return 'orchestration'
+    const stored = localStorage.getItem(TASK_MODE_KEY) || 'coding'
+    return stored === 'orchestration' ? 'coding' : stored
+  })
   const handleTaskModeChange = useCallback((m: TaskMode) => {
     setTaskMode(m)
     localStorage.setItem(TASK_MODE_KEY, m)
   }, [])
+
+  // 编排深链接 ↔ 其他路径：ChatPage 同实例复用时需随 pathname 同步 taskMode。
+  // 进入编排路径 → 强制 orchestration；离开后若仍停在 orchestration → 回退 coding，
+  // 否则「新建任务」仍会命中编排分支，顶栏锁死为「编排」。
+  useEffect(() => {
+    if (isOrchestrationPath(location.pathname)) {
+      if (taskMode !== 'orchestration') {
+        setTaskMode('orchestration')
+        localStorage.setItem(TASK_MODE_KEY, 'orchestration')
+      }
+      return
+    }
+    if (taskMode === 'orchestration') {
+      setTaskMode('coding')
+      localStorage.setItem(TASK_MODE_KEY, 'coding')
+    }
+  }, [location.pathname, taskMode])
+
+  // 隐藏侧栏面板，仅保留对话。编码隐藏文件/终端等；文档隐藏预览。
+  const LEFT_PANELS_HIDDEN_KEY = 'opennexus.layout.sideHidden'
+  const [leftHidden, setLeftHidden] = useState<boolean>(() => localStorage.getItem(LEFT_PANELS_HIDDEN_KEY) === '1')
+  useEffect(() => {
+    localStorage.setItem(LEFT_PANELS_HIDDEN_KEY, leftHidden ? '1' : '0')
+  }, [leftHidden])
+  const sidePanelsByMode: Record<string, string[]> = {
+    coding: ['files', 'terminal', 'changes', 'debug'],
+    docs: ['doc-preview'],
+  }
+  const sidePanels = sidePanelsByMode[taskMode]
+  const hiddenPanels = leftHidden && sidePanels ? new Set(sidePanels) : undefined
+  const canTogglePanels = !!sidePanels
 
   // 文档模式当前打开的文档。侧边栏点击文档时通过 navigate state 传入；否则读 localStorage 上次打开的。
   const [docTarget, setDocTarget] = useState<DocTarget | null>(() => {
@@ -594,8 +629,9 @@ export default function ChatPage() {
   // 等待 workspace 数据加载完成后再判断，避免在 sessions 尚未就绪时误跳到新建任务页。
   useEffect(() => {
     if (!user || hasSession || isCreateMode) return
-    // 编排模式在任务界面内渲染（不依赖会话），不触发任务列表页的自动跳转。
-    if (taskMode === 'orchestration') return
+    // 编排页：路径已是 /orchestration 但 taskMode 可能尚未同步（同实例路由切换），
+    // 必须按路径短路，否则会被下方「跳最近任务」抢走，表现为点编排进不去。
+    if (taskMode === 'orchestration' || isOrchestrationPath(location.pathname)) return
     if (wsLoading || !workspaceId) return
     // 切换工作区时新会话为异步加载：sessions 尚未与当前 workspace 匹配时暂不跳转，
     // 否则会用旧工作区的会话跳回原工作区，表现为“无法切换工作区”。
@@ -607,7 +643,7 @@ export default function ChatPage() {
     } else {
       navigate(newTaskUrl(workspaceId), { replace: true })
     }
-  }, [user, hasSession, isCreateMode, wsLoading, workspaceId, sessionsWorkspaceId, sessions, navigate, taskMode])
+  }, [user, hasSession, isCreateMode, wsLoading, workspaceId, sessionsWorkspaceId, sessions, navigate, taskMode, location.pathname])
 
   // 当组件卸载或切换到不同会话时，中断旧的 SSE 流，防止内存泄漏和 React 警告
   useEffect(() => {
@@ -1323,14 +1359,16 @@ export default function ChatPage() {
   if (!user) return null
 
   // ============ 编排模式：在任务界面内管理编排任务（不走 LayoutRenderer，与 docs 特判并列） ============
-  if (taskMode === 'orchestration') {
+  // 以路径为准：同实例从会话页切到 /orchestration 时 taskMode 可能尚未同步，不能只看 state。
+  if (isOrchestrationPath(location.pathname)) {
     return (
-      <AppLayout sidebarProps={{ sessions, workspaceId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
+      <AppLayout taskMode="orchestration" sidebarProps={{ sessions, workspaceId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
         <div className={styles.main}>
           <div className={styles.header}>
             <div className={styles.sysBar}>
               <SidebarToggleButton />
-              <TaskModeSwitch value={taskMode} onChange={handleTaskModeChange} />
+              {/* 编排是侧边栏独立页，不是任务类型；顶栏显示页标题，不走 TaskModeSwitch */}
+              <span className={styles.agentType}>{t('nav.orchestration')}</span>
               <div className={styles.actions}>
                 <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
                 <UserMenu />
@@ -1468,28 +1506,43 @@ export default function ChatPage() {
           ...({
             __chatConfig: {
               configBar: 'coding',
-              // 编码模式复用文档模式的空态外观（图标 + 标题 + 提示）
-              emptyTitleKey: 'docMode.chatEmptyTitle',
-              emptyHintKey: 'docMode.chatEmptyHint',
+              emptyTitleKey: 'codingMode.chatEmptyTitle',
+              emptyHintKey: 'codingMode.chatEmptyHint',
             },
           } as object),
         }
 
     return (
-      <AppLayout sidebarProps={{ sessions, workspaceId, currentId: sessionId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
+      <AppLayout taskMode={taskMode} sidebarProps={{ sessions, workspaceId, currentId: sessionId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
         <div className={styles.main}>
           <div className={styles.header}>
             <div className={styles.sysBar}>
               <SidebarToggleButton />
-              <TaskModeSwitch value={taskMode} onChange={handleTaskModeChange} />
+              {/* 无编码会话（新建任务 / 文档待选）时可切换编码·文档；已有会话后锁定。编排走侧边栏。 */}
+              <TaskModeSwitch
+                value={taskMode}
+                onChange={handleTaskModeChange}
+                disabled={hasSession}
+              />
+              {canTogglePanels && (
+                <button
+                  type="button"
+                  className={styles.iconBtn}
+                  onClick={() => setLeftHidden((v) => !v)}
+                  title={leftHidden ? t('layout.showPanels') : t('layout.hidePanels')}
+                >
+                  {leftHidden ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}
+                </button>
+              )}
               <div className={styles.actions}>
                 <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
                 <button
                   type="button"
                   className={styles.newTaskBtn}
                   onClick={() => (isDocs ? handleNewDocSession() : navigate(newTaskUrl(workspaceId)))}
+                  title={t('session.newSession')}
                 >
-                  <Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('session.newSession')}
+                  <Plus size={16} />
                 </button>
                 <UserMenu />
               </div>
@@ -1541,7 +1594,7 @@ export default function ChatPage() {
           )}
 
           <div className={styles.layoutBody}>
-            <LayoutRenderer node={modeDef.layout} ctx={ctx} />
+            <LayoutRenderer node={modeDef.layout} ctx={ctx} hiddenPanels={hiddenPanels} />
           </div>
           </div>
         </div>
@@ -1620,8 +1673,8 @@ export default function ChatPage() {
       ...({
         __chatConfig: {
           configBar: 'coding',
-          emptyTitleKey: 'docMode.chatEmptyTitle',
-          emptyHintKey: 'docMode.chatEmptyHint',
+          emptyTitleKey: 'codingMode.chatEmptyTitle',
+          emptyHintKey: 'codingMode.chatEmptyHint',
         },
       } as object),
     }
@@ -1630,23 +1683,34 @@ export default function ChatPage() {
       // 任务列表页不再展示历史列表：数据就绪后由 effect 自动跳转（最近任务 → 会话详情；无任务 → 新建任务页）。
       // 跳转完成前渲染加载占位，避免闪烁历史列表。
       return (
-        <AppLayout sidebarProps={{ sessions, workspaceId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
+        <AppLayout taskMode={taskMode} sidebarProps={{ sessions, workspaceId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
           <LoadingSpinner text={t('common.loading')} />
         </AppLayout>
       )
     }
 
     return (
-      <AppLayout sidebarProps={{ sessions, workspaceId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
+      <AppLayout taskMode={taskMode} sidebarProps={{ sessions, workspaceId, onDelete: handleDeleteSession, onRename: handleRenameSession }}>
         <div className={styles.main}>
           <div className={`${styles.header} ${styles.headerSingle}`}>
             <div className={styles.sessionInfo}>
               <SidebarToggleButton />
+              {/* 新建任务可选编码/文档；编排走侧边栏「任务编排」 */}
               <TaskModeSwitch value={taskMode} onChange={handleTaskModeChange} />
+              {canTogglePanels && (
+                <button
+                  type="button"
+                  className={styles.iconBtn}
+                  onClick={() => setLeftHidden((v) => !v)}
+                  title={leftHidden ? t('layout.showPanels') : t('layout.hidePanels')}
+                >
+                  {leftHidden ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}
+                </button>
+              )}
             </div>
             <div className={styles.actions}>
               <WorkspaceSelector value={workspaceId} onChange={handleWorkspaceChange} onRefresh={handleWorkspaceRefresh} onError={setError} />
-              <button type="button" className={styles.newTaskBtn} onClick={() => navigate(newTaskUrl(workspaceId))}><Plus size={14} style={{ verticalAlign: '-2px' }} /> {t('session.newSession')}</button>
+              <button type="button" className={styles.newTaskBtn} onClick={() => navigate(newTaskUrl(workspaceId))} title={t('session.newSession')}><Plus size={16} /></button>
               <UserMenu />
             </div>
           </div>
@@ -1655,7 +1719,7 @@ export default function ChatPage() {
           {error && <ErrorBanner message={error} onClose={() => setError('')} />}
 
           <div className={styles.layoutBody}>
-            <LayoutRenderer node={modeDef.layout} ctx={createCtx} />
+            <LayoutRenderer node={modeDef.layout} ctx={createCtx} hiddenPanels={hiddenPanels} />
           </div>
           </div>
         </div>

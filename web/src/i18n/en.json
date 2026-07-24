@@ -665,6 +665,10 @@
     "docs": "Docs",
     "orchestration": "Orchestration"
   },
+  "codingMode": {
+    "chatEmptyTitle": "Coding Assistant",
+    "chatEmptyHint": "Describe the coding task below, e.g. \"fix a null pointer in the login API\" or \"add unit tests for UserService\"."
+  },
   "docMode": {
     "emptyTitle": "Docs Workspace",
     "emptyHint": "Pick a .md file from the \"Documents\" group in the left sidebar, or let AI generate a draw.io diagram in the chat.",
@@ -682,6 +686,10 @@
     "debug": "Debug",
     "docPreview": "Doc",
     "requireSession": "Create or select a task session first"
+  },
+  "layout": {
+    "hidePanels": "Hide panels, keep chat only",
+    "showPanels": "Show panels"
   },
   "sidebar": {
     "menuTab": "Menu",

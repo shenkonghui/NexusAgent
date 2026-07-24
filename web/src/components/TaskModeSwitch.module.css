@@ -22,6 +22,13 @@
   background: var(--bg-hover);
 }
 
+/* 禁用态：任务创建后锁定任务类型，不响应悬停、不可点击 */
+.triggerDisabled,
+.triggerDisabled:hover {
+  cursor: default;
+  background: var(--bg-surface);
+}
+
 .arrow {
   display: inline-flex;
   align-items: center;

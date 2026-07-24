@@ -1,0 +1,64 @@
+# ===== Dockerfile.dev =====
+# 在标准运行镜像基础上额外内置 Go 工具链，供容器内 coding agent 编译/运行 Go 代码。
+# 与主 Dockerfile 保持一致的多阶段结构（Debian/glibc），仅在 runtime 阶段追加 Go。
+
+# ===== Stage 1: 构建前端 =====
+FROM docker.linkos.org/library/node:20-alpine AS web-builder
+WORKDIR /app/web
+
+COPY web/package.json web/package-lock.json* ./
+RUN npm config set registry https://registry.npmmirror.com \
+    && npm ci || npm install
+
+COPY web/ ./
+RUN npm run build
+
+# ===== Stage 2: 构建后端 =====
+FROM docker.linkos.org/library/golang:1.25 AS go-builder
+WORKDIR /app
+
+COPY go.mod go.sum vendor/ ./
+ENV GOFLAGS=-mod=vendor
+
+COPY . .
+COPY --from=web-builder /app/web/dist ./web/dist
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o /out/opennexus ./cmd/server
+
+# ===== Stage 3: 运行时（含 Go 工具链）=====
+FROM docker.linkos.org/library/node:20-slim AS runtime
+WORKDIR /app
+
+RUN sed -i 's#deb.debian.org#mirrors.aliyun.com#g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true; \
+    sed -i 's#deb.debian.org#mirrors.aliyun.com#g' /etc/apt/sources.list 2>/dev/null || true
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash ca-certificates libsqlite3-0 git wget tzdata \
+    && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo "Asia/Shanghai" > /etc/timezone \
+    && rm -rf /var/lib/apt/lists/*
+
+# 从 go-builder 阶段拷贝 Go 工具链（与构建同版本、同 glibc，无需重新下载）
+COPY --from=go-builder /usr/local/go /usr/local/go
+ENV PATH="/usr/local/go/bin:${PATH}" \
+    GOPATH=/root/go
+
+COPY --from=go-builder /out/opennexus /app/opennexus
+COPY --from=web-builder /app/web/dist /app/web/dist
+COPY config.yaml /app/config.yaml
+
+RUN mkdir -p /root/.openNexus/session
+VOLUME ["/root/.openNexus"]
+
+ENV NPM_CONFIG_CACHE=/root/.npm \
+    SERVER_MODE=release \
+    SERVER_PORT=8080 \
+    WEB_DIST=/app/web/dist \
+    NODE_ENV=production
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -qO- http://127.0.0.1:8080/health >/dev/null 2>&1 || exit 1
+
+ENTRYPOINT ["/app/opennexus"]
